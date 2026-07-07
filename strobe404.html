@@ -327,11 +327,21 @@
   .pr-key.black{background:var(--bg-soft2); color:var(--text-dim);}
   .pr-key.white{background:var(--bg);}
   #prGridScroll{flex:1; overflow:auto; touch-action:pan-x pan-y; position:relative; background:var(--bg-soft);}
+  .pr-grid-inner{position:relative;}
   .pr-row{height:22px; border-bottom:1px solid #ddd; display:flex;}
   .pr-row.black-row{background:var(--bg-soft2);}
   .pr-cell{width:38px; flex:0 0 38px; border-right:1px solid #ddd; position:relative;}
   .pr-cell.beat-lead{border-right:var(--bw) solid var(--ink);}
-  .pr-note{position:absolute; inset:2px; background:var(--c-orange); border:var(--bw) solid var(--ink);}
+  /* spanning note block, absolutely positioned over the grid */
+  .pr-note{position:absolute; height:18px; background:var(--orange); border:var(--bw) solid var(--ink); box-sizing:border-box; z-index:3; touch-action:none; cursor:pointer;}
+  .pr-note-handle{position:absolute; right:0; top:0; bottom:0; width:9px; background:var(--ink); opacity:.55; cursor:ew-resize; touch-action:none;}
+  .pr-playcol{position:absolute; top:0; bottom:0; width:2px; background:var(--c-blue); z-index:4; pointer-events:none;}
+  /* velocity lane below the grid, horizontally synced with it */
+  #prVelPane{flex:0 0 62px; display:flex; border-top:var(--bw) solid var(--ink); background:var(--bg);}
+  .pr-vel-label{flex:0 0 52px; border-right:var(--bw) solid var(--ink); display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:800; color:var(--text-dim); letter-spacing:.5px;}
+  #prVelScroll{flex:1; overflow:hidden; position:relative; background:var(--bg-soft);}
+  #prVelInner{position:relative; height:100%;}
+  .pr-vel-bar{position:absolute; bottom:0; width:34px; background:var(--orange); border:var(--bw) solid var(--ink); box-sizing:border-box; touch-action:none; cursor:ns-resize;}
 
   #autoOverlay{position:fixed; inset:0; z-index:60; background:var(--bg); display:none; flex-direction:column;}
   #autoOverlay.open{display:flex;}
@@ -506,8 +516,9 @@
     </div>
 
     <div id="editView" class="view">
-      <div class="edit-topbar">
-        <div class="track-picker" id="trackPicker"></div>
+      <div class="edit-topbar" style="display:flex; gap:8px; align-items:center;">
+        <div class="track-picker" id="trackPicker" style="flex:1;"></div>
+        <button id="openPianoBtn" class="menu-btn" style="flex:0 0 auto;" title="Open the piano roll for this track">Piano Roll</button>
       </div>
       <div class="edit-panels">
         <div class="panel" id="wavePanel">
@@ -648,7 +659,7 @@
 <div id="pianoRollOverlay">
   <div class="pr-topbar">
     <span>Piano Roll — <b id="prTrackName">BASS</b></span>
-    <span class="hold-hint">drag note top/bottom edge = velocity &nbsp;•&nbsp; tap grid = set pitch for that step</span>
+    <span class="hold-hint">tap = add note &nbsp;•&nbsp; drag note right edge = length &nbsp;•&nbsp; tap note = delete &nbsp;•&nbsp; drag VEL bar = velocity</span>
     <button class="pr-close" id="prCloseBtn">&#10005;</button>
   </div>
   <div id="prBody">
@@ -656,6 +667,10 @@
     <div id="prGridScroll">
       <div class="pr-grid-inner" id="prGridInner"></div>
     </div>
+  </div>
+  <div id="prVelPane">
+    <div class="pr-vel-label">VEL</div>
+    <div id="prVelScroll"><div id="prVelInner"></div></div>
   </div>
 </div>
 
@@ -738,7 +753,7 @@
   let STEPS_PER_TRACK = 16; // steps per pattern (16 / 32 / 64), user-selectable
   const STEPS_PER_BEAT = 4; // 16th-note grid
 
-  function makeStep(){ return {on:false, vel:1, pan:0, pitch:0, rep:1}; }
+  function makeStep(){ return {on:false, vel:1, pan:0, pitch:0, rep:1, len:1}; }
 
   // Resize every pattern (and its automation lane) to n steps, keeping
   // existing steps and padding/truncating the rest. Kept BPM-clock safe:
@@ -844,7 +859,7 @@
   ];
   function serializedTrackData(def, hits){
     const patterns = Array.from({length:PATTERN_COUNT}, (_,p) => {
-      const steps = Array.from({length:16}, () => ({on:false, vel:1, pan:0, pitch:0, rep:1}));
+      const steps = Array.from({length:16}, () => ({on:false, vel:1, pan:0, pitch:0, rep:1, len:1}));
       if(p === 0 && hits) hits.forEach(i => { if(steps[i]) steps[i].on = true; });
       return steps;
     });
@@ -1682,7 +1697,10 @@
     const d = Math.max(track.adsr.d, 0.001);
     const s = track.adsr.s;
     const r = Math.max(track.adsr.r, 0.001);
-    const hold = Math.max(track.hold || 0, 0);
+    // note length: a piano-roll note spanning N steps holds its gate open
+    // for the extra (N-1) steps before the release stage begins.
+    const gateExtra = Math.max(((stepData.len || 1) - 1) * stepDuration(), 0);
+    const hold = Math.max(track.hold || 0, 0) + gateExtra;
 
     env.gain.linearRampToValueAtTime(peak, time + a);
     env.gain.linearRampToValueAtTime(peak * s, time + a + d);
@@ -3720,20 +3738,47 @@
     return [1,3,6,8,10].includes(idx);
   }
 
+  document.getElementById("openPianoBtn").addEventListener("click", () => openPianoRoll(selectedTrackIdx));
   function openPianoRoll(trackIdx){
     prTrackIdx = trackIdx;
     pianoRollOverlayEl.classList.add("open");
     renderPianoRoll();
+    // center the view: scroll to the octave around the track's existing
+    // notes (or middle C when empty) instead of parking at the top edge.
+    requestAnimationFrame(() => {
+      const gs = document.getElementById("prGridScroll");
+      const steps = curSteps(TRACKS[prTrackIdx]);
+      const on = steps.filter(s => s.on);
+      const avgPitch = on.length ? Math.round(on.reduce((a,s)=>a+(s.pitch||0),0)/on.length) : 0;
+      const targetTop = prRowOfSemi(avgPitch)*PR_ROW_H - gs.clientHeight/2 + PR_ROW_H/2;
+      gs.scrollTop = Math.max(0, targetTop);
+    });
   }
   document.getElementById("prCloseBtn").addEventListener("click", () => {
     pianoRollOverlayEl.classList.remove("open");
   });
 
+  const PR_CELL_W = 38, PR_ROW_H = 22;
+  const prVelInnerEl = document.getElementById("prVelInner");
+  const prVelScrollEl = document.getElementById("prVelScroll");
+  let prDrag = null;
+
+  function prRowOfSemi(semi){ return PR_HIGH - semi; }
+  function prAfterEdit(){
+    renderPianoRoll();
+    if(prTrackIdx === selectedTrackIdx){ renderGrid(); renderGraphBars(); }
+    saveProject();
+  }
+
   function renderPianoRoll(){
     const track = TRACKS[prTrackIdx];
+    const steps = curSteps(track);
     prTrackNameEl.textContent = track.name;
     prKeysEl.innerHTML = "";
     prGridInnerEl.innerHTML = "";
+    const gridW = STEPS_PER_TRACK * PR_CELL_W;
+    prGridInnerEl.style.width = gridW + "px";
+
     for(let semi=PR_HIGH; semi>=PR_LOW; semi--){
       const keyEl = document.createElement("div");
       keyEl.className = "pr-key " + (isBlackKey(semi) ? "black" : "white");
@@ -3745,31 +3790,133 @@
       for(let s=0;s<STEPS_PER_TRACK;s++){
         const cell = document.createElement("div");
         cell.className = "pr-cell" + (s % STEPS_PER_BEAT === 0 ? " beat-lead" : "");
-        const stepData = curSteps(track)[s];
-        if(stepData.on && (stepData.pitch||0) === semi){
-          const note = document.createElement("div");
-          note.className = "pr-note";
-          note.style.opacity = 0.4 + 0.6*(stepData.vel!=null?stepData.vel:1);
-          cell.appendChild(note);
-        }
         cell.addEventListener("click", () => {
-          ensureAudio();
-          pushUndo();
-          if(stepData.on && (stepData.pitch||0) === semi){
-            stepData.on = false; // tap the same note again to clear it
-          } else {
-            stepData.on = true;
-            stepData.pitch = semi;
-            triggerTrack(liveEngine, track, prTrackIdx, ctx.currentTime + 0.01, stepData);
-          }
-          renderPianoRoll();
-          if(prTrackIdx === selectedTrackIdx){ renderGrid(); renderGraphBars(); }
+          if(prDrag) return;
+          ensureAudio(); pushUndo();
+          const sd = steps[s];
+          if(sd.on){ sd.pitch = semi; }         // move existing note to this pitch
+          else { sd.on = true; sd.pitch = semi; sd.len = 1; }
+          triggerTrack(liveEngine, track, prTrackIdx, ctx.currentTime + 0.01, sd);
+          prAfterEdit();
         });
         row.appendChild(cell);
       }
       prGridInnerEl.appendChild(row);
     }
+
+    // spanning note blocks (overlay) + resize handles
+    steps.forEach((sd, s) => {
+      if(!sd.on) return;
+      const semi = sd.pitch || 0;
+      const len = Math.max(1, Math.min(sd.len || 1, STEPS_PER_TRACK - s));
+      const note = document.createElement("div");
+      note.className = "pr-note";
+      note.style.left = (s*PR_CELL_W + 1) + "px";
+      note.style.top = (prRowOfSemi(semi)*PR_ROW_H + 2) + "px";
+      note.style.width = (len*PR_CELL_W - 2) + "px";
+      note.style.opacity = 0.45 + 0.55*(sd.vel != null ? sd.vel : 1);
+      note.addEventListener("pointerdown", (e) => startNoteDrag(e, s, "move"));
+      const handle = document.createElement("div");
+      handle.className = "pr-note-handle";
+      handle.addEventListener("pointerdown", (e) => startNoteDrag(e, s, "resize"));
+      note.appendChild(handle);
+      prGridInnerEl.appendChild(note);
+    });
+
+    renderPrVelLane(steps);
   }
+
+  function renderPrVelLane(steps){
+    prVelInnerEl.innerHTML = "";
+    prVelInnerEl.style.width = (STEPS_PER_TRACK * PR_CELL_W) + "px";
+    steps.forEach((sd, s) => {
+      if(!sd.on) return;
+      const bar = document.createElement("div");
+      bar.className = "pr-vel-bar";
+      bar.style.left = (s*PR_CELL_W + 2) + "px";
+      bar.style.height = Math.round((sd.vel != null ? sd.vel : 1) * 100) + "%";
+      bar.title = "Velocity " + Math.round((sd.vel != null ? sd.vel : 1)*100) + "%";
+      bar.addEventListener("pointerdown", (e) => startVelDrag(e, s, bar));
+      prVelInnerEl.appendChild(bar);
+    });
+  }
+
+  // ---- note move / resize (document-level drag so re-renders don't drop it) ----
+  function startNoteDrag(e, step, mode){
+    e.preventDefault(); e.stopPropagation();
+    ensureAudio();
+    const steps = curSteps(TRACKS[prTrackIdx]);
+    pushUndo();
+    prDrag = { mode, curStep: step, startStep: step, startX: e.clientX, startY: e.clientY,
+               snap: { len: steps[step].len || 1, pitch: steps[step].pitch || 0, vel: steps[step].vel }, moved: false };
+    window.addEventListener("pointermove", onNoteDragMove);
+    window.addEventListener("pointerup", endNoteDrag, { once: true });
+  }
+  function onNoteDragMove(e){
+    if(!prDrag) return;
+    const steps = curSteps(TRACKS[prTrackIdx]);
+    if(prDrag.mode === "resize"){
+      const dCols = Math.round((e.clientX - prDrag.startX)/PR_CELL_W);
+      const newLen = Math.max(1, Math.min(prDrag.snap.len + dCols, STEPS_PER_TRACK - prDrag.curStep));
+      if(newLen !== (steps[prDrag.curStep].len || 1)){ steps[prDrag.curStep].len = newLen; prDrag.moved = true; renderPianoRoll(); }
+    } else {
+      const dCols = Math.round((e.clientX - prDrag.startX)/PR_CELL_W);
+      const dRows = Math.round((prDrag.startY - e.clientY)/PR_ROW_H);
+      const targetStep = Math.max(0, Math.min(prDrag.startStep + dCols, STEPS_PER_TRACK-1));
+      const targetPitch = Math.max(PR_LOW, Math.min(prDrag.snap.pitch + dRows, PR_HIGH));
+      const cur = steps[prDrag.curStep];
+      if(targetStep !== prDrag.curStep || targetPitch !== (cur && cur.pitch)){
+        if(dCols !== 0 || dRows !== 0) prDrag.moved = true;
+        if(targetStep !== prDrag.curStep){
+          const from = steps[prDrag.curStep];
+          const relocated = { on:true, vel:from.vel, pan:from.pan, pitch:targetPitch, rep:from.rep,
+                              len: Math.max(1, Math.min(prDrag.snap.len, STEPS_PER_TRACK - targetStep)) };
+          from.on = false; from.len = 1;
+          Object.assign(steps[targetStep], relocated);
+          prDrag.curStep = targetStep;
+        } else {
+          cur.pitch = targetPitch;
+        }
+        renderPianoRoll();
+      }
+    }
+  }
+  function endNoteDrag(){
+    window.removeEventListener("pointermove", onNoteDragMove);
+    if(prDrag && !prDrag.moved){
+      // a clean tap (no drag) deletes the note
+      const steps = curSteps(TRACKS[prTrackIdx]);
+      if(steps[prDrag.curStep]){ steps[prDrag.curStep].on = false; steps[prDrag.curStep].len = 1; }
+    }
+    const wasDrag = prDrag;
+    prDrag = null;
+    if(wasDrag) prAfterEdit();
+  }
+
+  // ---- velocity-lane drag ----
+  function startVelDrag(e, step, barEl){
+    e.preventDefault(); e.stopPropagation();
+    pushUndo();
+    const steps = curSteps(TRACKS[prTrackIdx]);
+    barEl.setPointerCapture(e.pointerId);
+    const rect = prVelScrollEl.getBoundingClientRect();
+    const setFromY = (clientY) => {
+      const v = Math.max(0.02, Math.min(1, 1 - (clientY - rect.top)/rect.height));
+      steps[step].vel = v;
+      barEl.style.height = Math.round(v*100) + "%";
+    };
+    setFromY(e.clientY);
+    const move = (ev) => setFromY(ev.clientY);
+    const up = () => { barEl.removeEventListener("pointermove", move); renderPianoRoll(); saveProject(); };
+    barEl.addEventListener("pointermove", move);
+    barEl.addEventListener("pointerup", up, { once: true });
+    barEl.addEventListener("pointercancel", up, { once: true });
+  }
+
+  // keep the velocity lane horizontally aligned with the grid scroll
+  document.getElementById("prGridScroll").addEventListener("scroll", (e) => {
+    prVelScrollEl.scrollLeft = e.target.scrollLeft;
+  });
 
   /* =========================================================
      MIXER VIEW -- vertical channel strips with LED peak meters.

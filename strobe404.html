@@ -1486,6 +1486,11 @@
       chain.insertFilter.type = "lowpass";
       // channel pan (mixer-strip level, distinct from any per-note pan)
       chain.panner = actx.createStereoPanner ? actx.createStereoPanner() : null;
+      // continuous channel VCA that song automation rides (unity when idle,
+      // multiplies the per-note fader level) -- a clean automation target
+      // that never has to mutate the base track state.
+      chain.channelGain = actx.createGain();
+      chain.channelGain.gain.value = 1;
       chain.reverbSendGain = actx.createGain();
       // side-chain duck node: base gain 1, always in the path. When a
       // duck source is configured, an envelope-follower worklet drives
@@ -1496,9 +1501,11 @@
 
       chain.insertIn.connect(chain.insertDrive);
       chain.insertDrive.connect(chain.insertFilter);
-      if(chain.panner){ chain.insertFilter.connect(chain.panner); chain.panner.connect(chain.duckGain); }
-      else chain.insertFilter.connect(chain.duckGain);
-      chain.panner && (chain.panner.pan.value = track.pan || 0);
+      // insertFilter -> [panner] -> channelGain(VCA) -> duckGain
+      let tail = chain.insertFilter;
+      if(chain.panner){ tail.connect(chain.panner); tail = chain.panner; chain.panner.pan.value = track.pan || 0; }
+      tail.connect(chain.channelGain);
+      chain.channelGain.connect(chain.duckGain);
       chain.duckGain.connect(engine.masterGain);
       chain.duckGain.connect(chain.reverbSendGain);
       chain.reverbSendGain.connect(engine.reverbBus);
@@ -3705,7 +3712,7 @@
       const pan = track.pan || 0;
       strip.innerHTML = `
         <div class="ch-name">${track.name}</div>
-        <div class="ch-clip" data-key="t${tIdx}" title="Clip indicator — tap to reset">CLIP</div>
+        <div class="ch-clip" data-key="t${tIdx}" title="Live signal level through this channel (peak dBFS) — tap to reset clip">−∞</div>
         <div class="ch-db" data-dbkey="t${tIdx}">${fmtDb(gainToDb(track.vol))}</div>
         <div class="ch-fader-row">
           <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1000" step="1" value="${Math.round(gainToFaderPos(track.vol)*1000)}"></div>
@@ -3771,7 +3778,7 @@
     masterStrip.className = "chstrip master";
     masterStrip.innerHTML = `
       <div class="ch-name">MASTER</div>
-      <div class="ch-clip" data-key="master" title="Clip indicator — tap to reset">CLIP</div>
+      <div class="ch-clip" data-key="master" title="Live master output level (peak dBFS) — tap to reset clip">−∞</div>
       <div class="ch-db" data-dbkey="master">${fmtDb(gainToDb(masterVol))}</div>
       <div class="ch-fader-row">
         <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1000" step="1" value="${Math.round(gainToFaderPos(masterVol)*1000)}"></div>
@@ -3846,18 +3853,36 @@
     const peak = document.querySelector(`.ch-meter-peak[data-peakkey="${key}"]`);
     if(peak) peak.style.bottom = (ampToMeterFrac(meterHold[key] || 0) * 100) + "%";
   }
+  // formats a measured peak amplitude as a short dBFS level string
+  function fmtLevel(amp){
+    if(!amp || amp <= 0) return "−∞";
+    const db = 20*Math.log10(amp);
+    if(db <= -60) return "−∞";
+    return (db > 0 ? "+" : "") + db.toFixed(1);
+  }
+  // writes the live signal level (peak-hold dBFS) into a channel's readout,
+  // or "CLIP" latched in red once it has hit 0 dBFS
+  function showLevel(key, clipEl){
+    if(!clipEl) return;
+    const clipped = !!meterClip[key];
+    clipEl.classList.toggle("lit", clipped);
+    clipEl.textContent = clipped ? "CLIP" : fmtLevel(meterHold[key] || 0);
+  }
   function updateMixerMeters(){
     if(!liveEngine) return;
     TRACKS.forEach((track, tIdx) => {
       const key = "t"+tIdx;
       driveMeter(key, readPeak(liveEngine.tracks[tIdx].analyser));
-      const clipEl = document.querySelector(`.ch-clip[data-key="${key}"]`);
-      if(clipEl) clipEl.classList.toggle("lit", !!meterClip[key]);
+      showLevel(key, document.querySelector(`.ch-clip[data-key="${key}"]`));
     });
     driveMeter("masterL", readPeak(liveEngine.masterAnalyserL || liveEngine.masterAnalyser));
     driveMeter("masterR", readPeak(liveEngine.masterAnalyserR || liveEngine.masterAnalyser));
     const clipM = document.querySelector('.ch-clip[data-key="master"]');
-    if(clipM) clipM.classList.toggle("lit", !!(meterClip["masterL"] || meterClip["masterR"]));
+    if(clipM){
+      const clipped = !!(meterClip["masterL"] || meterClip["masterR"]);
+      clipM.classList.toggle("lit", clipped);
+      clipM.textContent = clipped ? "CLIP" : fmtLevel(Math.max(meterHold["masterL"]||0, meterHold["masterR"]||0));
+    }
   }
 
   // keep meters animating while the mixer tab is open, even if transport is stopped

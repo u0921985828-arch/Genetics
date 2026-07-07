@@ -627,6 +627,17 @@
             <select class="sync-select" id="arpRateSel"></select>
           </div>
         </div>
+        <div class="panel" id="sidechainPanel" style="flex:0 0 160px;">
+          <div class="panel-title">Side-Chain Duck</div>
+          <div class="fx-row">
+            <label>Duck With</label>
+            <select class="sync-select" id="duckSourceSel"></select>
+          </div>
+          <div class="fx-row">
+            <label>Amount</label>
+            <canvas id="duckAmountKnob" style="height:50px;"></canvas>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -758,6 +769,10 @@
     // buffer. N cut points yield N+1 slices, each becoming its own pad in
     // the PADS view (MPC-style chop). Empty = the whole sample is one pad.
     track.sampleSlices = [];
+    // side-chain: this track ducks whenever TRACKS[duckSource] hits.
+    // null = no ducking. duckAmount 0..1 = how deep the dip goes.
+    track.duckSource = null;
+    track.duckAmount = 0.7;
   });
 
   // Returns the step array for the pattern currently selected in the
@@ -811,7 +826,8 @@
         fxDrive:t.fxDrive, fxDriveAmt:t.fxDriveAmt, fxFilterOn:t.fxFilterOn, fxFilterCutoff:t.fxFilterCutoff,
         reverbSend:t.reverbSend, arp:t.arp, patterns:t.patterns, autoCutoff:t.autoCutoff,
         sampleName:t.sampleName, sampleLoopStart:t.sampleLoopStart, sampleLoopEnd:t.sampleLoopEnd,
-        sampleLoopOn:t.sampleLoopOn, sampleSlices:t.sampleSlices
+        sampleLoopOn:t.sampleLoopOn, sampleSlices:t.sampleSlices,
+        duckSource:t.duckSource, duckAmount:t.duckAmount
       }))
     };
   }
@@ -927,7 +943,8 @@
         reverbSend:s.reverbSend, arp:s.arp, patterns:s.patterns, autoCutoff:s.autoCutoff,
         sampleName:s.sampleName || "", sampleLoopStart:s.sampleLoopStart != null ? s.sampleLoopStart : 0,
         sampleLoopEnd:s.sampleLoopEnd != null ? s.sampleLoopEnd : 1, sampleLoopOn:!!s.sampleLoopOn,
-        sampleSlices:Array.isArray(s.sampleSlices) ? s.sampleSlices : []
+        sampleSlices:Array.isArray(s.sampleSlices) ? s.sampleSlices : [],
+        duckSource:(s.duckSource != null ? s.duckSource : null), duckAmount:(s.duckAmount != null ? s.duckAmount : 0.7)
       });
       // Sample audio itself isn't persisted (an AudioBuffer isn't JSON,
       // and blob-in-IndexedDB storage is a separate roadmap item), so a
@@ -1073,11 +1090,18 @@
       chain.insertFilter = actx.createBiquadFilter();
       chain.insertFilter.type = "lowpass";
       chain.reverbSendGain = actx.createGain();
+      // side-chain duck node: base gain 1, always in the path. When a
+      // duck source is configured, an envelope-follower worklet drives
+      // this param negative-relative-to-1 so the track dips on each hit
+      // of the trigger track. Unmodulated it's a transparent unity gain.
+      chain.duckGain = actx.createGain();
+      chain.duckGain.gain.value = 1;
 
       chain.insertIn.connect(chain.insertDrive);
       chain.insertDrive.connect(chain.insertFilter);
-      chain.insertFilter.connect(engine.masterGain);
-      chain.insertFilter.connect(chain.reverbSendGain);
+      chain.insertFilter.connect(chain.duckGain);
+      chain.duckGain.connect(engine.masterGain);
+      chain.duckGain.connect(chain.reverbSendGain);
       chain.reverbSendGain.connect(engine.reverbBus);
       chain.insertIn.connect(chain.analyser);
 
@@ -1088,11 +1112,98 @@
     return engine;
   }
 
+  /* =========================================================
+     SIDE-CHAIN DUCKING (AudioWorklet envelope follower)
+     A tiny worklet tracks the amplitude envelope of a trigger track and
+     outputs it as a control signal; scaled by -amount and summed onto a
+     target track's unity duckGain, it makes the target dip on every hit
+     of the trigger (the classic kick-ducks-bass pump). Built as a Blob
+     module so the app stays a single self-contained file; degrades to
+     "no ducking" if AudioWorklet is unavailable.
+  ========================================================== */
+  const ENV_WORKLET_CODE = `
+    class EnvelopeFollowerProcessor extends AudioWorkletProcessor {
+      constructor(){ super(); this.env = 0; }
+      process(inputs, outputs){
+        const input = inputs[0];
+        const output = outputs[0];
+        const outCh = output[0];
+        const inCh = input && input[0];
+        const atk = Math.exp(-1/(0.003*sampleRate));
+        const rel = Math.exp(-1/(0.18*sampleRate));
+        for(let i=0;i<outCh.length;i++){
+          const x = inCh ? Math.abs(inCh[i]) : 0;
+          const coef = x > this.env ? atk : rel;
+          this.env = x + coef*(this.env - x);
+          outCh[i] = this.env;
+        }
+        return true;
+      }
+    }
+    registerProcessor('envelope-follower', EnvelopeFollowerProcessor);
+  `;
+  let envWorkletUrl = null;
+  function getEnvWorkletUrl(){
+    if(!envWorkletUrl) envWorkletUrl = URL.createObjectURL(new Blob([ENV_WORKLET_CODE], {type:"application/javascript"}));
+    return envWorkletUrl;
+  }
+  async function ensureWorkletModule(engine){
+    if(engine.workletReady) return true;
+    if(!engine.ctx.audioWorklet) return false;
+    try{
+      await engine.ctx.audioWorklet.addModule(getEnvWorkletUrl());
+      engine.workletReady = true;
+      return true;
+    }catch(e){ return false; }
+  }
+
+  // (Re)wires every configured duck relationship on an engine. Idempotent:
+  // tears down existing worklet nodes first, resets ducked gains to unity,
+  // then rebuilds from the current track.duckSource/duckAmount state.
+  async function applySideChain(engine){
+    if(!engine) return;
+    if(!engine.duckNodes) engine.duckNodes = {};
+    const anyConfigured = TRACKS.some(t => t.duckSource != null && t.duckSource >= 0);
+    if(anyConfigured){
+      const ok = await ensureWorkletModule(engine);
+      if(!ok) return; // no worklet support -> silently no ducking
+    }
+    TRACKS.forEach((track, tIdx) => {
+      const dstChain = engine.tracks[tIdx];
+      const old = engine.duckNodes[tIdx];
+      if(old){
+        try{ old.worklet.disconnect(); old.envGain.disconnect(); }catch(e){}
+        try{
+          dstChain.duckGain.gain.cancelScheduledValues(engine.ctx.currentTime);
+          dstChain.duckGain.gain.setValueAtTime(1, engine.ctx.currentTime);
+        }catch(e){}
+        delete engine.duckNodes[tIdx];
+      }
+      const srcIdx = track.duckSource;
+      // guard self-ducking and unconfigured/absent worklet
+      if(srcIdx == null || srcIdx < 0 || srcIdx === tIdx || !engine.workletReady) return;
+      const srcChain = engine.tracks[srcIdx];
+      if(!srcChain || !dstChain) return;
+      let worklet;
+      try{
+        worklet = new AudioWorkletNode(engine.ctx, "envelope-follower", {numberOfInputs:1, numberOfOutputs:1, outputChannelCount:[1]});
+      }catch(e){ return; }
+      const envGain = engine.ctx.createGain();
+      envGain.gain.value = -Math.min(Math.max(track.duckAmount || 0, 0), 1);
+      srcChain.insertFilter.connect(worklet);
+      worklet.connect(envGain);
+      envGain.connect(dstChain.duckGain.gain);
+      engine.duckNodes[tIdx] = {worklet, envGain};
+    });
+  }
+
   function ensureAudio(){
     if(ctx) return;
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     liveEngine = buildEngine(ctx);
     updateDelayTime();
+    // apply any restored/side-chain config once the live graph exists
+    applySideChain(liveEngine);
   }
 
   function updateDelayTime(){
@@ -1703,6 +1814,8 @@
   const arpDirBtnEl = document.getElementById("arpDirBtn");
   const arpOctKnobCanvas = document.getElementById("arpOctKnob");
   const arpRateSelEl = document.getElementById("arpRateSel");
+  const duckSourceSelEl = document.getElementById("duckSourceSel");
+  const duckAmountKnobCanvas = document.getElementById("duckAmountKnob");
   populateSyncSelect(arpRateSelEl);
 
   function renderTrackPicker(){
@@ -2216,6 +2329,30 @@
     bindKnob(arpOctKnobCanvas, () => (track.arp.octaves-1)/3, (v) => { track.arp.octaves = Math.round(v*3)+1; });
     arpRateSelEl.value = track.arp.rate;
     arpRateSelEl.onchange = () => { track.arp.rate = arpRateSelEl.value; };
+
+    // Side-chain: "Duck With" lists every OTHER track as a possible
+    // trigger source (self excluded to avoid a track ducking itself).
+    duckSourceSelEl.innerHTML = "";
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "-1"; noneOpt.textContent = "None";
+    duckSourceSelEl.appendChild(noneOpt);
+    TRACKS.forEach((t, i) => {
+      if(i === selectedTrackIdx) return;
+      const opt = document.createElement("option");
+      opt.value = String(i); opt.textContent = t.name;
+      duckSourceSelEl.appendChild(opt);
+    });
+    duckSourceSelEl.value = String(track.duckSource != null ? track.duckSource : -1);
+    duckSourceSelEl.onchange = () => {
+      const v = parseInt(duckSourceSelEl.value, 10);
+      track.duckSource = v < 0 ? null : v;
+      ensureAudio();
+      applySideChain(liveEngine);
+    };
+    bindKnob(duckAmountKnobCanvas, () => track.duckAmount, (v) => {
+      track.duckAmount = v;
+      if(track.duckSource != null){ ensureAudio(); applySideChain(liveEngine); }
+    });
   }
 
   /* =========================================================
@@ -2750,6 +2887,9 @@
       engine.masterGain.gain.setValueAtTime(liveEngine.masterGain.gain.value, 0);
       engine.reverbWet.gain.setValueAtTime(liveEngine.reverbWet.gain.value, 0);
     }
+
+    // match live side-chain ducking in the bounce
+    await applySideChain(engine);
 
     for(let bar=0; bar<totalBars; bar++){
       for(let step=0; step<STEPS_PER_TRACK; step++){

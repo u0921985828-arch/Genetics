@@ -891,6 +891,7 @@
       stepCount: STEPS_PER_TRACK,
       delaySync: document.getElementById("delaySync").value,
       lfoSync: document.getElementById("lfoSync").value,
+      audioClips: audioClips.map(c => ({ name:c.name, bar:c.bar, gain:c.gain, durationBars:c.durationBars })),
       tracks: TRACKS.map(t => ({
         vol:t.vol, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
         delaySend:t.delaySend, cutGroup:t.cutGroup, hold:t.hold, poly:t.poly,
@@ -917,18 +918,46 @@
   const IDB_STORE = "samples";          // per-track live buffers, keyed by track index
   const IDB_LIB_STORE = "library";      // user's saved sound library, {name, blob}
   const IDB_PROJ_STORE = "projects";    // saved project library, {name, path, data, updatedAt}
+  const IDB_ACLIP_STORE = "audioclips";  // current-session audio-clip WAV blobs, keyed by clip index
   function openSampleDB(){
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(IDB_NAME, 3);
+      const req = indexedDB.open(IDB_NAME, 4);
       req.onupgradeneeded = () => {
         const db = req.result;
         if(!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
         if(!db.objectStoreNames.contains(IDB_LIB_STORE)) db.createObjectStore(IDB_LIB_STORE, {autoIncrement:true});
         if(!db.objectStoreNames.contains(IDB_PROJ_STORE)) db.createObjectStore(IDB_PROJ_STORE, {autoIncrement:true});
+        if(!db.objectStoreNames.contains(IDB_ACLIP_STORE)) db.createObjectStore(IDB_ACLIP_STORE);
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
+  }
+  // Rewrites the whole current-session audio-clip blob store to match the
+  // in-memory audioClips array (index -> WAV blob).
+  async function persistAudioClips(){
+    try{
+      const db = await openSampleDB();
+      await new Promise((res, rej) => {
+        const tx = db.transaction(IDB_ACLIP_STORE, "readwrite");
+        const store = tx.objectStore(IDB_ACLIP_STORE);
+        store.clear();
+        audioClips.forEach((c, i) => { if(c.buffer){ try{ store.put(audioBufferToWav(c.buffer), i); }catch(e){} } });
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    }catch(e){}
+  }
+  async function loadAudioClipBlobs(){
+    try{
+      const db = await openSampleDB();
+      return await new Promise((res, rej) => {
+        const map = {};
+        const tx = db.transaction(IDB_ACLIP_STORE, "readonly");
+        const rq = tx.objectStore(IDB_ACLIP_STORE).openCursor();
+        rq.onsuccess = () => { const cur = rq.result; if(cur){ map[cur.key] = cur.value; cur.continue(); } else res(map); };
+        rq.onerror = () => rej(rq.error);
+      });
+    }catch(e){ return {}; }
   }
   async function saveProjectEntry(entry){
     try{
@@ -936,7 +965,7 @@
       return await new Promise((res, rej) => {
         const tx = db.transaction(IDB_PROJ_STORE, "readwrite");
         const store = tx.objectStore(IDB_PROJ_STORE);
-        const val = {name:entry.name, path:entry.path, data:entry.data, samples:entry.samples || {}, updatedAt:entry.updatedAt};
+        const val = {name:entry.name, path:entry.path, data:entry.data, samples:entry.samples || {}, audioClips:entry.audioClips || {}, updatedAt:entry.updatedAt};
         const rq = entry.key != null ? store.put(val, entry.key) : store.add(val);
         rq.onsuccess = () => res(rq.result);
         tx.onerror = () => rej(tx.error);
@@ -952,7 +981,7 @@
         const rq = tx.objectStore(IDB_PROJ_STORE).openCursor();
         rq.onsuccess = () => {
           const cur = rq.result;
-          if(cur){ items.push({key:cur.key, name:cur.value.name, path:cur.value.path || "", data:cur.value.data, samples:cur.value.samples || {}, updatedAt:cur.value.updatedAt}); cur.continue(); }
+          if(cur){ items.push({key:cur.key, name:cur.value.name, path:cur.value.path || "", data:cur.value.data, samples:cur.value.samples || {}, audioClips:cur.value.audioClips || {}, updatedAt:cur.value.updatedAt}); cur.continue(); }
           else res(items);
         };
         rq.onerror = () => rej(rq.error);
@@ -1071,6 +1100,23 @@
     renderPads();
   }
 
+  // Reattaches persisted playlist audio-clip buffers (session store, keyed
+  // by clip index) onto the metadata restored by applyProjectData, so
+  // dropped audio survives a reload. Decodes only if there are clips to fill.
+  async function restoreAudioClips(){
+    if(!audioClips.length) return;
+    const map = await loadAudioClipBlobs();
+    if(!map || !Object.keys(map).length) return;
+    ensureAudio();
+    let any = false;
+    for(let i=0;i<audioClips.length;i++){
+      const blob = map[i];
+      if(!blob) continue;
+      try{ audioClips[i].buffer = await ctx.decodeAudioData(await blob.arrayBuffer()); any = true; }catch(e){}
+    }
+    if(any && document.getElementById("arrangeView").classList.contains("active")) renderArrangeLanes();
+  }
+
   // Restores every editable field from a serialized project object. Used
   // by both localStorage load and the undo/redo history (which snapshot
   // and re-apply this same shape). Does NOT re-render or touch audio --
@@ -1082,6 +1128,11 @@
     songArrangement = Array.isArray(data.songArrangement) ? data.songArrangement : new Array(songBars).fill(1);
     currentPattern = data.currentPattern || 0;
     STEPS_PER_TRACK = [16,32,64].includes(data.stepCount) ? data.stepCount : 16;
+    // audio-clip metadata (buffers reattached separately from blobs)
+    audioClips = Array.isArray(data.audioClips) ? data.audioClips.map(c => ({
+      id: audioClipSeq++, name:c.name || "audio", bar:c.bar|0, gain:c.gain != null ? c.gain : 1,
+      durationBars: Math.max(1, c.durationBars|0 || 1), buffer:null
+    })) : [];
     patternNames = Array.isArray(data.patternNames) ? data.patternNames.slice(0, PATTERN_COUNT) : new Array(PATTERN_COUNT).fill("");
     while(patternNames.length < PATTERN_COUNT) patternNames.push("");
     songMode = !!data.songMode;
@@ -1189,7 +1240,7 @@
   // `samples` (optional): { trackIndex: WAV Blob } to restore into the
   // tracks, making a saved project self-contained. Tracks not present
   // in the map are cleared.
-  async function loadFullProject(data, samples){
+  async function loadFullProject(data, samples, audioBlobs){
     applyProjectData(data);
     TRACKS.forEach((t, i) => {
       const keep = samples && samples[i];
@@ -1213,6 +1264,17 @@
         }catch(e){}
       }
     }
+    // Playlist audio clips: metadata already restored by applyProjectData;
+    // decode the packaged blobs into their buffers and refresh the session store.
+    if(audioBlobs && audioClips.length){
+      ensureAudio();
+      for(const key of Object.keys(audioBlobs)){
+        const i = +key;
+        if(!audioClips[i]) continue;
+        try{ audioClips[i].buffer = await ctx.decodeAudioData(await audioBlobs[key].arrayBuffer()); }catch(e){}
+      }
+    }
+    persistAudioClips(); // rewrite session store to match the loaded project
     const ds = document.getElementById("delaySync"), ls = document.getElementById("lfoSync");
     if(data.delaySync && ds) ds.value = data.delaySync;
     if(data.lfoSync && ls) ls.value = data.lfoSync;
@@ -1228,6 +1290,14 @@
   function currentSampleBlobs(){
     const map = {};
     TRACKS.forEach((t, i) => { if(t.sampleBuffer){ try{ map[i] = audioBufferToWav(t.sampleBuffer); }catch(e){} } });
+    return map;
+  }
+
+  // Same idea for playlist audio clips: WAV blob keyed by clip index, so a
+  // saved/exported project carries its dropped audio with it.
+  function currentAudioClipBlobs(){
+    const map = {};
+    audioClips.forEach((c, i) => { if(c.buffer){ try{ map[i] = audioBufferToWav(c.buffer); }catch(e){} } });
     return map;
   }
 
@@ -2035,7 +2105,9 @@
   async function exportProjectEntry(en){
     const samples = {};
     for(const k of Object.keys(en.samples || {})){ try{ samples[k] = await blobToDataURL(en.samples[k]); }catch(e){} }
-    const payload = { v:1, strobe:"project", name:en.name, path:en.path, data:en.data, samples };
+    const audioClips = {};
+    for(const k of Object.keys(en.audioClips || {})){ try{ audioClips[k] = await blobToDataURL(en.audioClips[k]); }catch(e){} }
+    const payload = { v:1, strobe:"project", name:en.name, path:en.path, data:en.data, samples, audioClips };
     downloadBlob(new Blob([JSON.stringify(payload)], {type:"application/json"}),
       (en.name || "project").replace(/[^\w-]+/g, "_") + ".strobe.json");
   }
@@ -2045,7 +2117,9 @@
       if(!payload || !payload.data) throw new Error("not a Strobe project");
       const samples = {};
       for(const k of Object.keys(payload.samples || {})){ try{ samples[k] = await (await fetch(payload.samples[k])).blob(); }catch(e){} }
-      await saveProjectEntry({ name:payload.name || "Imported", path:payload.path || "", data:payload.data, samples, updatedAt:Date.now() });
+      const audioClips = {};
+      for(const k of Object.keys(payload.audioClips || {})){ try{ audioClips[k] = await (await fetch(payload.audioClips[k])).blob(); }catch(e){} }
+      await saveProjectEntry({ name:payload.name || "Imported", path:payload.path || "", data:payload.data, samples, audioClips, updatedAt:Date.now() });
       renderBrowser();
     }catch(err){ alert("Import failed: " + err.message); }
   }
@@ -2057,13 +2131,13 @@
     const name = prompt("Project name:", "My Project");
     if(name == null || !name.trim()) return;
     const path = prompt("Folder path (optional, use / for subfolders):", "") || "";
-    await saveProjectEntry({ name:name.trim(), path:path.trim(), data:serializeProject(), samples:currentSampleBlobs(), updatedAt:Date.now() });
+    await saveProjectEntry({ name:name.trim(), path:path.trim(), data:serializeProject(), samples:currentSampleBlobs(), audioClips:currentAudioClipBlobs(), updatedAt:Date.now() });
     renderBrowser();
   }
   function openProjectEntry(en){
     if(!confirm("Open \"" + en.name + "\"? This replaces the current project.")) return;
     ensureAudio();
-    loadFullProject(en.data, en.samples);
+    loadFullProject(en.data, en.samples, en.audioClips);
     renderBrowser();
   }
   document.querySelectorAll("#browserTabs button").forEach(b => {
@@ -3290,7 +3364,7 @@
       clip.innerHTML = `<span class="audio-clip-name">🔊 ${c.name}</span>`;
       clip.title = "Tap to remove: " + c.name;
       clip.addEventListener("click", () => {
-        if(confirm("Remove audio clip \"" + c.name + "\"?")){ audioClips = audioClips.filter(x => x.id !== c.id); renderArrangeLanes(); }
+        if(confirm("Remove audio clip \"" + c.name + "\"?")){ audioClips = audioClips.filter(x => x.id !== c.id); renderArrangeLanes(); persistAudioClips(); saveProject(); }
       });
       audioLane.appendChild(clip);
     });
@@ -3349,6 +3423,7 @@
       const durationBars = Math.max(1, Math.round(buf.duration / Math.max(barSeconds(), 0.001)));
       audioClips.push({ id: audioClipSeq++, name: (file.name || "audio").replace(/\.[^.]+$/, ""), buffer: buf, bar: Math.max(0, bar|0), gain: 1, durationBars });
       renderArrangeLanes();
+      persistAudioClips(); saveProject();
     }catch(e){ alert("Could not load audio: " + e.message); }
   }
   const plAudioInput = document.createElement("input");
@@ -3900,6 +3975,8 @@
 
   // pull any persisted sample buffers back out of IndexedDB (async)
   restoreSamples();
+  // reattach persisted playlist audio-clip buffers (async)
+  restoreAudioClips();
 
   // unlock audio context on first touch (mobile requirement)
   document.body.addEventListener("touchstart", ensureAudio, {once:true});

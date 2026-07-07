@@ -264,24 +264,42 @@
   .arrange-clip.active.playing-bar{outline:3px solid var(--c-blue); outline-offset:-1px;}
 
   /* ===================== MIXER ===================== */
-  #mixerView{overflow-x:auto; touch-action:pan-x; padding:10px 8px; gap:8px; align-items:stretch; background:var(--bg-soft);}
-  .chstrip{flex:0 0 72px; background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); display:flex; flex-direction:column; align-items:center; padding:0 5px 6px; gap:5px; position:relative; overflow:hidden;}
-  .chstrip::before{content:""; display:block; width:calc(100% + 10px); margin:0 -5px 5px; height:8px; background:var(--tc,#ccc); border-bottom:var(--bw) solid var(--ink);}
+  #mixerView{overflow-x:auto; touch-action:pan-x; padding:10px 8px; gap:7px; align-items:stretch; background:var(--bg-soft);}
+  .chstrip{flex:0 0 86px; background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); display:flex; flex-direction:column; align-items:center; padding:0 5px 6px; gap:4px; position:relative; overflow:hidden;}
+  .chstrip::before{content:""; display:block; width:calc(100% + 10px); margin:0 -5px 4px; height:8px; background:var(--tc,#ccc); border-bottom:var(--bw) solid var(--ink);}
   .chstrip.master{border-color:var(--ink);}
-  .chstrip.master::before{background:var(--c-green);}
-  .ch-name{font-size:10px; font-weight:800; text-align:center; height:16px; color:var(--ink); text-transform:uppercase; letter-spacing:.3px;}
-  .ch-meter-row{display:flex; gap:3px; flex:1 1 auto; min-height:44px;}
-  .ch-meter{width:10px; height:100%; background:var(--bg-soft2); position:relative; overflow:hidden; border:var(--bw) solid var(--ink);}
-  .ch-meter-fill{position:absolute; left:0; right:0; bottom:0; background:linear-gradient(to top, var(--c-green) 0%, var(--c-green) 68%, var(--c-yellow) 84%, var(--c-red) 100%); height:0%;}
-  .ch-fader-wrap{height:88px; flex:0 0 88px; display:flex; align-items:center; justify-content:center;}
-  .ch-fader{-webkit-appearance:none; appearance:none; width:88px; height:24px; transform:rotate(-90deg); background:transparent;}
-  .ch-fader::-webkit-slider-runnable-track{background:var(--bg); height:6px; border:var(--bw) solid var(--ink);}
-  .ch-fader::-webkit-slider-thumb{-webkit-appearance:none; width:20px; height:16px; background:var(--tc,var(--ink)); border:var(--bw) solid var(--ink); margin-top:-7px;}
-  .chstrip.master .ch-fader::-webkit-slider-thumb{background:var(--c-green);}
+  .chstrip.master::before{background:var(--orange);}
+  .ch-name{font-size:10px; font-weight:800; text-align:center; height:15px; color:var(--ink); text-transform:uppercase; letter-spacing:.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;}
+  /* clip LED: latches when a channel hits 0 dBFS, tap to reset */
+  .ch-clip{width:100%; height:11px; border:var(--bw) solid var(--ink); background:var(--bg-soft2); font-size:8px; font-weight:800; line-height:9px; text-align:center; color:var(--text-dim); letter-spacing:.5px; cursor:pointer; text-transform:uppercase;}
+  .ch-clip.lit{background:var(--c-red); color:#fff;}
+  /* fader + meter side by side */
+  .ch-fader-row{display:flex; align-items:stretch; justify-content:center; gap:5px; flex:1 1 auto; min-height:120px; width:100%;}
+  .ch-fader-wrap{flex:0 0 30px; display:flex; align-items:center; justify-content:center; position:relative;}
+  .ch-fader{-webkit-appearance:none; appearance:none; width:120px; height:26px; transform:rotate(-90deg); background:transparent; touch-action:none;}
+  .ch-fader::-webkit-slider-runnable-track{background:linear-gradient(to right,var(--bg-soft2),var(--bg)); height:7px; border:var(--bw) solid var(--ink);}
+  .ch-fader::-moz-range-track{background:var(--bg); height:7px; border:var(--bw) solid var(--ink);}
+  .ch-fader::-webkit-slider-thumb{-webkit-appearance:none; width:22px; height:16px; background:var(--tc,var(--ink)); border:var(--bw) solid var(--ink); margin-top:-6px; box-shadow:0 0 0 1px var(--bg);}
+  .ch-fader::-moz-range-thumb{width:22px; height:16px; background:var(--tc,var(--ink)); border:var(--bw) solid var(--ink); border-radius:0;}
+  .chstrip.master .ch-fader::-webkit-slider-thumb{background:var(--orange);}
+  /* 0 dB unity tick behind the fader */
+  .ch-fader-wrap::after{content:""; position:absolute; left:2px; right:2px; top:35.6%; height:2px; background:var(--ink); opacity:.35; pointer-events:none;}
+  .ch-meter{flex:0 0 auto; width:9px; height:100%; display:flex; gap:1px;}
+  .ch-meter-ch{position:relative; flex:1 1 auto; background:var(--bg-soft2); overflow:hidden; border:var(--bw) solid var(--ink);}
+  .ch-meter-fill{position:absolute; left:0; right:0; bottom:0; background:linear-gradient(to top, var(--c-green) 0%, var(--c-green) 60%, var(--amber) 80%, var(--c-red) 100%); height:0%;}
+  .ch-meter-peak{position:absolute; left:0; right:0; height:2px; background:var(--ink); bottom:0;}
+  .ch-db{font-size:9px; font-weight:800; height:13px; line-height:13px; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.2px; width:100%; text-align:center; background:var(--bg-soft2); border:var(--bw) solid var(--ink);}
+  .ch-pan-wrap{width:100%; display:flex; flex-direction:column; align-items:center; gap:1px;}
+  .ch-pan{-webkit-appearance:none; appearance:none; width:100%; height:14px; background:transparent; touch-action:none;}
+  .ch-pan::-webkit-slider-runnable-track{background:var(--bg); height:4px; border:var(--bw) solid var(--ink);}
+  .ch-pan::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; background:var(--tc,var(--ink)); border:var(--bw) solid var(--ink); margin-top:-5px;}
+  .ch-pan::-moz-range-track{background:var(--bg); height:4px; border:var(--bw) solid var(--ink);}
+  .ch-pan::-moz-range-thumb{width:12px; height:12px; background:var(--tc,var(--ink)); border:var(--bw) solid var(--ink); border-radius:0;}
+  .ch-pan-lbl{font-size:8px; font-weight:800; color:var(--text-dim); letter-spacing:.4px;}
   .ch-btn-row{display:flex; gap:4px;}
   .ch-fx-row{display:flex; gap:4px;}
   .ch-fx-label{font-size:8px; color:var(--text-dim); letter-spacing:.4px; text-align:center; width:100%; text-transform:uppercase; font-weight:800;}
-  .ch-verb-knob, .master-verb-knob{width:100%; height:34px; flex:0 0 34px; touch-action:none;}
+  .ch-verb-knob, .master-verb-knob{width:100%; height:32px; flex:0 0 32px; touch-action:none;}
 
   /* ===================== PADS ===================== */
   #padsView{padding:10px; overflow-y:auto; touch-action:pan-y; background:var(--bg-soft);}
@@ -749,6 +767,7 @@
     track.fxDrive = false; track.fxDriveAmt = 0.4;
     track.fxFilterOn = false; track.fxFilterCutoff = 0.7;
     track.reverbSend = 0.0;
+    track.pan = 0; // mixer channel pan, -1 (L) .. +1 (R)
     track.arp = {on:false, dir:"up", octaves:1, rate:"1/16"};
     // one live-recordable cutoff automation lane per pattern -- null means
     // "no recorded point here, fall back to the track's static cutoff knob"
@@ -800,7 +819,7 @@
       return steps;
     });
     return {
-      vol:def.vol, mute:false, solo:false, wave:def.wave, adsr:{...def.adsr}, cutoff:def.cutoff,
+      vol:def.vol, pan:0, mute:false, solo:false, wave:def.wave, adsr:{...def.adsr}, cutoff:def.cutoff,
       delaySend:def.delaySend, cutGroup:def.cutGroup, hold:def.hold, poly:def.poly,
       fxDrive:false, fxDriveAmt:0.4, fxFilterOn:false, fxFilterCutoff:0.7, reverbSend:0.0,
       arp:{on:false, dir:"up", octaves:1, rate:"1/16"},
@@ -813,7 +832,7 @@
     return {
       v:1, bpm:120, songBars:8,
       songArrangement:new Array(8).fill(withDemo ? 1 : 0),
-      currentPattern:0, songMode:false, swingAmount:0, compressorOn:true,
+      currentPattern:0, songMode:false, swingAmount:0, compressorOn:true, masterVol:0.9,
       patternNames:new Array(PATTERN_COUNT).fill(""), stepCount:16,
       delaySync:"1/8.", lfoSync:"1/4",
       tracks: DEMO_DEFS.map((def, i) => serializedTrackData(def, withDemo ? DEMO_HITS[i] : null))
@@ -869,6 +888,7 @@
   // the start of their bar.
   let audioClips = [];
   let audioClipSeq = 1;
+  let masterVol = 0.9;     // master fader linear gain (0 dB = 1.0), persisted
   let compressorOn = true; // master-bus compressor toggle, shared by live + export
   let metroOn = false;     // metronome click on each beat
   let countInOn = true;    // one-bar count-in before playback (when metro on)
@@ -888,12 +908,12 @@
     return {
       v: 1,
       bpm, songBars, songArrangement, currentPattern, songMode, swingAmount, compressorOn, patternNames,
-      stepCount: STEPS_PER_TRACK,
+      stepCount: STEPS_PER_TRACK, masterVol,
       delaySync: document.getElementById("delaySync").value,
       lfoSync: document.getElementById("lfoSync").value,
       audioClips: audioClips.map(c => ({ name:c.name, bar:c.bar, gain:c.gain, durationBars:c.durationBars })),
       tracks: TRACKS.map(t => ({
-        vol:t.vol, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
+        vol:t.vol, pan:t.pan, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
         delaySend:t.delaySend, cutGroup:t.cutGroup, hold:t.hold, poly:t.poly,
         fxDrive:t.fxDrive, fxDriveAmt:t.fxDriveAmt, fxFilterOn:t.fxFilterOn, fxFilterCutoff:t.fxFilterCutoff,
         reverbSend:t.reverbSend, arp:t.arp, patterns:t.patterns, autoCutoff:t.autoCutoff,
@@ -1138,11 +1158,12 @@
     songMode = !!data.songMode;
     swingAmount = data.swingAmount || 0;
     compressorOn = data.compressorOn !== false;
+    masterVol = data.masterVol != null ? data.masterVol : 0.9;
     TRACKS.forEach((t, i) => {
       const s = data.tracks[i];
       if(!s) return;
       Object.assign(t, {
-        vol:s.vol, mute:s.mute, solo:s.solo, wave:s.wave, adsr:s.adsr, cutoff:s.cutoff,
+        vol:s.vol, pan:(s.pan != null ? s.pan : 0), mute:s.mute, solo:s.solo, wave:s.wave, adsr:s.adsr, cutoff:s.cutoff,
         delaySend:s.delaySend, cutGroup:s.cutGroup, hold:s.hold, poly:s.poly,
         fxDrive:s.fxDrive, fxDriveAmt:s.fxDriveAmt, fxFilterOn:s.fxFilterOn, fxFilterCutoff:s.fxFilterCutoff,
         reverbSend:s.reverbSend, arp:s.arp, patterns:s.patterns, autoCutoff:s.autoCutoff,
@@ -1219,6 +1240,7 @@
       applyCompressorState(liveEngine);
       applySideChain(liveEngine);
       updateDelayTime();
+      liveEngine.masterGain.gain.setTargetAtTime(masterVol, liveEngine.ctx.currentTime, 0.01);
     }
     renderTrackHeaders(); renderGrid(); renderGraphBars(); renderEditView();
     renderArrangeView(); renderBrowser();
@@ -1355,6 +1377,17 @@
     const targetHz = track.fxFilterOn ? (200 + track.fxFilterCutoff*9000) : 20000;
     chain.insertFilter.frequency.setTargetAtTime(targetHz, engine.ctx.currentTime, 0.01);
     chain.reverbSendGain.gain.setTargetAtTime(track.reverbSend, engine.ctx.currentTime, 0.01);
+    if(chain.panner) chain.panner.pan.setTargetAtTime(track.pan || 0, engine.ctx.currentTime, 0.01);
+  }
+
+  // Applies a track's mixer-strip pan to its channel StereoPanner.
+  function applyChannelPan(engine, track, idx){
+    if(!engine || !engine.tracks[idx] || !engine.tracks[idx].panner) return;
+    engine.tracks[idx].panner.pan.setTargetAtTime(track.pan || 0, engine.ctx.currentTime, 0.01);
+  }
+  function panLabel(p){
+    if(!p || Math.abs(p) < 0.02) return "C";
+    return (p < 0 ? "L" : "R") + Math.round(Math.abs(p)*100);
   }
 
   // Master-bus compressor is always in the graph; "off" just relaxes it
@@ -1380,7 +1413,7 @@
     const engine = {ctx:actx, tracks:[], chokeRefs:{}, noiseBuffer:null};
 
     engine.masterGain = actx.createGain();
-    engine.masterGain.gain.value = 0.9;
+    engine.masterGain.gain.value = masterVol;
 
     engine.delayNode = actx.createDelay(4.0);
     engine.delayFeedback = actx.createGain();
@@ -1420,6 +1453,14 @@
     engine.masterAnalyser = actx.createAnalyser();
     engine.masterAnalyser.fftSize = 256;
     engine.masterGain.connect(engine.masterAnalyser);
+    // stereo master metering: split post-fader master into L/R analysers so
+    // the master strip shows independent per-channel dBFS peaks.
+    engine.masterSplit = actx.createChannelSplitter(2);
+    engine.masterAnalyserL = actx.createAnalyser(); engine.masterAnalyserL.fftSize = 256;
+    engine.masterAnalyserR = actx.createAnalyser(); engine.masterAnalyserR.fftSize = 256;
+    engine.masterGain.connect(engine.masterSplit);
+    engine.masterSplit.connect(engine.masterAnalyserL, 0);
+    engine.masterSplit.connect(engine.masterAnalyserR, 1);
 
     // per-track metering taps + persistent insert-FX chain. Every note
     // lands in insertIn first, then flows Drive -> Filter -> (Master and
@@ -1434,6 +1475,8 @@
       chain.insertDrive = actx.createWaveShaper();
       chain.insertFilter = actx.createBiquadFilter();
       chain.insertFilter.type = "lowpass";
+      // channel pan (mixer-strip level, distinct from any per-note pan)
+      chain.panner = actx.createStereoPanner ? actx.createStereoPanner() : null;
       chain.reverbSendGain = actx.createGain();
       // side-chain duck node: base gain 1, always in the path. When a
       // duck source is configured, an envelope-follower worklet drives
@@ -1444,7 +1487,9 @@
 
       chain.insertIn.connect(chain.insertDrive);
       chain.insertDrive.connect(chain.insertFilter);
-      chain.insertFilter.connect(chain.duckGain);
+      if(chain.panner){ chain.insertFilter.connect(chain.panner); chain.panner.connect(chain.duckGain); }
+      else chain.insertFilter.connect(chain.duckGain);
+      chain.panner && (chain.panner.pan.value = track.pan || 0);
       chain.duckGain.connect(engine.masterGain);
       chain.duckGain.connect(chain.reverbSendGain);
       chain.reverbSendGain.connect(engine.reverbBus);
@@ -3542,7 +3587,42 @@
      colour-mapped green -> yellow -> red via the CSS gradient.
   ========================================================== */
   const mixerViewEl = document.getElementById("mixerView");
-  const meterPeaks = {}; // key -> held peak 0..1, for smooth decay
+  const meterPeaks = {}; // key -> held peak amp 0..1, for smooth decay
+  const meterHold  = {}; // key -> peak-hold amp 0..1 (slow-falling marker)
+  const meterHoldT = {}; // key -> frames since the hold marker was set
+  const meterClip  = {}; // key -> latched clip flag (>= 0 dBFS)
+
+  /* ---- dB <-> linear gain + fader taper (pro mixer calibration) ----
+     Faders run on a position 0..1 (bottom..top) with a logarithmic taper
+     so unity (0 dB) sits ~80% up and there's fine resolution around it,
+     exactly like a hardware console. Audio gains stay linear internally. */
+  function dbToGain(db){ return (db <= -60 || db === -Infinity) ? 0 : Math.pow(10, db/20); }
+  function gainToDb(g){ return g <= 0 ? -Infinity : 20*Math.log10(g); }
+  function fmtDb(db){ if(db === -Infinity || db <= -60) return "−∞"; return (db > 0 ? "+" : "") + db.toFixed(1); }
+  const FADER_PTS = [[0.0,-60],[0.2,-36],[0.5,-12],[0.8,0],[1.0,6]];
+  function faderPosToDb(p){
+    if(p <= 0) return -Infinity;
+    if(p >= 1) return 6;
+    for(let i=1;i<FADER_PTS.length;i++){
+      if(p <= FADER_PTS[i][0]){ const a=FADER_PTS[i-1], b=FADER_PTS[i]; return a[1] + (b[1]-a[1])*(p-a[0])/(b[0]-a[0]); }
+    }
+    return 6;
+  }
+  function dbToFaderPos(db){
+    if(db <= -60 || db === -Infinity) return 0;
+    if(db >= 6) return 1;
+    for(let i=1;i<FADER_PTS.length;i++){
+      if(db <= FADER_PTS[i][1]){ const a=FADER_PTS[i-1], b=FADER_PTS[i]; return a[0] + (b[0]-a[0])*(db-a[1])/(b[1]-a[1]); }
+    }
+    return 1;
+  }
+  function gainToFaderPos(g){ return dbToFaderPos(gainToDb(g)); }
+  // amplitude peak (0..1) -> meter fill fraction on a -48..0 dBFS scale
+  function ampToMeterFrac(amp){
+    if(amp <= 0) return 0;
+    const db = 20*Math.log10(amp);
+    return Math.max(0, Math.min(1, (db + 48) / 48));
+  }
 
   function renderMixer(){
     mixerViewEl.innerHTML = "";
@@ -3550,10 +3630,19 @@
       const strip = document.createElement("div");
       strip.className = "chstrip";
       strip.style.setProperty("--tc", track.color);
+      const pan = track.pan || 0;
       strip.innerHTML = `
         <div class="ch-name">${track.name}</div>
-        <div class="ch-meter-row"><div class="ch-meter"><div class="ch-meter-fill" data-key="t${tIdx}"></div></div></div>
-        <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1" step="0.01" value="${track.vol}"></div>
+        <div class="ch-clip" data-key="t${tIdx}" title="Clip indicator — tap to reset">CLIP</div>
+        <div class="ch-db" data-dbkey="t${tIdx}">${fmtDb(gainToDb(track.vol))}</div>
+        <div class="ch-fader-row">
+          <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1000" step="1" value="${Math.round(gainToFaderPos(track.vol)*1000)}"></div>
+          <div class="ch-meter"><div class="ch-meter-ch"><div class="ch-meter-fill" data-key="t${tIdx}"></div><div class="ch-meter-peak" data-peakkey="t${tIdx}"></div></div></div>
+        </div>
+        <div class="ch-pan-wrap">
+          <input type="range" class="ch-pan" min="-1" max="1" step="0.02" value="${pan}">
+          <span class="ch-pan-lbl" data-pankey="t${tIdx}">${panLabel(pan)}</span>
+        </div>
         <div class="ch-btn-row">
           <button class="mini-btn mute ${track.mute?'on':''}" data-a="mute">M</button>
           <button class="mini-btn solo ${track.solo?'on':''}" data-a="solo">S</button>
@@ -3565,8 +3654,23 @@
         <span class="ch-fx-label">VERB SEND</span>
         <canvas class="ch-verb-knob"></canvas>
       `;
+      const dbReadout = strip.querySelector(`[data-dbkey="t${tIdx}"]`);
       strip.querySelector(".ch-fader").addEventListener("input", (e) => {
-        track.vol = parseFloat(e.target.value);
+        const db = faderPosToDb(parseInt(e.target.value,10)/1000);
+        track.vol = dbToGain(db);
+        dbReadout.textContent = fmtDb(db);
+      });
+      strip.querySelector(".ch-fader").addEventListener("change", () => pushUndo());
+      const panLbl = strip.querySelector(`[data-pankey="t${tIdx}"]`);
+      strip.querySelector(".ch-pan").addEventListener("input", (e) => {
+        ensureAudio();
+        track.pan = parseFloat(e.target.value);
+        panLbl.textContent = panLabel(track.pan);
+        applyChannelPan(liveEngine, track, tIdx);
+      });
+      strip.querySelector(".ch-pan").addEventListener("change", () => pushUndo());
+      strip.querySelector(`.ch-clip[data-key="t${tIdx}"]`).addEventListener("click", (e) => {
+        meterClip["t"+tIdx] = false; e.target.classList.remove("lit");
       });
       strip.querySelector('[data-a="mute"]').addEventListener("click", (e) => {
         pushUndo(); track.mute = !track.mute; e.target.classList.toggle("on", track.mute);
@@ -3595,14 +3699,28 @@
     masterStrip.className = "chstrip master";
     masterStrip.innerHTML = `
       <div class="ch-name">MASTER</div>
-      <div class="ch-meter-row"><div class="ch-meter"><div class="ch-meter-fill" data-key="master"></div></div></div>
-      <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1" step="0.01" value="0.9"></div>
+      <div class="ch-clip" data-key="master" title="Clip indicator — tap to reset">CLIP</div>
+      <div class="ch-db" data-dbkey="master">${fmtDb(gainToDb(masterVol))}</div>
+      <div class="ch-fader-row">
+        <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1000" step="1" value="${Math.round(gainToFaderPos(masterVol)*1000)}"></div>
+        <div class="ch-meter">
+          <div class="ch-meter-ch"><div class="ch-meter-fill" data-key="masterL"></div><div class="ch-meter-peak" data-peakkey="masterL"></div></div>
+          <div class="ch-meter-ch"><div class="ch-meter-fill" data-key="masterR"></div><div class="ch-meter-peak" data-peakkey="masterR"></div></div>
+        </div>
+      </div>
       <div class="ch-btn-row"><button class="mini-btn fx ${compressorOn?'on':''}" data-a="comp" title="Master compressor">C</button></div>
       <span class="ch-fx-label">REVERB WET</span>
       <canvas class="master-verb-knob"></canvas>
     `;
+    const masterDbReadout = masterStrip.querySelector('[data-dbkey="master"]');
     masterStrip.querySelector(".ch-fader").addEventListener("input", (e) => {
-      if(liveEngine) liveEngine.masterGain.gain.setTargetAtTime(parseFloat(e.target.value), liveEngine.ctx.currentTime, 0.01);
+      const db = faderPosToDb(parseInt(e.target.value,10)/1000);
+      masterVol = dbToGain(db);
+      masterDbReadout.textContent = fmtDb(db);
+      if(liveEngine) liveEngine.masterGain.gain.setTargetAtTime(masterVol, liveEngine.ctx.currentTime, 0.01);
+    });
+    masterStrip.querySelector(".ch-clip[data-key=\"master\"]").addEventListener("click", (e) => {
+      meterClip["masterL"] = false; meterClip["masterR"] = false; e.target.classList.remove("lit");
     });
     masterStrip.querySelector('[data-a="comp"]').addEventListener("click", (e) => {
       ensureAudio();
@@ -3641,23 +3759,33 @@
     return peak;
   }
 
+  // Drives one meter channel: fast-attack/eased-decay fill on a dBFS scale,
+  // a slow-falling peak-hold marker, and a latching clip flag at >= 0 dBFS.
+  function driveMeter(key, rawAmp){
+    const held = meterPeaks[key] || 0;
+    const amp = rawAmp > held ? rawAmp : held * 0.80; // fast attack, eased decay
+    meterPeaks[key] = amp;
+    // peak-hold: jump up instantly, hold ~14 frames, then ease down
+    if(rawAmp >= (meterHold[key] || 0)){ meterHold[key] = rawAmp; meterHoldT[key] = 0; }
+    else { meterHoldT[key] = (meterHoldT[key] || 0) + 1; if(meterHoldT[key] > 14) meterHold[key] = (meterHold[key] || 0) * 0.90; }
+    if(rawAmp >= 0.997) meterClip[key] = true; // 0 dBFS
+    const fill = document.querySelector(`.ch-meter-fill[data-key="${key}"]`);
+    if(fill) fill.style.height = (ampToMeterFrac(amp) * 100) + "%";
+    const peak = document.querySelector(`.ch-meter-peak[data-peakkey="${key}"]`);
+    if(peak) peak.style.bottom = (ampToMeterFrac(meterHold[key] || 0) * 100) + "%";
+  }
   function updateMixerMeters(){
     if(!liveEngine) return;
     TRACKS.forEach((track, tIdx) => {
       const key = "t"+tIdx;
-      const raw = readPeak(liveEngine.tracks[tIdx].analyser);
-      const held = meterPeaks[key] || 0;
-      const next = raw > held ? raw : held * 0.82; // fast attack, eased decay
-      meterPeaks[key] = next;
-      const el = document.querySelector(`.ch-meter-fill[data-key="${key}"]`);
-      if(el) el.style.height = Math.min(next*140, 100) + "%";
+      driveMeter(key, readPeak(liveEngine.tracks[tIdx].analyser));
+      const clipEl = document.querySelector(`.ch-clip[data-key="${key}"]`);
+      if(clipEl) clipEl.classList.toggle("lit", !!meterClip[key]);
     });
-    const rawM = readPeak(liveEngine.masterAnalyser);
-    const heldM = meterPeaks["master"] || 0;
-    const nextM = rawM > heldM ? rawM : heldM * 0.82;
-    meterPeaks["master"] = nextM;
-    const elM = document.querySelector('.ch-meter-fill[data-key="master"]');
-    if(elM) elM.style.height = Math.min(nextM*140, 100) + "%";
+    driveMeter("masterL", readPeak(liveEngine.masterAnalyserL || liveEngine.masterAnalyser));
+    driveMeter("masterR", readPeak(liveEngine.masterAnalyserR || liveEngine.masterAnalyser));
+    const clipM = document.querySelector('.ch-clip[data-key="master"]');
+    if(clipM) clipM.classList.toggle("lit", !!(meterClip["masterL"] || meterClip["masterR"]));
   }
 
   // keep meters animating while the mixer tab is open, even if transport is stopped

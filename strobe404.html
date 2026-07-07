@@ -20,7 +20,9 @@
     --c-red:#141414; --c-pink:#e7e6e0;
     --accent:var(--orange);
     --step-off:#ffffff;
-    --bw:2px;            /* standard black frame width */
+    --bw:2px;            /* strong frame: containers + primary controls only */
+    --hair:#d8d7d0;      /* hairline: repeated inner cells/meters/readouts */
+    --hair-2:#ebeae4;    /* faintest: empty step cells, background grid */
     --r:0px;             /* sharp corners */
     --font:"Helvetica Neue", Helvetica, Arial, "Segoe UI", system-ui, sans-serif;
     --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -167,31 +169,32 @@
   #seqView{flex-direction:column;}
   .seqTop{flex:1; min-height:0; display:flex;}
   #trackHeaders{flex:0 0 130px; background:var(--bg); border-right:var(--bw) solid var(--ink); overflow-y:auto; touch-action:pan-y;}
-  .track-header{height:58px; border-bottom:var(--bw) solid var(--ink); display:flex; flex-direction:column; justify-content:center; gap:5px; padding:5px 7px 5px 14px; position:relative;}
+  .track-header{height:58px; border-bottom:1px solid var(--hair); display:flex; flex-direction:column; justify-content:center; gap:5px; padding:5px 7px 5px 14px; position:relative;}
   .track-header::before{content:""; position:absolute; left:0; top:0; bottom:0; width:8px; background:var(--tc,#ccc); border-right:var(--bw) solid var(--ink);}
   .track-header.selected{background:var(--bg-soft);}
   .track-name-row{display:flex; justify-content:space-between; align-items:center;}
   .track-name{font-weight:800; font-size:12px; color:var(--ink); text-transform:uppercase; letter-spacing:.3px;}
   .hold-hint{color:var(--text-lo); font-size:13px;}
   .track-controls{display:flex; gap:5px; align-items:center;}
-  .mini-btn{width:27px; height:24px; cursor:pointer; background:var(--bg); color:var(--ink); font-size:10px; font-weight:800; border:var(--bw) solid var(--ink); border-radius:var(--r); display:flex; align-items:center; justify-content:center;}
+  .mini-btn{width:27px; height:24px; cursor:pointer; background:var(--bg); color:var(--text-dim); font-size:10px; font-weight:800; border:1px solid var(--hair); border-radius:var(--r); display:flex; align-items:center; justify-content:center;}
   .mini-btn:active{background:var(--ink); color:#fff;}
   .mini-btn.mute.on{background:var(--c-red); color:var(--ink);}
   .mini-btn.solo.on{background:var(--c-yellow); color:var(--ink);}
   .mini-btn.fx.on{background:var(--c-cyan); color:var(--ink);}
-  .vol-track{flex:1; height:14px; position:relative; background:var(--bg); border:var(--bw) solid var(--ink); overflow:hidden;}
+  .vol-track{flex:1; height:14px; position:relative; background:var(--bg); border:1px solid var(--hair); overflow:hidden;}
   .vol-fill{position:absolute; left:0; top:0; bottom:0; background:var(--tc,#bbb);}
 
   #gridScroll{flex:1; overflow-x:auto; overflow-y:auto; touch-action:pan-x pan-y; background:var(--bg-soft);}
   .grid-inner{display:flex; flex-direction:column; min-width:max-content;}
-  .step-row{height:58px; display:flex; align-items:center; border-bottom:var(--bw) solid var(--ink); padding:0 8px; background:var(--bg);}
-  .beat-group{display:flex; gap:5px; margin-right:8px; padding-right:8px; border-right:var(--bw) solid var(--ink);}
+  .step-row{height:58px; display:flex; align-items:center; border-bottom:1px solid var(--hair); padding:0 8px; background:var(--bg);}
+  .beat-group{display:flex; gap:5px; margin-right:9px; padding-right:9px; border-right:1px solid var(--hair);}
   .beat-group:last-child{border-right:none;}
-  .step-cell{width:38px; height:38px; cursor:pointer; position:relative; background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); display:flex; align-items:center; justify-content:center;}
-  .step-cell.beat-lead{box-shadow:inset 3px 0 0 var(--ink);}
-  .step-cell.on{background:var(--tc,var(--c-orange));}
+  /* empty cells recede to a faint outline; only hits carry weight */
+  .step-cell{width:38px; height:38px; cursor:pointer; position:relative; background:var(--bg); border:1px solid var(--hair); border-radius:var(--r); display:flex; align-items:center; justify-content:center;}
+  .step-cell.beat-lead{border-left:2px solid var(--grey);}
+  .step-cell.on{background:var(--tc,var(--c-orange)); border-color:var(--ink);}
   .step-cell.on.accent{}
-  .step-cell.playhead{outline:3px solid var(--c-blue); outline-offset:1px; z-index:1;}
+  .step-cell.playhead{outline:2px solid var(--orange); outline-offset:1px; z-index:1;}
   .step-num{position:absolute; bottom:-13px; font-size:8px; color:var(--text-lo); left:50%; transform:translateX(-50%);}
 
   /* step graph */
@@ -251,7 +254,7 @@
   #arrangeScroll.drop-hover{outline:3px dashed var(--orange); outline-offset:-3px;}
   .arrangeTop{flex:1; min-height:0; display:flex;}
   #arrangeHeaders{flex:0 0 130px; background:var(--bg); border-right:var(--bw) solid var(--ink); overflow-y:auto; touch-action:pan-y;}
-  .arrange-header{height:52px; border-bottom:var(--bw) solid var(--ink); display:flex; flex-direction:column; justify-content:center; gap:2px; padding:5px 7px 5px 14px; position:relative;}
+  .arrange-header{height:52px; border-bottom:1px solid var(--hair); display:flex; flex-direction:column; justify-content:center; gap:2px; padding:5px 7px 5px 14px; position:relative;}
   .arrange-header::before{content:""; position:absolute; left:0; top:0; bottom:0; width:8px; background:var(--tc,#ccc); border-right:var(--bw) solid var(--ink);}
   .arrange-header .track-name{font-size:11px;}
   .arrange-header .track-type{font-size:9px; color:var(--text-lo); text-transform:uppercase; letter-spacing:.5px; font-weight:800;}
@@ -259,11 +262,12 @@
   .arrange-inner{position:relative; min-width:max-content;}
   .arrange-ruler{height:22px; display:flex; border-bottom:var(--bw) solid var(--ink); position:sticky; top:0; background:var(--bg); z-index:2;}
   .ruler-bar{flex:0 0 var(--bar-w); border-right:1px solid var(--ink); font-size:9px; color:var(--ink); padding-left:5px; display:flex; align-items:center; font-weight:800; text-transform:uppercase;}
-  .arrange-lane{height:52px; border-bottom:var(--bw) solid var(--ink); display:flex; position:relative;}
-  .arrange-cell{flex:0 0 var(--bar-w); border-right:1px solid #c8c8c2; position:relative; cursor:pointer;}
-  .arrange-clip{position:absolute; top:4px; bottom:4px; left:3px; right:3px; background:var(--bg); border:var(--bw) solid #c8c8c2; display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text-lo); font-weight:800;}
-  .arrange-clip.active{background:var(--tc,var(--c-cyan)); border-color:var(--ink); color:var(--tci,var(--ink)); text-transform:uppercase;}
-  .arrange-clip.active.playing-bar{outline:3px solid var(--c-blue); outline-offset:-1px;}
+  .arrange-lane{height:52px; border-bottom:1px solid var(--hair); display:flex; position:relative;}
+  .arrange-cell{flex:0 0 var(--bar-w); border-right:1px solid var(--hair-2); position:relative; cursor:pointer;}
+  /* empty cells stay blank; active clips are flush so a run reads as one band */
+  .arrange-clip{position:absolute; top:4px; bottom:4px; left:0; right:0; display:flex; align-items:center; padding:0 8px; font-size:10px; color:var(--text-lo); font-weight:800; text-transform:uppercase; letter-spacing:.4px;}
+  .arrange-clip.active{background:var(--tc,var(--grey)); color:var(--tci,#fff);}
+  .arrange-clip.active.playing-bar{outline:2px solid var(--orange); outline-offset:-2px;}
 
   /* ===================== MIXER ===================== */
   #mixerView{overflow-x:auto; touch-action:pan-x; padding:10px 8px; gap:7px; align-items:stretch; background:var(--bg-soft);}
@@ -273,24 +277,24 @@
   .chstrip.master::before{background:var(--orange);}
   .ch-name{font-size:10px; font-weight:800; text-align:center; height:15px; color:var(--ink); text-transform:uppercase; letter-spacing:.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;}
   /* clip LED: latches when a channel hits 0 dBFS, tap to reset */
-  .ch-clip{width:100%; height:11px; border:var(--bw) solid var(--ink); background:var(--bg-soft2); font-size:8px; font-weight:800; line-height:9px; text-align:center; color:var(--text-dim); letter-spacing:.5px; cursor:pointer; text-transform:uppercase;}
+  .ch-clip{width:100%; height:11px; border:1px solid var(--hair); background:var(--bg-soft2); font-size:8px; font-weight:800; line-height:9px; text-align:center; color:var(--text-dim); letter-spacing:.5px; cursor:pointer; text-transform:uppercase;}
   .ch-clip.lit{background:var(--c-red); color:#fff;}
   /* fader + meter side by side */
   .ch-fader-row{display:flex; align-items:stretch; justify-content:center; gap:5px; flex:1 1 auto; min-height:120px; width:100%;}
   .ch-fader-wrap{flex:0 0 30px; display:flex; align-items:center; justify-content:center; position:relative;}
   .ch-fader{-webkit-appearance:none; appearance:none; width:120px; height:26px; transform:rotate(-90deg); background:transparent; touch-action:none;}
-  .ch-fader::-webkit-slider-runnable-track{background:linear-gradient(to right,var(--bg-soft2),var(--bg)); height:7px; border:var(--bw) solid var(--ink);}
-  .ch-fader::-moz-range-track{background:var(--bg); height:7px; border:var(--bw) solid var(--ink);}
+  .ch-fader::-webkit-slider-runnable-track{background:var(--bg-soft2); height:7px; border:1px solid var(--hair);}
+  .ch-fader::-moz-range-track{background:var(--bg-soft2); height:7px; border:1px solid var(--hair);}
   .ch-fader::-webkit-slider-thumb{-webkit-appearance:none; width:22px; height:16px; background:var(--tc,var(--ink)); border:var(--bw) solid var(--ink); margin-top:-6px; box-shadow:0 0 0 1px var(--bg);}
   .ch-fader::-moz-range-thumb{width:22px; height:16px; background:var(--tc,var(--ink)); border:var(--bw) solid var(--ink); border-radius:0;}
   .chstrip.master .ch-fader::-webkit-slider-thumb{background:var(--orange);}
   /* 0 dB unity tick behind the fader */
   .ch-fader-wrap::after{content:""; position:absolute; left:2px; right:2px; top:35.6%; height:2px; background:var(--ink); opacity:.35; pointer-events:none;}
   .ch-meter{flex:0 0 auto; width:9px; height:100%; display:flex; gap:1px;}
-  .ch-meter-ch{position:relative; flex:1 1 auto; background:var(--bg-soft2); overflow:hidden; border:var(--bw) solid var(--ink);}
+  .ch-meter-ch{position:relative; flex:1 1 auto; background:var(--bg-soft2); overflow:hidden; border:1px solid var(--hair);}
   .ch-meter-fill{position:absolute; left:0; right:0; bottom:0; background:linear-gradient(to top, var(--c-green) 0%, var(--c-green) 60%, var(--amber) 80%, var(--c-red) 100%); height:0%;}
   .ch-meter-peak{position:absolute; left:0; right:0; height:2px; background:var(--ink); bottom:0;}
-  .ch-db{font-size:9px; font-weight:800; height:13px; line-height:13px; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.2px; width:100%; text-align:center; background:var(--bg-soft2); border:var(--bw) solid var(--ink);}
+  .ch-db{font-size:9px; font-weight:800; height:13px; line-height:13px; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.2px; width:100%; text-align:center; background:var(--bg-soft2); border:1px solid var(--hair);}
   .ch-pan-wrap{width:100%; display:flex; flex-direction:column; align-items:center; gap:1px;}
   .ch-pan{-webkit-appearance:none; appearance:none; width:100%; height:14px; background:transparent; touch-action:none;}
   .ch-pan::-webkit-slider-runnable-track{background:var(--bg); height:4px; border:var(--bw) solid var(--ink);}
@@ -3585,7 +3589,10 @@
         const patNum = songArrangement[b] || 0;
         clip.className = "arrange-clip" + (patNum ? " active" : "");
         if(patNum){ clip.style.setProperty("--tc", track.color); clip.style.setProperty("--tci", track.ink); }
-        clip.textContent = patNum ? track.name : "";
+        // label only the first bar of a contiguous run of the same pattern,
+        // so a long clip reads as one block instead of a wall of labels
+        const prevPat = b > 0 ? (songArrangement[b-1] || 0) : -1;
+        clip.textContent = (patNum && patNum !== prevPat) ? track.name : "";
         let lastTap = 0;
         clip.addEventListener("click", () => {
           const now = Date.now();

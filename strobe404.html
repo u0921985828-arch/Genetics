@@ -302,6 +302,17 @@
   .ch-fx-row{display:flex; gap:4px;}
   .ch-fx-label{font-size:8px; color:var(--text-dim); letter-spacing:.4px; text-align:center; width:100%; text-transform:uppercase; font-weight:800;}
   .ch-verb-knob, .master-verb-knob{width:100%; height:32px; flex:0 0 32px; touch-action:none;}
+  .ch-gr{font-size:8px; font-weight:800; width:100%; text-align:center; color:var(--text-dim); letter-spacing:.3px; height:11px; line-height:11px;}
+  .ch-gr.active{color:var(--c-red);}
+  /* per-channel EQ popup */
+  .eq-popup{position:fixed; z-index:80; background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); padding:10px; width:214px; box-shadow:4px 4px 0 rgba(0,0,0,.18);}
+  .eq-title{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; margin-bottom:8px; color:var(--ink);}
+  .eq-row{display:flex; align-items:center; gap:8px; margin-bottom:7px;}
+  .eq-lbl{flex:0 0 34px; font-size:9px; font-weight:800; color:var(--text-dim); letter-spacing:.3px;}
+  .eq-slider{flex:1; height:20px; touch-action:none;}
+  .eq-val{flex:0 0 34px; font-size:10px; font-weight:800; text-align:right; font-variant-numeric:tabular-nums; color:var(--ink);}
+  .eq-flat{width:100%; margin-top:3px; padding:6px; font-size:10px; font-weight:800; text-transform:uppercase; background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); cursor:pointer;}
+  .eq-flat:active{background:var(--ink); color:#fff;}
 
   /* ===================== PADS ===================== */
   #padsView{padding:10px; overflow-y:auto; touch-action:pan-y; background:var(--bg-soft);}
@@ -813,6 +824,7 @@
     track.fxFilterOn = false; track.fxFilterCutoff = 0.7;
     track.reverbSend = 0.0;
     track.pan = 0; // mixer channel pan, -1 (L) .. +1 (R)
+    track.eq = {lo:0, mid:0, hi:0}; // 3-band channel EQ, dB (-15..+15)
     track.arp = {on:false, dir:"up", octaves:1, rate:"1/16"};
     // one live-recordable cutoff automation lane per pattern -- null means
     // "no recorded point here, fall back to the track's static cutoff knob"
@@ -864,7 +876,7 @@
       return steps;
     });
     return {
-      vol:def.vol, pan:0, mute:false, solo:false, wave:def.wave, adsr:{...def.adsr}, cutoff:def.cutoff,
+      vol:def.vol, pan:0, eq:{lo:0,mid:0,hi:0}, mute:false, solo:false, wave:def.wave, adsr:{...def.adsr}, cutoff:def.cutoff,
       delaySend:def.delaySend, cutGroup:def.cutGroup, hold:def.hold, poly:def.poly,
       fxDrive:false, fxDriveAmt:0.4, fxFilterOn:false, fxFilterCutoff:0.7, reverbSend:0.0,
       arp:{on:false, dir:"up", octaves:1, rate:"1/16"},
@@ -965,7 +977,7 @@
       automation,
       audioClips: audioClips.map(c => ({ name:c.name, bar:c.bar, gain:c.gain, durationBars:c.durationBars })),
       tracks: TRACKS.map(t => ({
-        vol:t.vol, pan:t.pan, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
+        vol:t.vol, pan:t.pan, eq:t.eq, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
         delaySend:t.delaySend, cutGroup:t.cutGroup, hold:t.hold, poly:t.poly,
         fxDrive:t.fxDrive, fxDriveAmt:t.fxDriveAmt, fxFilterOn:t.fxFilterOn, fxFilterCutoff:t.fxFilterCutoff,
         reverbSend:t.reverbSend, arp:t.arp, patterns:t.patterns, autoCutoff:t.autoCutoff,
@@ -1226,7 +1238,7 @@
       const s = data.tracks[i];
       if(!s) return;
       Object.assign(t, {
-        vol:s.vol, pan:(s.pan != null ? s.pan : 0), mute:s.mute, solo:s.solo, wave:s.wave, adsr:s.adsr, cutoff:s.cutoff,
+        vol:s.vol, pan:(s.pan != null ? s.pan : 0), eq:(s.eq && typeof s.eq === "object" ? {lo:s.eq.lo||0, mid:s.eq.mid||0, hi:s.eq.hi||0} : {lo:0,mid:0,hi:0}), mute:s.mute, solo:s.solo, wave:s.wave, adsr:s.adsr, cutoff:s.cutoff,
         delaySend:s.delaySend, cutGroup:s.cutGroup, hold:s.hold, poly:s.poly,
         fxDrive:s.fxDrive, fxDriveAmt:s.fxDriveAmt, fxFilterOn:s.fxFilterOn, fxFilterCutoff:s.fxFilterCutoff,
         reverbSend:s.reverbSend, arp:s.arp, patterns:s.patterns, autoCutoff:s.autoCutoff,
@@ -1442,6 +1454,10 @@
     chain.insertFilter.frequency.setTargetAtTime(targetHz, engine.ctx.currentTime, 0.01);
     chain.reverbSendGain.gain.setTargetAtTime(track.reverbSend, engine.ctx.currentTime, 0.01);
     if(chain.panner) chain.panner.pan.setTargetAtTime(track.pan || 0, engine.ctx.currentTime, 0.01);
+    const eq = track.eq || {lo:0, mid:0, hi:0};
+    if(chain.eqLo) chain.eqLo.gain.setTargetAtTime(eq.lo || 0, engine.ctx.currentTime, 0.01);
+    if(chain.eqMid) chain.eqMid.gain.setTargetAtTime(eq.mid || 0, engine.ctx.currentTime, 0.01);
+    if(chain.eqHi) chain.eqHi.gain.setTargetAtTime(eq.hi || 0, engine.ctx.currentTime, 0.01);
   }
 
   // Applies a track's mixer-strip pan to its channel StereoPanner.
@@ -1542,6 +1558,11 @@
       chain.analyser.fftSize = 256;
 
       chain.insertIn = actx.createGain();
+      // 3-band channel EQ: low shelf, mid peak, high shelf (dB gains, flat
+      // at 0 dB so it's transparent until dialed in).
+      chain.eqLo = actx.createBiquadFilter(); chain.eqLo.type = "lowshelf";  chain.eqLo.frequency.value = 120;
+      chain.eqMid = actx.createBiquadFilter(); chain.eqMid.type = "peaking"; chain.eqMid.frequency.value = 1000; chain.eqMid.Q.value = 1;
+      chain.eqHi = actx.createBiquadFilter(); chain.eqHi.type = "highshelf"; chain.eqHi.frequency.value = 6000;
       chain.insertDrive = actx.createWaveShaper();
       chain.insertFilter = actx.createBiquadFilter();
       chain.insertFilter.type = "lowpass";
@@ -1560,7 +1581,11 @@
       chain.duckGain = actx.createGain();
       chain.duckGain.gain.value = 1;
 
-      chain.insertIn.connect(chain.insertDrive);
+      // insertIn -> EQ(lo->mid->hi) -> Drive -> Filter -> ...
+      chain.insertIn.connect(chain.eqLo);
+      chain.eqLo.connect(chain.eqMid);
+      chain.eqMid.connect(chain.eqHi);
+      chain.eqHi.connect(chain.insertDrive);
       chain.insertDrive.connect(chain.insertFilter);
       // insertFilter -> [panner] -> channelGain(VCA) -> duckGain
       let tail = chain.insertFilter;
@@ -4098,6 +4123,45 @@
   autoCanvas.addEventListener("pointerup", endAutoDrag);
   autoCanvas.addEventListener("pointercancel", endAutoDrag);
 
+  function eqActive(track){ const e = track.eq || {}; return (e.lo||0) !== 0 || (e.mid||0) !== 0 || (e.hi||0) !== 0; }
+  let eqPopupEl = null;
+  function closeEQPopup(){ if(eqPopupEl){ eqPopupEl.remove(); eqPopupEl = null; document.removeEventListener("pointerdown", eqOutsideHandler, true); } }
+  function eqOutsideHandler(e){ if(eqPopupEl && !eqPopupEl.contains(e.target)) closeEQPopup(); }
+  function showChannelEQ(anchor, track, tIdx){
+    closeEQPopup();
+    const eq = track.eq || (track.eq = {lo:0, mid:0, hi:0});
+    const BANDS = [["lo","LOW"],["mid","MID"],["hi","HIGH"]];
+    eqPopupEl = document.createElement("div");
+    eqPopupEl.className = "eq-popup";
+    eqPopupEl.innerHTML = `<div class="eq-title">${track.name} · EQ (dB)</div>` +
+      BANDS.map(([b,lbl]) => `<div class="eq-row"><span class="eq-lbl">${lbl}</span>` +
+        `<input type="range" class="eq-slider" data-band="${b}" min="-15" max="15" step="0.5" value="${eq[b]||0}">` +
+        `<span class="eq-val" data-val="${b}">${fmtDb(eq[b]||0)}</span></div>`).join("") +
+      `<button class="eq-flat">Flat</button>`;
+    document.body.appendChild(eqPopupEl);
+    const rect = anchor.getBoundingClientRect();
+    const pw = eqPopupEl.offsetWidth, ph = eqPopupEl.offsetHeight;
+    let left = Math.max(6, Math.min(rect.left + rect.width/2 - pw/2, window.innerWidth - pw - 6));
+    let top = rect.top - ph - 8; if(top < 6) top = rect.bottom + 8;
+    eqPopupEl.style.left = left + "px"; eqPopupEl.style.top = top + "px";
+    pushUndo();
+    eqPopupEl.querySelectorAll(".eq-slider").forEach(sl => {
+      sl.addEventListener("input", () => {
+        const b = sl.dataset.band; eq[b] = parseFloat(sl.value);
+        eqPopupEl.querySelector(`[data-val="${b}"]`).textContent = fmtDb(eq[b]);
+        updateTrackInsertFX(liveEngine, track, tIdx);
+        anchor.classList.toggle("on", eqActive(track));
+      });
+      sl.addEventListener("change", () => saveProject());
+    });
+    eqPopupEl.querySelector(".eq-flat").addEventListener("click", () => {
+      eq.lo = eq.mid = eq.hi = 0;
+      eqPopupEl.querySelectorAll(".eq-slider").forEach(sl => { sl.value = 0; eqPopupEl.querySelector(`[data-val="${sl.dataset.band}"]`).textContent = fmtDb(0); });
+      updateTrackInsertFX(liveEngine, track, tIdx); anchor.classList.remove("on"); saveProject();
+    });
+    setTimeout(() => document.addEventListener("pointerdown", eqOutsideHandler, true), 0);
+  }
+
   function renderMixer(){
     mixerViewEl.innerHTML = "";
     TRACKS.forEach((track, tIdx) => {
@@ -4124,6 +4188,7 @@
         <div class="ch-fx-row">
           <button class="mini-btn fx ${track.fxDrive?'on':''}" data-a="drive" title="Drive insert">D</button>
           <button class="mini-btn fx ${track.fxFilterOn?'on':''}" data-a="filt" title="Filter insert">F</button>
+          <button class="mini-btn fx ${eqActive(track)?'on':''}" data-a="eq" title="3-band EQ">EQ</button>
         </div>
         <span class="ch-fx-label">VERB SEND</span>
         <canvas class="ch-verb-knob"></canvas>
@@ -4164,6 +4229,9 @@
         pushUndo(); track.fxFilterOn = !track.fxFilterOn; e.target.classList.toggle("on", track.fxFilterOn);
         updateTrackInsertFX(liveEngine, track, tIdx);
       });
+      strip.querySelector('[data-a="eq"]').addEventListener("click", (e) => {
+        ensureAudio(); showChannelEQ(e.target, track, tIdx);
+      });
       bindKnob(strip.querySelector(".ch-verb-knob"), () => track.reverbSend, (v) => {
         ensureAudio(); track.reverbSend = v; updateTrackInsertFX(liveEngine, track, tIdx);
       });
@@ -4182,7 +4250,8 @@
           <div class="ch-meter-ch"><div class="ch-meter-fill" data-key="masterR"></div><div class="ch-meter-peak" data-peakkey="masterR"></div></div>
         </div>
       </div>
-      <div class="ch-btn-row"><button class="mini-btn fx ${compressorOn?'on':''}" data-a="comp" title="Master compressor">C</button></div>
+      <div class="ch-gr" data-grkey="master" title="Master compressor gain reduction">GR 0.0</div>
+      <div class="ch-btn-row"><button class="mini-btn fx ${compressorOn?'on':''}" data-a="comp" title="Master compressor / limiter">C</button></div>
       <span class="ch-fx-label">REVERB WET</span>
       <canvas class="master-verb-knob"></canvas>
     `;
@@ -4277,6 +4346,13 @@
       const clipped = !!(meterClip["masterL"] || meterClip["masterR"]);
       clipM.classList.toggle("lit", clipped);
       clipM.textContent = clipped ? "CLIP" : fmtLevel(Math.max(meterHold["masterL"]||0, meterHold["masterR"]||0));
+    }
+    // master compressor gain reduction (negative dB) as a live GR meter
+    const grEl = document.querySelector('.ch-gr[data-grkey="master"]');
+    if(grEl && liveEngine.compressor){
+      const gr = liveEngine.compressor.reduction; // <= 0 dB
+      grEl.textContent = "GR " + (gr < -0.05 ? gr.toFixed(1) : "0.0");
+      grEl.classList.toggle("active", gr < -0.5);
     }
   }
 

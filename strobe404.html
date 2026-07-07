@@ -397,6 +397,10 @@
       <div class="ctl"><button id="songLenField" class="menu-btn"><span id="songLenDisplay">8</span> bars</button></div>
     </div>
     <div class="menu-row">
+      <label>Pattern Length (steps)</label>
+      <div class="ctl"><button id="stepLenBtn" class="menu-btn">16 steps</button></div>
+    </div>
+    <div class="menu-row">
       <label>Metronome</label>
       <div class="ctl"><button id="metroMenuBtn" class="menu-btn">OFF</button></div>
     </div>
@@ -650,8 +654,35 @@
   /* =========================================================
      STATE
   ========================================================== */
-  const STEPS_PER_TRACK = 16;
+  let STEPS_PER_TRACK = 16; // steps per pattern (16 / 32 / 64), user-selectable
   const STEPS_PER_BEAT = 4; // 16th-note grid
+
+  function makeStep(){ return {on:false, vel:1, pan:0, pitch:0, rep:1}; }
+
+  // Resize every pattern (and its automation lane) to n steps, keeping
+  // existing steps and padding/truncating the rest. Kept BPM-clock safe:
+  // one pattern still equals one arrangement bar, just with more steps.
+  function setStepCount(n){
+    n = [16,32,64].includes(n) ? n : 16;
+    if(n === STEPS_PER_TRACK) return;
+    pushUndo();
+    TRACKS.forEach(t => {
+      t.patterns = t.patterns.map(steps => {
+        const arr = steps.slice(0, n);
+        while(arr.length < n) arr.push(makeStep());
+        return arr;
+      });
+      t.autoCutoff = t.autoCutoff.map(ac => {
+        const arr = ac.slice(0, n);
+        while(arr.length < n) arr.push(null);
+        return arr;
+      });
+    });
+    STEPS_PER_TRACK = n;
+    renderGrid(); renderGraphBars();
+    if(document.getElementById("pianoRollOverlay").classList.contains("open")) renderPianoRoll();
+    if(typeof stepLenBtn !== "undefined" && stepLenBtn) stepLenBtn.textContent = STEPS_PER_TRACK + " steps";
+  }
 
   // Like FL Studio, a "Pattern" is a full 16-step snapshot for a track.
   // A track keeps several of these (PATTERN_COUNT) and the transport's
@@ -661,7 +692,7 @@
 
   function makeSteps(){
     const arr = [];
-    for(let i=0;i<STEPS_PER_TRACK;i++) arr.push({on:false, vel:1, pan:0, pitch:0, rep:1});
+    for(let i=0;i<STEPS_PER_TRACK;i++) arr.push(makeStep());
     return arr;
   }
   function makePatterns(){
@@ -772,6 +803,7 @@
     return {
       v: 1,
       bpm, songBars, songArrangement, currentPattern, songMode, swingAmount, compressorOn, patternNames,
+      stepCount: STEPS_PER_TRACK,
       delaySync: document.getElementById("delaySync").value,
       lfoSync: document.getElementById("lfoSync").value,
       tracks: TRACKS.map(t => ({
@@ -923,6 +955,7 @@
     songBars = data.songBars || 8;
     songArrangement = Array.isArray(data.songArrangement) ? data.songArrangement : new Array(songBars).fill(1);
     currentPattern = data.currentPattern || 0;
+    STEPS_PER_TRACK = [16,32,64].includes(data.stepCount) ? data.stepCount : 16;
     patternNames = Array.isArray(data.patternNames) ? data.patternNames.slice(0, PATTERN_COUNT) : new Array(PATTERN_COUNT).fill("");
     while(patternNames.length < PATTERN_COUNT) patternNames.push("");
     songMode = !!data.songMode;
@@ -2818,6 +2851,14 @@
     renderArrangeView();
   });
 
+  const stepLenBtn = document.getElementById("stepLenBtn");
+  stepLenBtn.textContent = STEPS_PER_TRACK + " steps";
+  stepLenBtn.addEventListener("click", () => {
+    const options = [16,32,64];
+    setStepCount(options[(options.indexOf(STEPS_PER_TRACK)+1) % options.length]);
+    stepLenBtn.textContent = STEPS_PER_TRACK + " steps";
+  });
+
   function renderArrangeHeaders(){
     arrangeHeadersEl.innerHTML = "";
     const patRow = document.createElement("div");
@@ -2855,16 +2896,21 @@
     patLane.className = "arrange-lane";
     for(let b=0;b<songBars;b++){
       const cell = document.createElement("div");
-      cell.className = "arrange-cell";
+      cell.className = "arrange-cell patcell";
       cell.dataset.bar = b;
       const clip = document.createElement("div");
       const patNum = songArrangement[b] || 0;
       clip.className = "arrange-clip" + (patNum ? " active" : "");
       if(patNum){ const pc = PATTERN_COLORS[(patNum-1) % PATTERN_COLORS.length]; clip.style.setProperty("--tc", pc); clip.style.setProperty("--tci", inkFor(pc)); }
       clip.textContent = patNum ? ("P" + patNum) : "";
-      clip.addEventListener("click", () => {
+      // tap cycles the bar's pattern; then dragging paints that same value
+      // across the bars you sweep over (FL-style clip painting).
+      cell.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
         pushUndo();
         songArrangement[b] = ((songArrangement[b] || 0) + 1) % (PATTERN_COUNT + 1);
+        plPaintValue = songArrangement[b];
+        plPainting = true;
         renderArrangeLanes();
       });
       cell.appendChild(clip);
@@ -2920,6 +2966,21 @@
     renderArrangeRuler();
     renderArrangeLanes();
   }
+
+  /* ---- playlist paint: drag across bars to stamp the same pattern ---- */
+  let plPainting = false, plPaintValue = 0;
+  document.addEventListener("pointermove", (e) => {
+    if(!plPainting) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const cell = el && el.closest(".patcell");
+    if(!cell) return;
+    const b = parseInt(cell.dataset.bar, 10);
+    if(isNaN(b) || songArrangement[b] === plPaintValue) return;
+    songArrangement[b] = plPaintValue;
+    renderArrangeLanes();
+  });
+  document.addEventListener("pointerup", () => { plPainting = false; });
+  document.addEventListener("pointercancel", () => { plPainting = false; });
 
   /* =========================================================
      PIANO ROLL OVERLAY

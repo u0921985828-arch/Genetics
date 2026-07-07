@@ -333,6 +333,15 @@
   .pr-cell.beat-lead{border-right:var(--bw) solid var(--ink);}
   .pr-note{position:absolute; inset:2px; background:var(--c-orange); border:var(--bw) solid var(--ink);}
 
+  #autoOverlay{position:fixed; inset:0; z-index:60; background:var(--bg); display:none; flex-direction:column;}
+  #autoOverlay.open{display:flex;}
+  .auto-sel{font-size:12px; font-weight:800; padding:6px 8px; background:var(--bg); color:var(--ink); border:var(--bw) solid var(--ink); border-radius:var(--r); text-transform:uppercase; max-width:200px;}
+  #autoBody{flex:1; display:flex; min-height:0;}
+  #autoScaleCol{flex:0 0 42px; background:var(--bg); border-right:var(--bw) solid var(--ink); position:relative;}
+  .auto-tick{position:absolute; right:5px; font-size:8px; font-weight:800; color:var(--text-dim); transform:translateY(-50%);}
+  #autoLaneScroll{flex:1; overflow-x:auto; overflow-y:hidden; touch-action:pan-x; background:var(--bg-soft);}
+  #autoCanvas{display:block; height:100%; touch-action:none; background:var(--bg-soft);}
+
   #libraryOverlay{position:fixed; inset:0; z-index:60; background:var(--bg); display:none; flex-direction:column;}
   #libraryOverlay.open{display:flex;}
   #libBody{flex:1; overflow-y:auto; touch-action:pan-y; padding:12px;}
@@ -604,6 +613,7 @@
         <span class="pl-lbl">Pattern</span>
         <div class="pl-pats" id="plPatPicker"></div>
         <div class="t-spacer"></div>
+        <button id="plAutoBtn" class="menu-btn" title="Draw automation curves over the song">Auto</button>
         <button id="plRecBtn" class="menu-btn" title="Resample the master output into an audio clip">&#9679; Rec</button>
         <button id="plAddAudioBtn" class="menu-btn">+ Audio</button>
         <button id="plClearBtn" class="menu-btn">Clear all</button>
@@ -663,6 +673,23 @@
     </div>
     <div id="libFavorites" class="lib-grid"></div>
     <div id="libFavEmpty" class="lib-empty">No saved samples yet — import or record a sample, then "Save Current Track".</div>
+  </div>
+</div>
+
+<div id="autoOverlay">
+  <div class="pr-topbar">
+    <span>Automation — <b id="autoTargetName">Master · Volume</b></span>
+    <span class="hold-hint">tap lane = add point &nbsp;•&nbsp; drag = move &nbsp;•&nbsp; tap a point = delete</span>
+    <div class="t-spacer"></div>
+    <select id="autoTargetSel" class="auto-sel"></select>
+    <button id="autoClearBtn" class="menu-btn">Clear lane</button>
+    <button class="pr-close" id="autoCloseBtn">&#10005;</button>
+  </div>
+  <div id="autoBody">
+    <div id="autoScaleCol"></div>
+    <div id="autoLaneScroll">
+      <canvas id="autoCanvas"></canvas>
+    </div>
   </div>
 </div>
 
@@ -836,7 +863,7 @@
       v:1, bpm:120, songBars:8,
       songArrangement:new Array(8).fill(withDemo ? 1 : 0),
       currentPattern:0, songMode:false, swingAmount:0, compressorOn:true, masterVol:0.9,
-      patternNames:new Array(PATTERN_COUNT).fill(""), stepCount:16,
+      patternNames:new Array(PATTERN_COUNT).fill(""), stepCount:16, automation:{},
       delaySync:"1/8.", lfoSync:"1/4",
       tracks: DEMO_DEFS.map((def, i) => serializedTrackData(def, withDemo ? DEMO_HITS[i] : null))
     };
@@ -891,6 +918,12 @@
   // the start of their bar.
   let audioClips = [];
   let audioClipSeq = 1;
+  // Song automation: targetId -> sorted [{b:barFloat, v:0..1}] breakpoints.
+  // Applied as continuous AudioParam ramps during SONG playback + bounce,
+  // riding dedicated graph nodes so base track state is never mutated.
+  let automation = {};
+  let autoTarget = "master.vol"; // target currently shown in the editor
+  let autoBaseReverb = 0.9;      // reverb-wet base captured at play() to restore on stop
   let masterVol = 0.9;     // master fader linear gain (0 dB = 1.0), persisted
   let compressorOn = true; // master-bus compressor toggle, shared by live + export
   let metroOn = false;     // metronome click on each beat
@@ -914,6 +947,7 @@
       stepCount: STEPS_PER_TRACK, masterVol,
       delaySync: document.getElementById("delaySync").value,
       lfoSync: document.getElementById("lfoSync").value,
+      automation,
       audioClips: audioClips.map(c => ({ name:c.name, bar:c.bar, gain:c.gain, durationBars:c.durationBars })),
       tracks: TRACKS.map(t => ({
         vol:t.vol, pan:t.pan, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
@@ -1162,6 +1196,17 @@
     swingAmount = data.swingAmount || 0;
     compressorOn = data.compressorOn !== false;
     masterVol = data.masterVol != null ? data.masterVol : 0.9;
+    // song automation: sanitize into {targetId: [{b,v}...]} sorted by bar
+    automation = {};
+    if(data.automation && typeof data.automation === "object"){
+      for(const id in data.automation){
+        const pts = data.automation[id];
+        if(Array.isArray(pts)) automation[id] = pts
+          .filter(p => p && isFinite(p.b) && isFinite(p.v))
+          .map(p => ({b: Math.max(0, +p.b), v: Math.min(1, Math.max(0, +p.v))}))
+          .sort((a,b) => a.b - b.b);
+      }
+    }
     TRACKS.forEach((t, i) => {
       const s = data.tracks[i];
       if(!s) return;
@@ -1250,6 +1295,7 @@
     if(document.getElementById("mixerView").classList.contains("active")) renderMixer();
     if(document.getElementById("padsView").classList.contains("active")) renderPads();
     if(document.getElementById("pianoRollOverlay").classList.contains("open")) renderPianoRoll();
+    if(document.getElementById("autoOverlay").classList.contains("open") && typeof buildAutoTargetOptions === "function"){ buildAutoTargetOptions(); renderAutoLane(); }
     setPattern(currentPattern);
     setSongMode(songMode);
     if(typeof songLenDisplayEl !== "undefined" && songLenDisplayEl) songLenDisplayEl.textContent = songBars;
@@ -1809,6 +1855,8 @@
       if(songMode && stepIndexForSchedule === 0){
         triggerAudioClipsForBar(liveEngine, currentBar, nextStepTime);
       }
+      // song automation: ramp continuous params to this step's curve value
+      if(songMode) applySongAutomation(liveEngine, barForThisStep, stepIndexForSchedule, nextStepTime);
       scheduleStep(liveEngine, stepIndexForSchedule, triggerTime, barForThisStep);
       stepQueue.push({step:stepIndexForSchedule, bar:barForThisStep, time:triggerTime});
       nextStepTime += stepDuration();
@@ -1832,6 +1880,67 @@
     for(let i=stepIdx;i>=0;i--){ if(arr[i] != null) return arr[i]; }
     return null;
   }
+
+  /* ---- SONG automation: interpolate + apply to continuous AudioParams ----
+     Values are stored normalized 0..1; each target maps that to its own
+     range. Everything routes to AudioParams (masterGain, reverbWet, per-
+     channel VCA/pan/filter/send) so it works identically live and offline
+     and never overwrites the base track knobs. */
+  function songAutoValueAt(targetId, barPos){
+    const pts = automation[targetId];
+    if(!pts || !pts.length) return null;
+    if(barPos <= pts[0].b) return pts[0].v;
+    if(barPos >= pts[pts.length-1].b) return pts[pts.length-1].v;
+    for(let i=1;i<pts.length;i++){
+      if(barPos <= pts[i].b){ const p0=pts[i-1], p1=pts[i]; const f=(barPos-p0.b)/((p1.b-p0.b)||1); return p0.v + (p1.v-p0.v)*f; }
+    }
+    return pts[pts.length-1].v;
+  }
+  function applyAutoParam(engine, targetId, v, time){
+    if(!engine) return;
+    const tc = 0.02;
+    if(targetId === "master.vol"){ engine.masterGain.gain.setTargetAtTime(dbToGain(faderPosToDb(v)), time, tc); return; }
+    if(targetId === "master.reverb"){ engine.reverbWet.gain.setTargetAtTime(v, time, tc); return; }
+    const m = targetId.match(/^track\.(\d+)\.(\w+)$/); if(!m) return;
+    const i = +m[1], p = m[2], chain = engine.tracks[i]; if(!chain) return;
+    if(p === "vol" && chain.channelGain) chain.channelGain.gain.setTargetAtTime(dbToGain(faderPosToDb(v)), time, tc);
+    else if(p === "pan" && chain.panner) chain.panner.pan.setTargetAtTime(v*2 - 1, time, tc);
+    else if(p === "cutoff") chain.insertFilter.frequency.setTargetAtTime(200 + v*9000, time, tc);
+    else if(p === "send") chain.reverbSendGain.gain.setTargetAtTime(v, time, tc);
+  }
+  // Apply every automated target for a given song position at `time`.
+  function applySongAutomation(engine, bar, stepIdx, time){
+    const barPos = bar + stepIdx / STEPS_PER_TRACK;
+    for(const id in automation){
+      const v = songAutoValueAt(id, barPos);
+      if(v != null) applyAutoParam(engine, id, v, time);
+    }
+  }
+  // Restore automated AudioParams to their base state (called on stop) so a
+  // curve that ended low doesn't leave the mixer stuck there.
+  function resetAutomatedParams(){
+    if(!liveEngine) return;
+    const now = liveEngine.ctx.currentTime;
+    liveEngine.masterGain.gain.setTargetAtTime(masterVol, now, 0.02);
+    liveEngine.reverbWet.gain.setTargetAtTime(autoBaseReverb, now, 0.02);
+    TRACKS.forEach((t, i) => {
+      const chain = liveEngine.tracks[i]; if(!chain) return;
+      if(chain.channelGain) chain.channelGain.gain.setTargetAtTime(1, now, 0.02);
+      updateTrackInsertFX(liveEngine, t, i); // resets filter, send, pan to base
+    });
+  }
+  // Human-readable automation targets, rebuilt from the current track list.
+  function autoTargetList(){
+    const list = [{id:"master.vol", label:"Master · Volume"}, {id:"master.reverb", label:"Master · Reverb Wet"}];
+    TRACKS.forEach((t, i) => {
+      list.push({id:`track.${i}.vol`,    label:`${t.name} · Volume`});
+      list.push({id:`track.${i}.pan`,    label:`${t.name} · Pan`});
+      list.push({id:`track.${i}.cutoff`, label:`${t.name} · Cutoff`});
+      list.push({id:`track.${i}.send`,   label:`${t.name} · Reverb Send`});
+    });
+    return list;
+  }
+  function autoTargetLabel(id){ const f = autoTargetList().find(x => x.id === id); return f ? f.label : id; }
 
   function scheduleStep(engine, stepIdx, time, barIdx){
     // PAT mode: loop whichever pattern is selected in the transport,
@@ -1903,6 +2012,8 @@
     }
     nextStepTime = startAt;
     stepQueue.length = 0;
+    // snapshot the reverb-wet base so automation can be undone on stop
+    if(liveEngine) autoBaseReverb = liveEngine.reverbWet.gain.value;
     document.getElementById("playBtn").classList.add("active");
     document.getElementById("playBtn").innerHTML = "&#9632;";
     schedulerTimer = setInterval(scheduler, LOOKAHEAD_MS);
@@ -1912,6 +2023,7 @@
   function stop(){
     playing = false;
     clearInterval(schedulerTimer);
+    if(Object.keys(automation).length) resetAutomatedParams();
     document.getElementById("playBtn").classList.remove("active");
     document.getElementById("playBtn").innerHTML = "&#9658;";
     currentStep = -1;
@@ -3703,6 +3815,142 @@
     return Math.max(0, Math.min(1, (db + 48) / 48));
   }
 
+  /* =========================================================
+     AUTOMATION EDITOR OVERLAY
+     Draws breakpoint curves for the song-automation targets. Normalized
+     0..1 values map to each target's own unit for the scale labels. The
+     same `automation` data is what the scheduler + bounce read back.
+  ========================================================== */
+  const AUTO_BAR_W = 72;
+  const autoOverlayEl = document.getElementById("autoOverlay");
+  const autoCanvas = document.getElementById("autoCanvas");
+  const autoLaneScrollEl = document.getElementById("autoLaneScroll");
+  const autoScaleColEl = document.getElementById("autoScaleCol");
+  const autoTargetNameEl = document.getElementById("autoTargetName");
+  const autoTargetSelEl = document.getElementById("autoTargetSel");
+  let autoDrag = null;
+
+  function autoValueText(id, v){
+    if(id === "master.vol" || /\.vol$/.test(id)) return fmtDb(faderPosToDb(v));
+    if(id === "master.reverb") return Math.round(v*100) + "%";
+    if(/\.pan$/.test(id)) return panLabel(v*2 - 1);
+    if(/\.cutoff$/.test(id)) return Math.round(200 + v*9000) + "Hz";
+    return Math.round(v*100) + "%";
+  }
+  function buildAutoTargetOptions(){
+    autoTargetSelEl.innerHTML = "";
+    autoTargetList().forEach(t => {
+      const o = document.createElement("option");
+      o.value = t.id;
+      o.textContent = t.label + (automation[t.id] && automation[t.id].length ? "  •" : "");
+      autoTargetSelEl.appendChild(o);
+    });
+    autoTargetSelEl.value = autoTarget;
+    autoTargetNameEl.textContent = autoTargetLabel(autoTarget);
+  }
+  function renderAutoScale(){
+    autoScaleColEl.innerHTML = "";
+    [1, 0.75, 0.5, 0.25, 0].forEach(v => {
+      const t = document.createElement("div");
+      t.className = "auto-tick"; t.style.top = ((1-v)*100) + "%";
+      t.textContent = autoValueText(autoTarget, v);
+      autoScaleColEl.appendChild(t);
+    });
+  }
+  function renderAutoLane(){
+    renderAutoScale();
+    const h = autoLaneScrollEl.clientHeight;
+    if(!h){ requestAnimationFrame(renderAutoLane); return; }
+    const w = Math.max(songBars * AUTO_BAR_W, autoLaneScrollEl.clientWidth);
+    const dpr = window.devicePixelRatio || 1;
+    autoCanvas.width = w*dpr; autoCanvas.height = h*dpr;
+    autoCanvas.style.width = w+"px"; autoCanvas.style.height = h+"px";
+    const g = autoCanvas.getContext("2d");
+    g.setTransform(dpr,0,0,dpr,0,0);
+    g.clearRect(0,0,w,h);
+    // horizontal reference lines (mid emphasized)
+    [0,0.25,0.5,0.75,1].forEach(v => { const y=(1-v)*h; g.strokeStyle = v===0.5 ? "#b3b3ac" : "#e2e2dc"; g.lineWidth=1; g.beginPath(); g.moveTo(0,y+0.5); g.lineTo(w,y+0.5); g.stroke(); });
+    // bar grid
+    for(let b=0;b<=songBars;b++){ const x=b*AUTO_BAR_W; g.strokeStyle = "#cfcfc8"; g.lineWidth = 1; g.beginPath(); g.moveTo(x+0.5,0); g.lineTo(x+0.5,h); g.stroke();
+      if(b < songBars){ g.fillStyle = "#8a8a82"; g.font = "700 9px system-ui,sans-serif"; g.fillText("BAR "+(b+1), x+5, 12); } }
+    const pts = automation[autoTarget] || [];
+    const orange = "#ea6a1e";
+    if(pts.length){
+      g.strokeStyle = orange; g.lineWidth = 2.5; g.beginPath();
+      g.moveTo(0, (1-pts[0].v)*h);
+      pts.forEach(p => g.lineTo(p.b*AUTO_BAR_W, (1-p.v)*h));
+      g.lineTo(w, (1-pts[pts.length-1].v)*h);
+      g.stroke();
+      pts.forEach(p => { g.beginPath(); g.fillStyle = "#141414"; g.arc(p.b*AUTO_BAR_W, (1-p.v)*h, 6, 0, Math.PI*2); g.fill();
+        g.beginPath(); g.fillStyle = orange; g.arc(p.b*AUTO_BAR_W, (1-p.v)*h, 3, 0, Math.PI*2); g.fill(); });
+    }
+  }
+  function autoEventPos(e){
+    const r = autoCanvas.getBoundingClientRect();
+    return {
+      bar: Math.max(0, Math.min(songBars, (e.clientX - r.left)/AUTO_BAR_W)),
+      v: Math.max(0, Math.min(1, 1 - (e.clientY - r.top)/r.height))
+    };
+  }
+  function findNearPoint(bar, v){
+    const pts = automation[autoTarget] || [];
+    const h = autoCanvas.getBoundingClientRect().height;
+    for(let i=0;i<pts.length;i++){
+      const dx = (pts[i].b - bar)*AUTO_BAR_W, dy = (pts[i].v - v)*h;
+      if(dx*dx + dy*dy < 17*17) return i;
+    }
+    return -1;
+  }
+  function openAutomation(){
+    autoOverlayEl.classList.add("open");
+    buildAutoTargetOptions();
+    renderAutoLane();
+  }
+  document.getElementById("plAutoBtn").addEventListener("click", openAutomation);
+  document.getElementById("autoCloseBtn").addEventListener("click", () => autoOverlayEl.classList.remove("open"));
+  document.getElementById("autoClearBtn").addEventListener("click", () => {
+    if(!automation[autoTarget]) return;
+    pushUndo(); delete automation[autoTarget]; buildAutoTargetOptions(); renderAutoLane(); saveProject();
+  });
+  autoTargetSelEl.addEventListener("change", () => {
+    autoTarget = autoTargetSelEl.value; autoTargetNameEl.textContent = autoTargetLabel(autoTarget); renderAutoLane();
+  });
+  autoCanvas.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    const {bar, v} = autoEventPos(e);
+    if(!automation[autoTarget]) automation[autoTarget] = [];
+    const pts = automation[autoTarget];
+    pushUndo();
+    let idx = findNearPoint(bar, v);
+    if(idx < 0){
+      const p = {b:bar, v}; pts.push(p); pts.sort((a,b)=>a.b-b.b);
+      autoDrag = {p, moved:true, added:true};
+    } else {
+      autoDrag = {p:pts[idx], moved:false, added:false};
+    }
+    autoCanvas.setPointerCapture(e.pointerId);
+    renderAutoLane();
+  });
+  autoCanvas.addEventListener("pointermove", (e) => {
+    if(!autoDrag) return;
+    const {bar, v} = autoEventPos(e);
+    autoDrag.p.b = bar; autoDrag.p.v = v; autoDrag.moved = true;
+    (automation[autoTarget] || []).sort((a,b)=>a.b-b.b);
+    renderAutoLane();
+  });
+  function endAutoDrag(){
+    if(!autoDrag) return;
+    const pts = automation[autoTarget] || [];
+    if(!autoDrag.moved && !autoDrag.added){ // a tap on an existing point deletes it
+      const i = pts.indexOf(autoDrag.p); if(i >= 0) pts.splice(i,1);
+    }
+    if(!pts.length) delete automation[autoTarget];
+    autoDrag = null;
+    buildAutoTargetOptions(); renderAutoLane(); saveProject();
+  }
+  autoCanvas.addEventListener("pointerup", endAutoDrag);
+  autoCanvas.addEventListener("pointercancel", endAutoDrag);
+
   function renderMixer(){
     mixerViewEl.innerHTML = "";
     TRACKS.forEach((track, tIdx) => {
@@ -4123,6 +4371,7 @@
       for(let step=0; step<STEPS_PER_TRACK; step++){
         const isSwungStep = (step % 2) === 1;
         const swingDelay = isSwungStep ? swingAmount * dur * 0.5 : 0;
+        if(songMode) applySongAutomation(engine, bar, step, bar*barDur + step*dur);
         scheduleStep(engine, step, bar*barDur + step*dur + swingDelay, bar);
       }
     }

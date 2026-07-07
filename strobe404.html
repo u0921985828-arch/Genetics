@@ -467,8 +467,12 @@
       <div class="ctl"><button id="songLenField" class="menu-btn"><span id="songLenDisplay">8</span> bars</button></div>
     </div>
     <div class="menu-row">
-      <label>Pattern Length (steps)</label>
-      <div class="ctl"><button id="stepLenBtn" class="menu-btn">16 steps</button></div>
+      <label>Pattern Length</label>
+      <div class="ctl"><button id="stepLenBtn" class="menu-btn">1 bar</button></div>
+    </div>
+    <div class="menu-row">
+      <label>Grid (beat division)</label>
+      <div class="ctl"><button id="gridResBtn" class="menu-btn">Grid 1/16</button></div>
     </div>
     <div class="menu-row">
       <label>Metronome</label>
@@ -761,34 +765,60 @@
   /* =========================================================
      STATE
   ========================================================== */
-  let STEPS_PER_TRACK = 16; // steps per pattern (16 / 32 / 64), user-selectable
-  const STEPS_PER_BEAT = 4; // 16th-note grid
+  let STEPS_PER_TRACK = 16;  // steps per pattern = STEPS_PER_BEAT * beats
+  let STEPS_PER_BEAT = 4;    // grid resolution: subdivisions per beat (variable)
+
+  // grid resolutions the user can pick: subdivisions-per-beat + a musical
+  // label. 3 and 6 are triplet grids (for swung / humanized feels).
+  const GRID_RES = [
+    {res:2, label:"1/8"}, {res:3, label:"1/8T"}, {res:4, label:"1/16"},
+    {res:6, label:"1/16T"}, {res:8, label:"1/32"}
+  ];
+  function gridResLabel(res){ const g = GRID_RES.find(x => x.res === res); return g ? g.label : (res + "/beat"); }
+  function patternBeats(){ return Math.max(1, Math.round(STEPS_PER_TRACK / STEPS_PER_BEAT)); }
 
   function makeStep(){ return {on:false, vel:1, pan:0, pitch:0, rep:1, len:1}; }
 
-  // Resize every pattern (and its automation lane) to n steps, keeping
-  // existing steps and padding/truncating the rest. Kept BPM-clock safe:
-  // one pattern still equals one arrangement bar, just with more steps.
-  function setStepCount(n){
-    n = [16,32,64].includes(n) ? n : 16;
-    if(n === STEPS_PER_TRACK) return;
+  // Rebuilds every pattern for a new grid resolution and/or beat count,
+  // remapping existing notes by their musical position (beats) so switching
+  // 1/16 <-> triplets or changing length keeps the groove instead of
+  // clearing it. Cutoff-automation lanes are reset to the new length.
+  function resizePatterns(newRes, newBeats){
+    const oldRes = STEPS_PER_BEAT, oldLen = STEPS_PER_TRACK;
+    const newLen = Math.max(1, newRes * newBeats);
+    if(newRes === oldRes && newLen === oldLen) return;
     pushUndo();
+    const resChanged = newRes !== oldRes;
     TRACKS.forEach(t => {
       t.patterns = t.patterns.map(steps => {
-        const arr = steps.slice(0, n);
-        while(arr.length < n) arr.push(makeStep());
+        const arr = Array.from({length:newLen}, () => makeStep());
+        steps.forEach((sd, i) => {
+          if(!sd || !sd.on) return;
+          const ni = resChanged ? Math.round((i/oldRes) * newRes) : i;
+          if(ni >= 0 && ni < newLen && !arr[ni].on){
+            const nlen = resChanged ? Math.max(1, Math.round(((sd.len||1)/oldRes) * newRes)) : (sd.len||1);
+            arr[ni] = Object.assign(makeStep(), sd, {len: Math.max(1, Math.min(nlen, newLen - ni))});
+          }
+        });
         return arr;
       });
-      t.autoCutoff = t.autoCutoff.map(ac => {
-        const arr = ac.slice(0, n);
-        while(arr.length < n) arr.push(null);
-        return arr;
-      });
+      t.autoCutoff = t.autoCutoff.map(() => new Array(newLen).fill(null));
     });
-    STEPS_PER_TRACK = n;
+    STEPS_PER_BEAT = newRes;
+    STEPS_PER_TRACK = newLen;
+    refreshGridUI();
+    saveProject();
+  }
+  function refreshGridUI(){
     renderGrid(); renderGraphBars();
     if(document.getElementById("pianoRollOverlay").classList.contains("open")) renderPianoRoll();
-    if(typeof stepLenBtn !== "undefined" && stepLenBtn) stepLenBtn.textContent = STEPS_PER_TRACK + " steps";
+    if(typeof stepLenBtn !== "undefined" && stepLenBtn) stepLenBtn.textContent = patternBeats()/4 >= 1 ? (patternBeats()/4) + (patternBeats()/4===1?" bar":" bars") : patternBeats()+" beats";
+    if(typeof gridResBtn !== "undefined" && gridResBtn) gridResBtn.textContent = "Grid " + gridResLabel(STEPS_PER_BEAT);
+  }
+  // pattern length in bars (4 beats each); keeps the current resolution
+  function setStepCount(bars){
+    bars = [1,2,4].includes(bars) ? bars : 1;
+    resizePatterns(STEPS_PER_BEAT, bars * 4);
   }
 
   // Like FL Studio, a "Pattern" is a full 16-step snapshot for a track.
@@ -890,7 +920,7 @@
       v:1, bpm:120, songBars:8,
       songArrangement:new Array(8).fill(withDemo ? 1 : 0),
       currentPattern:0, songMode:false, swingAmount:0, compressorOn:true, masterVol:0.9,
-      patternNames:new Array(PATTERN_COUNT).fill(""), stepCount:16, automation:{},
+      patternNames:new Array(PATTERN_COUNT).fill(""), stepCount:16, beatRes:4, automation:{},
       delaySync:"1/8.", lfoSync:"1/4",
       tracks: DEMO_DEFS.map((def, i) => serializedTrackData(def, withDemo ? DEMO_HITS[i] : null))
     };
@@ -971,7 +1001,7 @@
     return {
       v: 1,
       bpm, songBars, songArrangement, currentPattern, songMode, swingAmount, compressorOn, patternNames,
-      stepCount: STEPS_PER_TRACK, masterVol,
+      stepCount: STEPS_PER_TRACK, beatRes: STEPS_PER_BEAT, masterVol,
       delaySync: document.getElementById("delaySync").value,
       lfoSync: document.getElementById("lfoSync").value,
       automation,
@@ -1211,7 +1241,8 @@
     songBars = data.songBars || 8;
     songArrangement = Array.isArray(data.songArrangement) ? data.songArrangement : new Array(songBars).fill(1);
     currentPattern = data.currentPattern || 0;
-    STEPS_PER_TRACK = [16,32,64].includes(data.stepCount) ? data.stepCount : 16;
+    STEPS_PER_BEAT = [2,3,4,6,8].includes(data.beatRes) ? data.beatRes : 4;
+    STEPS_PER_TRACK = (data.stepCount > 0 && data.stepCount <= 512) ? data.stepCount : 16;
     // audio-clip metadata (buffers reattached separately from blobs)
     audioClips = Array.isArray(data.audioClips) ? data.audioClips.map(c => ({
       id: audioClipSeq++, name:c.name || "audio", bar:c.bar|0, gain:c.gain != null ? c.gain : 1,
@@ -1329,7 +1360,7 @@
     if(typeof swingRangeEl !== "undefined" && swingRangeEl) swingRangeEl.value = swingAmount * 100;
     document.getElementById("bpmDisplay").textContent = bpm;
     refreshCompMenuBtn && refreshCompMenuBtn();
-    if(typeof stepLenBtn !== "undefined" && stepLenBtn) stepLenBtn.textContent = STEPS_PER_TRACK + " steps";
+    if(typeof refreshGridUI === "function") refreshGridUI();
   }
 
   // Replaces the whole session with a fresh project (Default or Empty):
@@ -1877,8 +1908,9 @@
   const stepQueue = []; // {step, time} for UI playhead sync
 
   function stepDuration(){
-    // one 16th note, always derived from BPM -- never a raw float typed by hand
-    return syncedSeconds("1/16", bpm);
+    // one grid step = one beat divided by the current resolution, always
+    // derived from BPM (a 1/16 grid is 4/beat; a 1/8-triplet grid is 3/beat)
+    return syncedSeconds("1/4", bpm) / STEPS_PER_BEAT;
   }
 
   function scheduler(){
@@ -2047,11 +2079,11 @@
     stepIndexForSchedule = 0;
     currentBar = 0;
     let startAt = ctx.currentTime + 0.06;
-    // count-in: one bar of clicks before the sequence starts rolling
+    // count-in: one bar (4 beats) of clicks before the sequence starts
     if(metroOn && countInOn){
       const beat = syncedSeconds("1/4", bpm);
-      for(let i=0;i<STEPS_PER_BEAT;i++) metroClick(startAt + i*beat, i === 0);
-      startAt += beat * STEPS_PER_BEAT;
+      for(let i=0;i<4;i++) metroClick(startAt + i*beat, i === 0);
+      startAt += beat * 4;
     }
     nextStepTime = startAt;
     stepQueue.length = 0;
@@ -3460,12 +3492,18 @@
   });
 
   const stepLenBtn = document.getElementById("stepLenBtn");
-  stepLenBtn.textContent = STEPS_PER_TRACK + " steps";
+  const gridResBtn = document.getElementById("gridResBtn");
   stepLenBtn.addEventListener("click", () => {
-    const options = [16,32,64];
-    setStepCount(options[(options.indexOf(STEPS_PER_TRACK)+1) % options.length]);
-    stepLenBtn.textContent = STEPS_PER_TRACK + " steps";
+    const bars = [1,2,4];
+    const cur = Math.max(1, Math.round(patternBeats()/4));
+    setStepCount(bars[(bars.indexOf(cur)+1) % bars.length]);
   });
+  gridResBtn.addEventListener("click", () => {
+    const idx = GRID_RES.findIndex(g => g.res === STEPS_PER_BEAT);
+    const next = GRID_RES[(idx + 1) % GRID_RES.length];
+    resizePatterns(next.res, patternBeats());
+  });
+  refreshGridUI();
 
   function renderArrangeHeaders(){
     arrangeHeadersEl.innerHTML = "";

@@ -356,7 +356,7 @@
     </div>
 
     <div class="t-group">
-      <div class="t-readout"><span class="val accent" id="patDisplay">1</span><span class="cap">pat</span></div>
+      <div class="t-readout tap" id="patReadout" title="Long-press: duplicate / clear / rename"><span class="val accent" id="patDisplay">1</span><span class="cap">pat</span></div>
       <div class="stepper">
         <button id="patUp">+</button>
         <button id="patDown">-</button>
@@ -723,6 +723,8 @@
   TRACKS.forEach((track, i) => { track.color = TRACK_COLORS[i % TRACK_COLORS.length]; track.ink = inkFor(track.color); });
   // pattern-clip colours for the playlist (one per pattern number)
   const PATTERN_COLORS = ["#141414","#ea6a1e","#b5731f","#4a4a46"];
+  // optional per-pattern names (shown in the browser's Patterns list)
+  let patternNames = new Array(PATTERN_COUNT).fill("");
 
   // Returns the step array for the pattern currently selected in the
   // transport -- every part of the UI (grid, graph editor, piano roll)
@@ -769,7 +771,7 @@
   function serializeProject(){
     return {
       v: 1,
-      bpm, songBars, songArrangement, currentPattern, songMode, swingAmount, compressorOn,
+      bpm, songBars, songArrangement, currentPattern, songMode, swingAmount, compressorOn, patternNames,
       delaySync: document.getElementById("delaySync").value,
       lfoSync: document.getElementById("lfoSync").value,
       tracks: TRACKS.map(t => ({
@@ -921,6 +923,8 @@
     songBars = data.songBars || 8;
     songArrangement = Array.isArray(data.songArrangement) ? data.songArrangement : new Array(songBars).fill(1);
     currentPattern = data.currentPattern || 0;
+    patternNames = Array.isArray(data.patternNames) ? data.patternNames.slice(0, PATTERN_COUNT) : new Array(PATTERN_COUNT).fill("");
+    while(patternNames.length < PATTERN_COUNT) patternNames.push("");
     songMode = !!data.songMode;
     swingAmount = data.swingAmount || 0;
     compressorOn = data.compressorOn !== false;
@@ -1629,6 +1633,15 @@
   }
   document.getElementById("patUp").addEventListener("click", () => setPattern(currentPattern+1));
   document.getElementById("patDown").addEventListener("click", () => setPattern(currentPattern-1));
+  (function(){
+    const patReadout = document.getElementById("patReadout");
+    let lpTimer = null, moved = false;
+    patReadout.addEventListener("pointerdown", () => { moved = false; lpTimer = setTimeout(() => showPatternMenu(patReadout), 420); });
+    patReadout.addEventListener("pointermove", () => { moved = true; });
+    ["pointerup","pointerleave","pointercancel"].forEach(evt => patReadout.addEventListener(evt, () => clearTimeout(lpTimer)));
+    // a plain tap also opens the menu (small target, hard to long-press)
+    patReadout.addEventListener("click", () => { if(!moved) showPatternMenu(patReadout); });
+  })();
 
   function setSongMode(v){
     songMode = v;
@@ -1706,7 +1719,8 @@
       const g = document.createElement("div"); g.className = "br-group"; g.textContent = "Patterns";
       browserBodyEl.appendChild(g);
       for(let p=0;p<PATTERN_COUNT;p++){
-        browserBodyEl.appendChild(brItem("Pattern " + (p+1), PATTERN_COLORS[p % PATTERN_COLORS.length],
+        const label = patternNames[p] ? patternNames[p] : ("Pattern " + (p+1));
+        browserBodyEl.appendChild(brItem(label, PATTERN_COLORS[p % PATTERN_COLORS.length],
           () => { setPattern(p); renderBrowser(); }, null, p === currentPattern));
       }
     }
@@ -1849,13 +1863,74 @@
       <button data-m="2">Fill each 2 steps</button>
       <button data-m="4">Fill each 4 steps</button>
       <button data-m="clear">Clear</button>
+      <button data-m="copy">Copy steps</button>
+      <button data-m="paste">Paste steps${stepClipboard ? "" : " (empty)"}</button>
     `;
     fillMenuEl.addEventListener("click", (e) => {
       const m = e.target.getAttribute("data-m");
-      if(m){ fillSteps(trackIdx, m); closeFillMenu(); }
+      if(!m) return;
+      if(m === "copy") copyTrackSteps(trackIdx);
+      else if(m === "paste") pasteTrackSteps(trackIdx);
+      else fillSteps(trackIdx, m);
+      closeFillMenu();
     });
     document.body.appendChild(fillMenuEl);
     setTimeout(() => document.addEventListener("pointerdown", outsideFillMenuHandler, true), 0);
+  }
+
+  /* ---- copy/paste a track's current-pattern steps ---- */
+  let stepClipboard = null;
+  function copyTrackSteps(trackIdx){
+    stepClipboard = JSON.parse(JSON.stringify(curSteps(TRACKS[trackIdx])));
+  }
+  function pasteTrackSteps(trackIdx){
+    if(!stepClipboard) return;
+    pushUndo();
+    const track = TRACKS[trackIdx];
+    track.patterns[currentPattern] = JSON.parse(JSON.stringify(stepClipboard));
+    renderGrid();
+    if(trackIdx === selectedTrackIdx) renderGraphBars();
+  }
+
+  /* ---- pattern context menu: duplicate / clear / rename ---- */
+  function showPatternMenu(anchorEl){
+    closeFillMenu();
+    const rect = anchorEl.getBoundingClientRect();
+    fillMenuEl = document.createElement("div");
+    fillMenuEl.className = "fill-menu";
+    fillMenuEl.style.top = (rect.bottom + 6) + "px";
+    fillMenuEl.style.left = rect.left + "px";
+    fillMenuEl.innerHTML = `
+      <button data-p="dup">Duplicate &#8594; next</button>
+      <button data-p="clear">Clear pattern</button>
+      <button data-p="rename">Rename pattern</button>
+    `;
+    fillMenuEl.addEventListener("click", (e) => {
+      const a = e.target.getAttribute("data-p");
+      if(a){ patternAction(a); closeFillMenu(); }
+    });
+    document.body.appendChild(fillMenuEl);
+    setTimeout(() => document.addEventListener("pointerdown", outsideFillMenuHandler, true), 0);
+  }
+  function patternAction(a){
+    if(a === "dup"){
+      pushUndo();
+      const dst = (currentPattern + 1) % PATTERN_COUNT;
+      TRACKS.forEach(t => {
+        t.patterns[dst] = JSON.parse(JSON.stringify(t.patterns[currentPattern]));
+        t.autoCutoff[dst] = t.autoCutoff[currentPattern].slice();
+      });
+      patternNames[dst] = (patternNames[currentPattern] || ("Pattern " + (currentPattern+1))) + " copy";
+      setPattern(dst);
+    } else if(a === "clear"){
+      pushUndo();
+      TRACKS.forEach(t => { t.patterns[currentPattern].forEach(st => { st.on = false; }); t.autoCutoff[currentPattern].fill(null); });
+      renderGrid(); renderGraphBars();
+    } else if(a === "rename"){
+      const cur = patternNames[currentPattern] || ("Pattern " + (currentPattern+1));
+      const name = prompt("Pattern name:", cur);
+      if(name != null){ pushUndo(); patternNames[currentPattern] = name.trim() || cur; renderBrowser(); }
+    }
   }
 
   function renderGrid(){

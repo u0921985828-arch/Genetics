@@ -242,7 +242,9 @@
   .pl-pats{display:flex; gap:4px; flex:0 0 auto;}
   .pl-pats button{-webkit-appearance:none; appearance:none; cursor:pointer; width:30px; height:28px; font-size:11px; font-weight:800; color:var(--ink); background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r);}
   .pl-pats button.active{color:var(--tci,var(--ink));}
-  #plClearBtn, #plAddAudioBtn{padding:6px 10px;}
+  #plClearBtn, #plAddAudioBtn, #plRecBtn{padding:6px 10px;}
+  #plRecBtn.recording{background:var(--c-red); color:#fff; animation:recPulse .9s ease-in-out infinite;}
+  @keyframes recPulse{0%,100%{opacity:1}50%{opacity:.55}}
   .arrange-lane.audio-lane{position:relative; background:repeating-linear-gradient(90deg,var(--bg) 0 calc(var(--bar-w) - 1px), #d9d8d2 calc(var(--bar-w) - 1px) var(--bar-w));}
   .audio-clip{position:absolute; top:4px; bottom:4px; background:var(--c-yellow); border:var(--bw) solid var(--ink); display:flex; align-items:center; padding:0 6px; overflow:hidden; cursor:pointer;}
   .audio-clip-name{font-size:10px; font-weight:800; color:var(--ink); white-space:nowrap; text-overflow:ellipsis; overflow:hidden; text-transform:uppercase;}
@@ -602,6 +604,7 @@
         <span class="pl-lbl">Pattern</span>
         <div class="pl-pats" id="plPatPicker"></div>
         <div class="t-spacer"></div>
+        <button id="plRecBtn" class="menu-btn" title="Resample the master output into an audio clip">&#9679; Rec</button>
         <button id="plAddAudioBtn" class="menu-btn">+ Audio</button>
         <button id="plClearBtn" class="menu-btn">Clear all</button>
       </div>
@@ -1449,6 +1452,12 @@
     engine.masterGain.connect(engine.compressor);
     engine.compressor.connect(actx.destination);
     applyCompressorState(engine);
+    // live-only capture tap for "resample master" recording (offline
+    // contexts have no MediaStreamDestination and don't need one).
+    if(actx.createMediaStreamDestination){
+      engine.mediaDest = actx.createMediaStreamDestination();
+      engine.compressor.connect(engine.mediaDest);
+    }
 
     engine.masterAnalyser = actx.createAnalyser();
     engine.masterAnalyser.fftSize = 256;
@@ -3471,6 +3480,56 @@
       persistAudioClips(); saveProject();
     }catch(e){ alert("Could not load audio: " + e.message); }
   }
+  // Adds an already-decoded AudioBuffer straight to the playlist (used by
+  // the master resampler; file import routes through addAudioClipFromFile).
+  function addAudioClipFromBuffer(buf, name, bar){
+    const durationBars = Math.max(1, Math.round(buf.duration / Math.max(barSeconds(), 0.001)));
+    audioClips.push({ id: audioClipSeq++, name: name || "rec", buffer: buf, bar: Math.max(0, bar|0), gain: 1, durationBars });
+    renderArrangeLanes();
+    persistAudioClips(); saveProject();
+  }
+
+  /* ---- Resample: capture the live master output into an audio clip ----
+     Taps the post-compressor master via a MediaStreamDestination and
+     records it with MediaRecorder; on stop the take is decoded and dropped
+     onto the playlist as a normal (persistable) audio clip. */
+  let masterRecorder = null, masterRecChunks = [], masterRecStartBar = 0;
+  function isRecordingMaster(){ return masterRecorder && masterRecorder.state === "recording"; }
+  async function startMasterRecording(){
+    ensureAudio();
+    if(!liveEngine || !liveEngine.mediaDest){ alert("Recording isn't supported here."); return; }
+    if(typeof MediaRecorder === "undefined"){ alert("MediaRecorder unavailable in this browser."); return; }
+    if(ctx.state === "suspended") await ctx.resume();
+    let mime = "";
+    if(MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("audio/webm")) mime = "audio/webm";
+    try{ masterRecorder = mime ? new MediaRecorder(liveEngine.mediaDest.stream, {mimeType:mime}) : new MediaRecorder(liveEngine.mediaDest.stream); }
+    catch(e){ alert("Could not start recording: " + e.message); return; }
+    masterRecChunks = [];
+    masterRecStartBar = songMode ? currentBar : 0;
+    masterRecorder.ondataavailable = (e) => { if(e.data && e.data.size) masterRecChunks.push(e.data); };
+    masterRecorder.onstop = async () => {
+      const blob = new Blob(masterRecChunks, {type: masterRecChunks[0] ? masterRecChunks[0].type : "audio/webm"});
+      masterRecChunks = [];
+      try{
+        const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+        if(buf.duration > 0.05) addAudioClipFromBuffer(buf, "master " + new Date().toLocaleTimeString().replace(/:\d\d /," "), masterRecStartBar);
+      }catch(e){ alert("Recording failed to decode: " + e.message); }
+      refreshRecUI();
+    };
+    masterRecorder.start();
+    // give the recorder something to capture: start playback if idle
+    if(!playing) play();
+    refreshRecUI();
+  }
+  function stopMasterRecording(){ if(isRecordingMaster()) masterRecorder.stop(); }
+  function refreshRecUI(){
+    const b = document.getElementById("plRecBtn");
+    if(b) b.classList.toggle("recording", isRecordingMaster());
+  }
+  document.getElementById("plRecBtn").addEventListener("click", () => {
+    if(isRecordingMaster()) stopMasterRecording(); else startMasterRecording();
+  });
+
   const plAudioInput = document.createElement("input");
   plAudioInput.type = "file"; plAudioInput.accept = "audio/*"; plAudioInput.id = "plAudioInput"; plAudioInput.style.display = "none";
   document.body.appendChild(plAudioInput);

@@ -381,6 +381,13 @@
   <div id="menuBackdrop"></div>
   <div id="menuSheet">
     <div class="menu-row">
+      <label>Project</label>
+      <div class="ctl">
+        <button id="newEmptyBtn" class="menu-btn">New (empty)</button>
+        <button id="loadDefaultBtn" class="menu-btn primary">Default</button>
+      </div>
+    </div>
+    <div class="menu-row">
       <label>Swing</label>
       <div class="ctl"><input type="range" id="swingRange" class="swing-range" min="0" max="100" value="0"></div>
     </div>
@@ -740,6 +747,53 @@
     track.duckAmount = 0.7;
   });
 
+  /* =========================================================
+     PROJECT TEMPLATES -- Default (demo beat) vs Empty (free tracks)
+     DEMO_DEFS captures each channel's sound config from the table
+     above; DEMO_HITS is the starter pattern. buildProjectData() emits
+     a serialized project object (same shape serializeProject uses) so
+     "New (empty)" and "Reset to Default" go through the same restore
+     path as loading a saved project.
+  ========================================================== */
+  const DEMO_DEFS = TRACKS.map(t => ({
+    vol:t.vol, wave:t.wave, adsr:{...t.adsr}, cutoff:t.cutoff,
+    delaySend:t.delaySend, cutGroup:t.cutGroup, hold:t.hold, poly:t.poly
+  }));
+  const DEMO_HITS = [
+    [0,4,8,12],              // KICK
+    [4,12],                  // SNARE
+    [0,2,4,6,8,10,12,14],    // HAT
+    [],                      // CLAP
+    [],                      // TOM
+    [0,6,10]                 // BASS
+  ];
+  function serializedTrackData(def, hits){
+    const patterns = Array.from({length:PATTERN_COUNT}, (_,p) => {
+      const steps = Array.from({length:16}, () => ({on:false, vel:1, pan:0, pitch:0, rep:1}));
+      if(p === 0 && hits) hits.forEach(i => { if(steps[i]) steps[i].on = true; });
+      return steps;
+    });
+    return {
+      vol:def.vol, mute:false, solo:false, wave:def.wave, adsr:{...def.adsr}, cutoff:def.cutoff,
+      delaySend:def.delaySend, cutGroup:def.cutGroup, hold:def.hold, poly:def.poly,
+      fxDrive:false, fxDriveAmt:0.4, fxFilterOn:false, fxFilterCutoff:0.7, reverbSend:0.0,
+      arp:{on:false, dir:"up", octaves:1, rate:"1/16"},
+      patterns, autoCutoff: Array.from({length:PATTERN_COUNT}, () => new Array(16).fill(null)),
+      sampleName:"", sampleLoopStart:0, sampleLoopEnd:1, sampleLoopOn:false, sampleSlices:[],
+      duckSource:null, duckAmount:0.7
+    };
+  }
+  function buildProjectData(withDemo){
+    return {
+      v:1, bpm:120, songBars:8,
+      songArrangement:new Array(8).fill(withDemo ? 1 : 0),
+      currentPattern:0, songMode:false, swingAmount:0, compressorOn:true,
+      patternNames:new Array(PATTERN_COUNT).fill(""), stepCount:16,
+      delaySync:"1/8.", lfoSync:"1/4",
+      tracks: DEMO_DEFS.map((def, i) => serializedTrackData(def, withDemo ? DEMO_HITS[i] : null))
+    };
+  }
+
   // FL-style per-track colours -- used everywhere (rack, steps, mixer,
   // playlist, pads, chips) so the same instrument reads the same colour
   // at a glance across the whole studio.
@@ -1054,7 +1108,28 @@
     if(typeof swingRangeEl !== "undefined" && swingRangeEl) swingRangeEl.value = swingAmount * 100;
     document.getElementById("bpmDisplay").textContent = bpm;
     refreshCompMenuBtn && refreshCompMenuBtn();
+    if(typeof stepLenBtn !== "undefined" && stepLenBtn) stepLenBtn.textContent = STEPS_PER_TRACK + " steps";
   }
+
+  // Replaces the whole session with a fresh project (Default or Empty):
+  // applies the data, frees any loaded samples (and their IndexedDB
+  // blobs), resets undo history, and saves.
+  function loadFullProject(data){
+    applyProjectData(data);
+    TRACKS.forEach((t, i) => {
+      t.sampleBuffer = null; t.samplePeaks = null; t.sampleName = "";
+      t.sampleSlices = []; t.sampleLoopStart = 0; t.sampleLoopEnd = 1; t.sampleLoopOn = false;
+      deleteSampleBlob(i);
+    });
+    const ds = document.getElementById("delaySync"), ls = document.getElementById("lfoSync");
+    if(data.delaySync && ds) ds.value = data.delaySync;
+    if(data.lfoSync && ls) ls.value = data.lfoSync;
+    refreshAllFromState();
+    updateDelayTime(); updateLfoRate();
+    undoStack.length = 0; redoStack.length = 0; refreshUndoButtons();
+    saveProject();
+  }
+  function newProject(withDemo){ loadFullProject(buildProjectData(withDemo)); }
 
   loadProject();
   if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -1786,6 +1861,16 @@
     refreshCompMenuBtn();
   });
   refreshCompMenuBtn();
+
+  /* ---- project templates: New (empty) / Default ---- */
+  document.getElementById("newEmptyBtn").addEventListener("click", () => {
+    if(!confirm("Start a new EMPTY project? This clears the current one (undo won't bring it back).")) return;
+    ensureAudio(); newProject(false); toggleMenu(false);
+  });
+  document.getElementById("loadDefaultBtn").addEventListener("click", () => {
+    if(!confirm("Reset to the DEFAULT project? This replaces the current one.")) return;
+    ensureAudio(); newProject(true); toggleMenu(false);
+  });
 
   /* ---- metronome + count-in ---- */
   const metroBtn = document.getElementById("metroBtn");

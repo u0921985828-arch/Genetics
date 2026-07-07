@@ -397,6 +397,14 @@
       <div class="ctl"><button id="songLenField" class="menu-btn"><span id="songLenDisplay">8</span> bars</button></div>
     </div>
     <div class="menu-row">
+      <label>Metronome</label>
+      <div class="ctl"><button id="metroMenuBtn" class="menu-btn">OFF</button></div>
+    </div>
+    <div class="menu-row">
+      <label>Count-in (1 bar)</label>
+      <div class="ctl"><button id="countInBtn" class="menu-btn on">ON</button></div>
+    </div>
+    <div class="menu-row">
       <label>Master Compressor</label>
       <div class="ctl"><button id="compMenuBtn" class="menu-btn on">ON</button></div>
     </div>
@@ -744,6 +752,9 @@
   let currentBar = 0;
   let songArrangement = new Array(songBars).fill(1);
   let compressorOn = true; // master-bus compressor toggle, shared by live + export
+  let metroOn = false;     // metronome click on each beat
+  let countInOn = true;    // one-bar count-in before playback (when metro on)
+  let metroLevel = 0.5;    // click volume
 
   /* =========================================================
      PROJECT PERSISTENCE -- localStorage autosave/restore
@@ -1447,6 +1458,10 @@
       const swingDelay = isSwungStep ? swingAmount * stepDuration() * 0.5 : 0;
       const triggerTime = nextStepTime + swingDelay;
       const barForThisStep = currentBar;
+      // metronome click on every beat (unswung), accented on the downbeat
+      if(metroOn && (stepIndexForSchedule % STEPS_PER_BEAT) === 0){
+        metroClick(nextStepTime, stepIndexForSchedule === 0);
+      }
       scheduleStep(liveEngine, stepIndexForSchedule, triggerTime, barForThisStep);
       stepQueue.push({step:stepIndexForSchedule, bar:barForThisStep, time:triggerTime});
       nextStepTime += stepDuration();
@@ -1495,13 +1510,35 @@
     });
   }
 
+  // Short metronome blip on the live engine's master bus. Accent (the
+  // bar's downbeat) is a higher, slightly louder click.
+  function metroClick(time, accent){
+    if(!liveEngine) return;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.frequency.value = accent ? 2000 : 1250;
+    const peak = metroLevel * (accent ? 0.6 : 0.4);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(Math.max(peak,0.001), time + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.045);
+    osc.connect(g); g.connect(liveEngine.masterGain);
+    osc.start(time); osc.stop(time + 0.05);
+  }
+
   function play(){
     ensureAudio();
     if(ctx.state === "suspended") ctx.resume();
     playing = true;
     stepIndexForSchedule = 0;
     currentBar = 0;
-    nextStepTime = ctx.currentTime + 0.05;
+    let startAt = ctx.currentTime + 0.06;
+    // count-in: one bar of clicks before the sequence starts rolling
+    if(metroOn && countInOn){
+      const beat = syncedSeconds("1/4", bpm);
+      for(let i=0;i<STEPS_PER_BEAT;i++) metroClick(startAt + i*beat, i === 0);
+      startAt += beat * STEPS_PER_BEAT;
+    }
+    nextStepTime = startAt;
     stepQueue.length = 0;
     document.getElementById("playBtn").classList.add("active");
     document.getElementById("playBtn").innerHTML = "&#9632;";
@@ -1702,6 +1739,20 @@
     refreshCompMenuBtn();
   });
   refreshCompMenuBtn();
+
+  /* ---- metronome + count-in ---- */
+  const metroBtn = document.getElementById("metroBtn");
+  const metroMenuBtn = document.getElementById("metroMenuBtn");
+  const countInBtn = document.getElementById("countInBtn");
+  function refreshMetroUI(){
+    metroBtn.classList.toggle("active", metroOn);
+    metroMenuBtn.classList.toggle("on", metroOn); metroMenuBtn.textContent = metroOn ? "ON" : "OFF";
+    countInBtn.classList.toggle("on", countInOn); countInBtn.textContent = countInOn ? "ON" : "OFF";
+  }
+  metroBtn.addEventListener("click", () => { ensureAudio(); metroOn = !metroOn; refreshMetroUI(); });
+  metroMenuBtn.addEventListener("click", () => { ensureAudio(); metroOn = !metroOn; refreshMetroUI(); });
+  countInBtn.addEventListener("click", () => { countInOn = !countInOn; refreshMetroUI(); });
+  refreshMetroUI();
 
   /* ---- undo / redo wiring (buttons + Ctrl/Cmd+Z / Ctrl+Y) ---- */
   document.getElementById("undoBtn").addEventListener("click", doUndo);

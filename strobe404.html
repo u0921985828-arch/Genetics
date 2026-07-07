@@ -41,13 +41,22 @@
     padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
   }
 
-  /* ===================== TOP TRANSPORT ===================== */
-  #topbar{
+  /* ===================== TOP TOOLBAR ===================== */
+  #toolbar{
     flex:0 0 var(--topbar-h); height:var(--topbar-h);
     display:flex; align-items:center; gap:6px; padding:0 8px;
     background:var(--bg-2); border-bottom:1px solid var(--line);
-    position:relative; z-index:5;
+    position:relative; z-index:5; overflow-x:auto; overflow-y:hidden;
   }
+  #toolbar::-webkit-scrollbar{display:none;}
+  .tb-div{width:1px; align-self:stretch; margin:8px 2px; background:var(--line); flex:0 0 auto;}
+  .win-btns{display:flex; gap:4px; flex:0 0 auto;}
+  .win-btns button{
+    -webkit-appearance:none; appearance:none; border:1px solid var(--line); cursor:pointer;
+    background:var(--panel-2); color:var(--text-dim); padding:8px 11px; border-radius:var(--r-md);
+    font-size:11px; font-weight:700; letter-spacing:.2px; white-space:nowrap;
+  }
+  .win-btns button.active{background:var(--accent-dim); color:var(--accent); border-color:var(--accent);}
   .brand{font-weight:800; font-size:13px; letter-spacing:1px; color:var(--text); white-space:nowrap;}
   .brand span{color:var(--accent);}
   #playBtn{
@@ -123,35 +132,50 @@
   .menu-btn.primary{background:var(--accent); color:#0d1a08; border-color:var(--accent);}
   .menu-btn.on{background:var(--accent-dim); color:var(--accent); border-color:var(--accent);}
 
-  /* ===================== MAIN + VIEWS ===================== */
-  #main{flex:1; min-height:0; position:relative; overflow:hidden;}
+  /* ===================== WORKSPACE (browser + main) ===================== */
+  #workspace{flex:1; min-height:0; display:flex; padding-bottom:env(safe-area-inset-bottom);}
+  #main{flex:1; min-width:0; min-height:0; position:relative; overflow:hidden;}
   .view{position:absolute; inset:0; display:none;}
   .view.active{display:flex;}
-  .view-title{
-    flex:0 0 auto; padding:9px 14px 7px; font-size:12px; font-weight:800; letter-spacing:1px;
-    color:var(--text-dim); text-transform:uppercase; border-bottom:1px solid var(--line);
-    background:var(--bg-2);
+
+  /* ---- left browser panel ---- */
+  #browser{
+    flex:0 0 clamp(120px, 20vw, 190px); min-width:0;
+    background:var(--bg-2); border-right:1px solid var(--line);
+    display:flex; flex-direction:column;
+  }
+  #browserTabs{display:flex; border-bottom:1px solid var(--line); flex:0 0 auto;}
+  #browserTabs button{
+    -webkit-appearance:none; appearance:none; border:none; cursor:pointer; background:var(--bg-2);
+    flex:1; padding:9px 4px; color:var(--text-lo); font-size:11px; font-weight:700; letter-spacing:.3px;
+    border-right:1px solid var(--line); border-bottom:2px solid transparent;
+  }
+  #browserTabs button:last-child{border-right:none;}
+  #browserTabs button.active{color:var(--accent); border-bottom-color:var(--accent);}
+  #browserBody{flex:1; min-height:0; overflow-y:auto; touch-action:pan-y; padding:8px;}
+  .br-group{font-size:9px; letter-spacing:1px; color:var(--text-lo); text-transform:uppercase; margin:8px 4px 6px;}
+  .br-item{
+    display:flex; align-items:center; gap:8px; padding:9px 8px; border-radius:var(--r-md); cursor:pointer;
+    color:var(--text-dim); font-size:12px; font-weight:600;
+  }
+  .br-item:active{background:var(--panel);}
+  .br-item.sel{background:var(--panel); color:var(--text);}
+  .br-item .dot{width:8px; height:8px; border-radius:50%; background:var(--tc,#666); flex:0 0 auto;}
+  .br-item .br-load{
+    margin-left:auto; font-size:9px; font-weight:800; color:var(--accent); border:1px solid var(--accent);
+    border-radius:4px; padding:2px 6px; background:none;
   }
 
-  /* ===================== BOTTOM TAB BAR ===================== */
-  #tabbar{
-    flex:0 0 var(--tabbar-h);
-    display:flex; background:var(--bg-2); border-top:1px solid var(--line);
-    padding-bottom:env(safe-area-inset-bottom);
-    position:relative; z-index:5;
+  /* ---- rotate-to-landscape hint ---- */
+  #rotateHint{
+    position:fixed; inset:0; z-index:90; background:var(--bg);
+    display:none; align-items:center; justify-content:center; text-align:center;
   }
-  #tabbar button{
-    -webkit-appearance:none; appearance:none; border:none; cursor:pointer; background:none;
-    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
-    color:var(--text-lo); font-size:10px; font-weight:700; letter-spacing:.3px;
-    padding:6px 2px; position:relative;
-  }
-  #tabbar button .ico{font-size:19px; line-height:1;}
-  #tabbar button.active{color:var(--accent);}
-  #tabbar button.active::before{
-    content:""; position:absolute; top:0; left:20%; right:20%; height:2px; background:var(--accent);
-    border-radius:0 0 3px 3px;
-  }
+  .rotate-ico{font-size:52px; margin-bottom:14px; animation:rotatePulse 1.6s ease-in-out infinite;}
+  @keyframes rotatePulse{0%,100%{transform:rotate(0)}50%{transform:rotate(-90deg)}}
+  .rotate-txt{font-size:16px; font-weight:700; color:var(--text);}
+  .rotate-sub{font-size:12px; color:var(--text-lo); margin-top:6px;}
+  @media (orientation:portrait){ #rotateHint{display:flex;} }
 
   /* ===================== CHANNEL RACK (seqView) ===================== */
   #seqView{flex-direction:column;}
@@ -392,7 +416,8 @@
 <body>
 <div id="app">
 
-  <div id="topbar">
+  <div id="toolbar">
+    <button id="menuBtn" class="icon-btn" aria-label="menu">&#9776;</button>
     <button id="playBtn" aria-label="play">&#9658;</button>
 
     <div class="t-group">
@@ -418,9 +443,19 @@
       </div>
     </div>
 
+    <div class="tb-div"></div>
+
+    <div class="win-btns">
+      <button data-view="arrange" class="active">Playlist</button>
+      <button data-view="seq">Rack</button>
+      <button data-view="pads">Pads</button>
+      <button data-view="mixer">Mixer</button>
+      <button data-view="edit">Channel</button>
+    </div>
+
     <div class="t-spacer"></div>
 
-    <button id="menuBtn" class="icon-btn" aria-label="menu">&#9776;</button>
+    <button id="fsBtn" class="icon-btn" aria-label="fullscreen">&#9974;</button>
   </div>
 
   <div id="menuBackdrop"></div>
@@ -451,9 +486,19 @@
     </div>
   </div>
 
+  <div id="workspace">
+
+  <aside id="browser">
+    <div id="browserTabs">
+      <button data-btab="sounds" class="active">Sounds</button>
+      <button data-btab="patterns">Patterns</button>
+    </div>
+    <div id="browserBody"></div>
+  </aside>
+
   <div id="main">
 
-    <div id="seqView" class="view active">
+    <div id="seqView" class="view">
       <div class="seqTop">
         <div id="trackHeaders"></div>
         <div id="gridScroll">
@@ -576,7 +621,7 @@
       </div>
     </div>
 
-    <div id="arrangeView" class="view">
+    <div id="arrangeView" class="view active">
       <div class="arrangeTop">
         <div id="arrangeHeaders"></div>
         <div id="arrangeScroll">
@@ -593,14 +638,15 @@
     <div id="padsView" class="view"></div>
 
   </div>
+  </div>
+</div>
 
-  <nav id="tabbar">
-    <button data-view="arrange"><span class="ico">&#9638;</span>Playlist</button>
-    <button data-view="seq" class="active"><span class="ico">&#9776;</span>Rack</button>
-    <button data-view="pads"><span class="ico">&#9632;</span>Pads</button>
-    <button data-view="mixer"><span class="ico">&#9868;</span>Mixer</button>
-    <button data-view="edit"><span class="ico">&#9834;</span>Sounds</button>
-  </nav>
+<div id="rotateHint">
+  <div class="rotate-inner">
+    <div class="rotate-ico">&#128241;</div>
+    <div class="rotate-txt">Gira el dispositivo a horizontal</div>
+    <div class="rotate-sub">STROBE::404 está pensado para pantalla ancha</div>
+  </div>
 </div>
 
 <div id="pianoRollOverlay">
@@ -1559,17 +1605,85 @@
   document.getElementById("btnSongMode").addEventListener("click", () => setSongMode(true));
 
   const VIEW_IDS = {seq:"seqView", pads:"padsView", edit:"editView", arrange:"arrangeView", mixer:"mixerView"};
-  document.querySelectorAll("#tabbar button").forEach(btn => {
+  document.querySelectorAll(".win-btns button").forEach(btn => {
     btn.addEventListener("click", () => switchView(btn.dataset.view));
   });
   function switchView(which){
     Object.entries(VIEW_IDS).forEach(([k,id]) => document.getElementById(id).classList.toggle("active", k===which));
-    document.querySelectorAll("#tabbar button").forEach(b => b.classList.toggle("active", b.dataset.view===which));
+    document.querySelectorAll(".win-btns button").forEach(b => b.classList.toggle("active", b.dataset.view===which));
     if(which === "edit") renderEditView();
     if(which === "arrange") renderArrangeView();
     if(which === "mixer") renderMixer();
     if(which === "pads") renderPads(); // rebuild so slice pads reflect current samples
   }
+
+  /* ---- fullscreen + landscape lock ---- */
+  document.getElementById("fsBtn").addEventListener("click", async () => {
+    try{
+      if(!document.fullscreenElement){
+        await document.documentElement.requestFullscreen();
+        if(screen.orientation && screen.orientation.lock){
+          try{ await screen.orientation.lock("landscape"); }catch(e){}
+        }
+      } else {
+        await document.exitFullscreen();
+      }
+    }catch(e){}
+  });
+
+  /* ---- left browser panel (Sounds + Patterns), FL-style ---- */
+  const FACTORY_NAMES = ["Kick","Snare","Hat Closed","Hat Open","Clap","Tom","Sub","Sine Blip","Saw Stab","Zap"];
+  function factoryByName(name){ return buildFactorySamples().find(f => f.name === name); }
+  let browserTab = "sounds";
+  const browserBodyEl = document.getElementById("browserBody");
+  function brItem(name, dotColor, onPreview, onLoad, selected){
+    const it = document.createElement("div");
+    it.className = "br-item" + (selected ? " sel" : "");
+    it.innerHTML = `<span class="dot" style="background:${dotColor}"></span><span>${name}</span>` + (onLoad ? `<button class="br-load">LOAD</button>` : "");
+    it.addEventListener("click", (e) => {
+      if(onLoad && e.target.classList.contains("br-load")) onLoad();
+      else onPreview();
+    });
+    return it;
+  }
+  async function renderBrowser(){
+    browserBodyEl.innerHTML = "";
+    if(browserTab === "sounds"){
+      const g1 = document.createElement("div"); g1.className = "br-group"; g1.textContent = "Factory";
+      browserBodyEl.appendChild(g1);
+      FACTORY_NAMES.forEach(name => {
+        browserBodyEl.appendChild(brItem(name, "var(--accent)",
+          () => { ensureAudio(); const f = factoryByName(name); if(f) previewBuffer(f.buffer, null); },
+          () => { ensureAudio(); const f = factoryByName(name); if(f) loadBufferToSelectedTrack(f.buffer, name); }));
+      });
+      const g2 = document.createElement("div"); g2.className = "br-group"; g2.textContent = "My Samples";
+      browserBodyEl.appendChild(g2);
+      const items = await listLibraryItems();
+      if(!items.length){
+        const e = document.createElement("div"); e.className = "br-item"; e.style.opacity = ".55"; e.textContent = "— empty —";
+        browserBodyEl.appendChild(e);
+      }
+      items.forEach(item => {
+        browserBodyEl.appendChild(brItem(item.name, "var(--cyan)",
+          async () => { try{ previewBuffer(await decodeBlobToBuffer(item.blob), null); }catch(e){} },
+          async () => { try{ loadBufferToSelectedTrack(await decodeBlobToBuffer(item.blob), item.name); }catch(e){} }));
+      });
+    } else {
+      const g = document.createElement("div"); g.className = "br-group"; g.textContent = "Patterns";
+      browserBodyEl.appendChild(g);
+      for(let p=0;p<PATTERN_COUNT;p++){
+        browserBodyEl.appendChild(brItem("Pattern " + (p+1), PATTERN_COLORS[p % PATTERN_COLORS.length],
+          () => { setPattern(p); renderBrowser(); }, null, p === currentPattern));
+      }
+    }
+  }
+  document.querySelectorAll("#browserTabs button").forEach(b => {
+    b.addEventListener("click", () => {
+      browserTab = b.dataset.btab;
+      document.querySelectorAll("#browserTabs button").forEach(x => x.classList.toggle("active", x===b));
+      renderBrowser();
+    });
+  });
 
   /* ---- slide-up menu sheet (secondary transport controls) ---- */
   const menuSheetEl = document.getElementById("menuSheet");
@@ -3141,6 +3255,8 @@
   renderGraphBars();
   renderEditView();
   renderPads();
+  renderArrangeView(); // Playlist is the default main view (FL structure)
+  renderBrowser();
 
   // reflect whatever loadProject() restored (or the hardcoded demo state)
   // in the transport controls that aren't touched by the renders above

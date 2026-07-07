@@ -414,6 +414,26 @@
   .ch-fx-label{font-size:8px; color:var(--text-lo); letter-spacing:1px; text-align:center; width:100%;}
   .ch-verb-knob, .master-verb-knob{width:100%; height:36px;}
 
+  /* ---- PADS VIEW ---- */
+  #padsView{padding:14px; overflow-y:auto; touch-action:pan-y;}
+  .pad-grid{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr));
+    gap:12px; width:100%; align-content:flex-start;
+  }
+  .pad{
+    background:var(--metal-tex), var(--panel-raised); border:1px solid var(--panel-line); border-radius:var(--r-xl);
+    box-shadow:var(--bevel-raised); min-height:110px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+    touch-action:none; position:relative;
+  }
+  .pad-name{font-family:var(--font-display); font-weight:800; font-size:14px; letter-spacing:1px;}
+  .pad-type{font-size:9px; color:var(--text-lo); text-transform:uppercase; letter-spacing:1.5px;}
+  .pad.hit{
+    background:var(--step-on); border-color:var(--step-on);
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.5), 0 0 18px rgba(255,176,46,.65);
+  }
+  .pad.hit .pad-name, .pad.hit .pad-type{color:#1a1408;}
+
   ::-webkit-scrollbar{height:6px; width:6px;}
   ::-webkit-scrollbar-thumb{background:var(--panel-line); border-radius:3px;}
 </style>
@@ -481,10 +501,16 @@
       </div>
     </div>
 
+    <div class="field">
+      <span class="label-eyebrow">Export</span>
+      <button id="exportBtn" class="xport-btn" style="width:auto; padding:0 10px; font-size:10px; font-weight:800; font-family:var(--font-display);">WAV</button>
+    </div>
+
     <div class="spacer"></div>
 
     <div class="view-toggle">
       <button id="btnSeqView" class="active">SEQ</button>
+      <button id="btnPadsView">PADS</button>
       <button id="btnArrangeView">ARRANGE</button>
       <button id="btnMixerView">MIXER</button>
       <button id="btnEditView">SOUND</button>
@@ -598,6 +624,8 @@
     </div>
 
     <div id="mixerView" class="view"></div>
+
+    <div id="padsView" class="view"></div>
 
   </div>
 </div>
@@ -726,11 +754,14 @@
 
   /* =========================================================
      AUDIO ENGINE
+     Built through buildEngine(audioContext) so the identical graph +
+     trigger code can drive either the live AudioContext or an offline
+     OfflineAudioContext render (WAV export) -- only the context
+     instance differs, never the DSP.
   ========================================================== */
   let ctx = null;
-  let masterGain, delayNode, delayFeedback, delayWet, masterAnalyser;
-  let reverbBus, reverbNode, reverbWet; // shared Send Track, FL-style
-  const chokeRefs = {}; // group/track key -> AudioParam being held, for cut-group + mono choke
+  let liveEngine = null;
+  let compressorOn = true; // master-bus compressor toggle, shared by live + export
 
   // Procedurally-generated impulse response: exponentially-decaying noise.
   // Mirrors the manual's description of Convolution Reverb -- "an impulse
@@ -763,98 +794,136 @@
   }
 
   // Applies a track's current insert-FX state (Drive on/off, Filter
-  // on/off + cutoff, Reverb send amount) to its persistent audio nodes.
-  // Called whenever the Mixer FX controls change.
-  function updateTrackInsertFX(track){
-    if(!ctx || !track.insertDrive) return;
-    track.insertDrive.curve = makeDriveCurve(track.fxDrive ? track.fxDriveAmt : 0);
+  // on/off + cutoff, Reverb send amount) to its persistent audio nodes
+  // on the given engine. Called whenever the Mixer FX controls change
+  // (live engine), and once per track while priming a fresh engine.
+  function updateTrackInsertFX(engine, track, idx){
+    const chain = engine.tracks[idx];
+    if(!chain) return;
+    chain.insertDrive.curve = makeDriveCurve(track.fxDrive ? track.fxDriveAmt : 0);
     const targetHz = track.fxFilterOn ? (200 + track.fxFilterCutoff*9000) : 20000;
-    track.insertFilter.frequency.setTargetAtTime(targetHz, ctx.currentTime, 0.01);
-    track.reverbSendGain.gain.setTargetAtTime(track.reverbSend, ctx.currentTime, 0.01);
+    chain.insertFilter.frequency.setTargetAtTime(targetHz, engine.ctx.currentTime, 0.01);
+    chain.reverbSendGain.gain.setTargetAtTime(track.reverbSend, engine.ctx.currentTime, 0.01);
   }
 
-  function ensureAudio(){
-    if(ctx) return;
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
-    masterGain = ctx.createGain();
-    masterGain.gain.value = 0.9;
+  // Master-bus compressor is always in the graph; "off" just relaxes it
+  // to unity (threshold 0dB, ratio 1:1) instead of rewiring the graph.
+  function applyCompressorState(engine){
+    if(!engine || !engine.compressor) return;
+    const c = engine.compressor;
+    const now = engine.ctx.currentTime;
+    if(compressorOn){
+      c.threshold.setTargetAtTime(-18, now, 0.01);
+      c.ratio.setTargetAtTime(4, now, 0.01);
+    } else {
+      c.threshold.setTargetAtTime(0, now, 0.01);
+      c.ratio.setTargetAtTime(1, now, 0.01);
+    }
+  }
 
-    delayNode = ctx.createDelay(4.0);
-    delayFeedback = ctx.createGain();
-    delayFeedback.gain.value = 0.32;
-    delayWet = ctx.createGain();
-    delayWet.gain.value = 0.0;
+  // Builds one full audio graph (master bus + delay + reverb send +
+  // per-track insert chain + master compressor) against the given
+  // context. Used identically for the live AudioContext and for an
+  // offline export render -- the only thing that changes is `actx`.
+  function buildEngine(actx){
+    const engine = {ctx:actx, tracks:[], chokeRefs:{}, noiseBuffer:null};
 
-    delayNode.connect(delayFeedback);
-    delayFeedback.connect(delayNode);
-    delayNode.connect(delayWet);
-    delayWet.connect(masterGain);
+    engine.masterGain = actx.createGain();
+    engine.masterGain.gain.value = 0.9;
+
+    engine.delayNode = actx.createDelay(4.0);
+    engine.delayFeedback = actx.createGain();
+    engine.delayFeedback.gain.value = 0.32;
+    engine.delayWet = actx.createGain();
+    engine.delayWet.gain.value = 0.0;
+
+    engine.delayNode.connect(engine.delayFeedback);
+    engine.delayFeedback.connect(engine.delayNode);
+    engine.delayNode.connect(engine.delayWet);
+    engine.delayWet.connect(engine.masterGain);
 
     // shared reverb Send Track: every channel's insert chain can dial in
     // how much of its dry signal feeds this one reverb -- same idea the
     // manual describes for FL's dedicated Send Tracks (one plugin, many
     // channels feeding it, instead of duplicating the effect per channel).
-    reverbBus = ctx.createGain();
-    reverbNode = ctx.createConvolver();
-    reverbNode.buffer = createReverbImpulse(ctx, 2.2, 3.0);
-    reverbWet = ctx.createGain();
-    reverbWet.gain.value = 0.9;
-    reverbBus.connect(reverbNode);
-    reverbNode.connect(reverbWet);
-    reverbWet.connect(masterGain);
+    engine.reverbBus = actx.createGain();
+    engine.reverbNode = actx.createConvolver();
+    engine.reverbNode.buffer = createReverbImpulse(actx, 2.2, 3.0);
+    engine.reverbWet = actx.createGain();
+    engine.reverbWet.gain.value = 0.9;
+    engine.reverbBus.connect(engine.reverbNode);
+    engine.reverbNode.connect(engine.reverbWet);
+    engine.reverbWet.connect(engine.masterGain);
 
-    masterGain.connect(ctx.destination);
-    masterAnalyser = ctx.createAnalyser();
-    masterAnalyser.fftSize = 256;
-    masterGain.connect(masterAnalyser);
+    // master-bus compressor: cheap, always-on safety net that glues the
+    // mix together and stops multi-voice peaks from clipping -- sits
+    // after every send/insert, right before the destination.
+    engine.compressor = actx.createDynamicsCompressor();
+    engine.compressor.knee.value = 24;
+    engine.compressor.attack.value = 0.003;
+    engine.compressor.release.value = 0.25;
+    engine.masterGain.connect(engine.compressor);
+    engine.compressor.connect(actx.destination);
+    applyCompressorState(engine);
+
+    engine.masterAnalyser = actx.createAnalyser();
+    engine.masterAnalyser.fftSize = 256;
+    engine.masterGain.connect(engine.masterAnalyser);
 
     // per-track metering taps + persistent insert-FX chain. Every note
     // lands in insertIn first, then flows Drive -> Filter -> (Master and
     // the Reverb send) -- this is the Mixer-track layer, separate from
     // the per-note "Channel settings" style shaping done in triggerHit().
-    TRACKS.forEach(track => {
-      track.analyser = ctx.createAnalyser();
-      track.analyser.fftSize = 256;
+    TRACKS.forEach((track, i) => {
+      const chain = {};
+      chain.analyser = actx.createAnalyser();
+      chain.analyser.fftSize = 256;
 
-      track.insertIn = ctx.createGain();
-      track.insertDrive = ctx.createWaveShaper();
-      track.insertFilter = ctx.createBiquadFilter();
-      track.insertFilter.type = "lowpass";
-      track.reverbSendGain = ctx.createGain();
+      chain.insertIn = actx.createGain();
+      chain.insertDrive = actx.createWaveShaper();
+      chain.insertFilter = actx.createBiquadFilter();
+      chain.insertFilter.type = "lowpass";
+      chain.reverbSendGain = actx.createGain();
 
-      track.insertIn.connect(track.insertDrive);
-      track.insertDrive.connect(track.insertFilter);
-      track.insertFilter.connect(masterGain);
-      track.insertFilter.connect(track.reverbSendGain);
-      track.reverbSendGain.connect(reverbBus);
-      track.insertIn.connect(track.analyser);
+      chain.insertIn.connect(chain.insertDrive);
+      chain.insertDrive.connect(chain.insertFilter);
+      chain.insertFilter.connect(engine.masterGain);
+      chain.insertFilter.connect(chain.reverbSendGain);
+      chain.reverbSendGain.connect(engine.reverbBus);
+      chain.insertIn.connect(chain.analyser);
 
-      updateTrackInsertFX(track);
+      engine.tracks[i] = chain;
+      updateTrackInsertFX(engine, track, i);
     });
 
+    return engine;
+  }
+
+  function ensureAudio(){
+    if(ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    liveEngine = buildEngine(ctx);
     updateDelayTime();
   }
 
   function updateDelayTime(){
-    if(!ctx) return;
+    if(!liveEngine) return;
     const code = document.getElementById("delaySync").value;
-    delayNode.delayTime.setTargetAtTime(syncedSeconds(code, bpm), ctx.currentTime, 0.01);
+    liveEngine.delayNode.delayTime.setTargetAtTime(syncedSeconds(code, bpm), liveEngine.ctx.currentTime, 0.01);
   }
 
-  // noise buffer cache
-  let noiseBuffer = null;
-  function getNoiseBuffer(){
-    if(noiseBuffer) return noiseBuffer;
-    const len = ctx.sampleRate * 1.0;
-    noiseBuffer = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = noiseBuffer.getChannelData(0);
+  function getNoiseBuffer(engine){
+    if(engine.noiseBuffer) return engine.noiseBuffer;
+    const len = engine.ctx.sampleRate * 1.0;
+    engine.noiseBuffer = engine.ctx.createBuffer(1, len, engine.ctx.sampleRate);
+    const d = engine.noiseBuffer.getChannelData(0);
     for(let i=0;i<len;i++) d[i] = Math.random()*2-1;
-    return noiseBuffer;
+    return engine.noiseBuffer;
   }
 
-  function triggerHit(track, trackIdx, time, stepData){
-    if(!ctx) return;
-    const env = ctx.createGain();
+  function triggerHit(engine, track, trackIdx, time, stepData){
+    const ectx = engine.ctx;
+    const env = ectx.createGain();
     env.gain.setValueAtTime(0, time);
     const peak = track.vol * (stepData.vel != null ? stepData.vel : 1);
     const a = Math.max(track.adsr.a, 0.001);
@@ -868,7 +937,7 @@
     const releaseStart = time + a + d + hold;
     env.gain.linearRampToValueAtTime(0.0001, releaseStart + r);
 
-    const filter = ctx.createBiquadFilter();
+    const filter = ectx.createBiquadFilter();
     filter.type = "lowpass";
     filter.frequency.value = 200 + track.cutoff * 9000;
 
@@ -878,15 +947,15 @@
     let stopAt = releaseStart + r + 0.05;
 
     if(track.wave === "noise" || track.wave === "noise-hp"){
-      src = ctx.createBufferSource();
-      src.buffer = getNoiseBuffer();
+      src = ectx.createBufferSource();
+      src.buffer = getNoiseBuffer(engine);
       src.playbackRate.value = pitchRatio;
       if(track.wave === "noise-hp"){
         filter.type = "highpass";
         filter.frequency.value = 6000;
       }
     } else {
-      src = ctx.createOscillator();
+      src = ectx.createOscillator();
       src.type = (track.wave === "saw") ? "sawtooth" : (track.wave === "square") ? "square" : (track.wave === "triangle") ? "triangle" : "sine";
       let baseFreq = 220;
       if(track.type === "kick") baseFreq = 150;
@@ -902,10 +971,10 @@
       }
     }
 
-    const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    const panner = ectx.createStereoPanner ? ectx.createStereoPanner() : null;
     if(panner) panner.pan.value = Math.min(Math.max(stepData.pan || 0, -1), 1);
 
-    const trackSend = ctx.createGain();
+    const trackSend = ectx.createGain();
     trackSend.gain.value = track.delaySend;
 
     src.connect(filter);
@@ -913,16 +982,17 @@
     // channel-level delay send stays pre-insert-FX (mirrors the manual's
     // Channel-settings Echo vs. Mixer-track FX distinction); everything
     // else flows into this track's persistent Mixer insert chain.
-    env.connect(track.insertIn || masterGain);
+    const chain = engine.tracks[trackIdx];
+    env.connect(chain ? chain.insertIn : engine.masterGain);
     env.connect(trackSend);
-    trackSend.connect(delayNode);
+    trackSend.connect(engine.delayNode);
 
     // cut-group + mono choke: silence whatever previously held these keys
     const keys = [];
     if(track.cutGroup) keys.push("group_" + track.cutGroup);
     if(track.poly === false) keys.push("track_" + trackIdx);
     keys.forEach(k => {
-      const prev = chokeRefs[k];
+      const prev = engine.chokeRefs[k];
       if(prev){
         try{
           prev.cancelScheduledValues(time);
@@ -930,7 +1000,7 @@
           prev.linearRampToValueAtTime(0.0001, time + 0.006);
         }catch(e){}
       }
-      chokeRefs[k] = env.gain;
+      engine.chokeRefs[k] = env.gain;
     });
 
     src.start(time);
@@ -950,7 +1020,7 @@
     return seq[i % seq.length];
   }
 
-  function triggerTrack(track, trackIdx, time, stepData){
+  function triggerTrack(engine, track, trackIdx, time, stepData){
     stepData = stepData || {vel:1, pan:0, pitch:0, rep:1};
     const dur = stepDuration();
 
@@ -966,14 +1036,14 @@
       for(let i=0;i<notesCount;i++){
         const semi = arpSemitoneFor(track.arp, i, basePitch);
         const noteData = Object.assign({}, stepData, {pitch: semi, rep: 1});
-        triggerHit(track, trackIdx, time + i*arpStep, noteData);
+        triggerHit(engine, track, trackIdx, time + i*arpStep, noteData);
       }
       return;
     }
 
     const rep = Math.min(Math.max(Math.round(stepData.rep || 1), 1), 8);
     for(let i=0;i<rep;i++){
-      triggerHit(track, trackIdx, time + (dur/rep)*i, stepData);
+      triggerHit(engine, track, trackIdx, time + (dur/rep)*i, stepData);
     }
   }
 
@@ -1001,7 +1071,7 @@
       const swingDelay = isSwungStep ? swingAmount * stepDuration() * 0.5 : 0;
       const triggerTime = nextStepTime + swingDelay;
       const barForThisStep = currentBar;
-      scheduleStep(stepIndexForSchedule, triggerTime, barForThisStep);
+      scheduleStep(liveEngine, stepIndexForSchedule, triggerTime, barForThisStep);
       stepQueue.push({step:stepIndexForSchedule, bar:barForThisStep, time:triggerTime});
       nextStepTime += stepDuration();
       stepIndexForSchedule = (stepIndexForSchedule + 1) % STEPS_PER_TRACK;
@@ -1014,7 +1084,7 @@
     }
   }
 
-  function scheduleStep(stepIdx, time, barIdx){
+  function scheduleStep(engine, stepIdx, time, barIdx){
     // PAT mode: loop whichever pattern is selected in the transport,
     // ignoring the arrangement entirely (FL's "PAT" transport switch).
     // SONG mode: look up which pattern (if any) this bar plays (FL's
@@ -1033,7 +1103,7 @@
       if(!stepData.on) return;
       if(track.mute) return;
       if(anySolo && !track.solo) return;
-      triggerTrack(track, tIdx, time, stepData);
+      triggerTrack(engine, track, tIdx, time, stepData);
     });
   }
 
@@ -1143,15 +1213,18 @@
   document.getElementById("btnSongMode").addEventListener("click", () => setSongMode(true));
 
   document.getElementById("btnSeqView").addEventListener("click", () => switchView("seq"));
+  document.getElementById("btnPadsView").addEventListener("click", () => switchView("pads"));
   document.getElementById("btnEditView").addEventListener("click", () => switchView("edit"));
   document.getElementById("btnArrangeView").addEventListener("click", () => switchView("arrange"));
   document.getElementById("btnMixerView").addEventListener("click", () => switchView("mixer"));
   function switchView(which){
     document.getElementById("seqView").classList.toggle("active", which==="seq");
+    document.getElementById("padsView").classList.toggle("active", which==="pads");
     document.getElementById("editView").classList.toggle("active", which==="edit");
     document.getElementById("arrangeView").classList.toggle("active", which==="arrange");
     document.getElementById("mixerView").classList.toggle("active", which==="mixer");
     document.getElementById("btnSeqView").classList.toggle("active", which==="seq");
+    document.getElementById("btnPadsView").classList.toggle("active", which==="pads");
     document.getElementById("btnEditView").classList.toggle("active", which==="edit");
     document.getElementById("btnArrangeView").classList.toggle("active", which==="arrange");
     document.getElementById("btnMixerView").classList.toggle("active", which==="mixer");
@@ -1268,7 +1341,7 @@
           cell.addEventListener("click", () => {
             ensureAudio();
             stepData.on = !stepData.on;
-            if(stepData.on) triggerTrack(track, tIdx, ctx.currentTime + 0.01, stepData);
+            if(stepData.on) triggerTrack(liveEngine, track, tIdx, ctx.currentTime + 0.01, stepData);
             renderGrid();
             if(tIdx === selectedTrackIdx) renderGraphBars();
           });
@@ -1781,7 +1854,7 @@
           } else {
             stepData.on = true;
             stepData.pitch = semi;
-            triggerTrack(track, prTrackIdx, ctx.currentTime + 0.01, stepData);
+            triggerTrack(liveEngine, track, prTrackIdx, ctx.currentTime + 0.01, stepData);
           }
           renderPianoRoll();
           if(prTrackIdx === selectedTrackIdx){ renderGrid(); renderGraphBars(); }
@@ -1835,15 +1908,15 @@
       strip.querySelector('[data-a="drive"]').addEventListener("click", (e) => {
         ensureAudio();
         track.fxDrive = !track.fxDrive; e.target.classList.toggle("on", track.fxDrive);
-        updateTrackInsertFX(track);
+        updateTrackInsertFX(liveEngine, track, tIdx);
       });
       strip.querySelector('[data-a="filt"]').addEventListener("click", (e) => {
         ensureAudio();
         track.fxFilterOn = !track.fxFilterOn; e.target.classList.toggle("on", track.fxFilterOn);
-        updateTrackInsertFX(track);
+        updateTrackInsertFX(liveEngine, track, tIdx);
       });
       bindKnob(strip.querySelector(".ch-verb-knob"), () => track.reverbSend, (v) => {
-        ensureAudio(); track.reverbSend = v; updateTrackInsertFX(track);
+        ensureAudio(); track.reverbSend = v; updateTrackInsertFX(liveEngine, track, tIdx);
       });
       mixerViewEl.appendChild(strip);
     });
@@ -1853,15 +1926,22 @@
       <div class="ch-name">MASTER</div>
       <div class="ch-meter-row"><div class="ch-meter"><div class="ch-meter-fill" data-key="master"></div></div></div>
       <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1" step="0.01" value="0.9"></div>
+      <div class="ch-btn-row"><button class="mini-btn fx ${compressorOn?'on':''}" data-a="comp" title="Master compressor">C</button></div>
       <span class="ch-fx-label">REVERB WET</span>
       <canvas class="master-verb-knob"></canvas>
     `;
     masterStrip.querySelector(".ch-fader").addEventListener("input", (e) => {
-      if(masterGain) masterGain.gain.setTargetAtTime(parseFloat(e.target.value), ctx.currentTime, 0.01);
+      if(liveEngine) liveEngine.masterGain.gain.setTargetAtTime(parseFloat(e.target.value), liveEngine.ctx.currentTime, 0.01);
     });
-    bindKnob(masterStrip.querySelector(".master-verb-knob"), () => (reverbWet ? reverbWet.gain.value : 0.9), (v) => {
+    masterStrip.querySelector('[data-a="comp"]').addEventListener("click", (e) => {
       ensureAudio();
-      if(reverbWet) reverbWet.gain.setTargetAtTime(v, ctx.currentTime, 0.01);
+      compressorOn = !compressorOn;
+      e.target.classList.toggle("on", compressorOn);
+      applyCompressorState(liveEngine);
+    });
+    bindKnob(masterStrip.querySelector(".master-verb-knob"), () => (liveEngine ? liveEngine.reverbWet.gain.value : 0.9), (v) => {
+      ensureAudio();
+      liveEngine.reverbWet.gain.setTargetAtTime(v, liveEngine.ctx.currentTime, 0.01);
     });
     mixerViewEl.appendChild(masterStrip);
     updateMixerMeters();
@@ -1880,17 +1960,17 @@
   }
 
   function updateMixerMeters(){
-    if(!ctx) return;
+    if(!liveEngine) return;
     TRACKS.forEach((track, tIdx) => {
       const key = "t"+tIdx;
-      const raw = readPeak(track.analyser);
+      const raw = readPeak(liveEngine.tracks[tIdx].analyser);
       const held = meterPeaks[key] || 0;
       const next = raw > held ? raw : held * 0.82; // fast attack, eased decay
       meterPeaks[key] = next;
       const el = document.querySelector(`.ch-meter-fill[data-key="${key}"]`);
       if(el) el.style.height = Math.min(next*140, 100) + "%";
     });
-    const rawM = readPeak(masterAnalyser);
+    const rawM = readPeak(liveEngine.masterAnalyser);
     const heldM = meterPeaks["master"] || 0;
     const nextM = rawM > heldM ? rawM : heldM * 0.82;
     meterPeaks["master"] = nextM;
@@ -1902,6 +1982,229 @@
   setInterval(() => {
     if(document.getElementById("mixerView").classList.contains("active")) updateMixerMeters();
   }, 40);
+
+  /* =========================================================
+     PADS VIEW -- MPC-style live triggering (multi-touch)
+     Each finger is its own Pointer Events pointerId, captured to its
+     pad via setPointerCapture so a drag off the pad still reports its
+     release here (no event gets "stolen" by another pad). Unlike the
+     step grid, this is a genuine held note: attack/decay/sustain start
+     on pointerdown and only the release fires on pointerup, driven by
+     touch Y-position as a velocity proxy (no pressure API on the web).
+  ========================================================== */
+  function triggerPadOn(engine, track, trackIdx, time, vel){
+    const ectx = engine.ctx;
+    const env = ectx.createGain();
+    env.gain.setValueAtTime(0, time);
+    const peak = track.vol * vel;
+    const a = Math.max(track.adsr.a, 0.001);
+    const d = Math.max(track.adsr.d, 0.001);
+    const s = track.adsr.s;
+    env.gain.linearRampToValueAtTime(peak, time + a);
+    env.gain.linearRampToValueAtTime(peak * s, time + a + d);
+
+    const filter = ectx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 200 + track.cutoff * 9000;
+
+    let src;
+    if(track.wave === "noise" || track.wave === "noise-hp"){
+      src = ectx.createBufferSource();
+      src.buffer = getNoiseBuffer(engine);
+      src.loop = true; // held pad: sustain the noise bed until release() stops it
+      if(track.wave === "noise-hp"){ filter.type = "highpass"; filter.frequency.value = 6000; }
+    } else {
+      src = ectx.createOscillator();
+      src.type = (track.wave === "saw") ? "sawtooth" : (track.wave === "square") ? "square" : (track.wave === "triangle") ? "triangle" : "sine";
+      let baseFreq = 220;
+      if(track.type === "kick") baseFreq = 150;
+      if(track.type === "tom")  baseFreq = 180;
+      if(track.type === "synth") baseFreq = 110;
+      src.frequency.setValueAtTime(baseFreq * 2.2, time);
+      if(track.type === "kick" || track.type === "tom"){
+        src.frequency.exponentialRampToValueAtTime(Math.max(baseFreq*0.5,30), time + 0.12);
+      } else {
+        src.frequency.setValueAtTime(baseFreq, time);
+      }
+    }
+
+    src.connect(filter);
+    filter.connect(env);
+    const chain = engine.tracks[trackIdx];
+    env.connect(chain ? chain.insertIn : engine.masterGain);
+    const trackSend = ectx.createGain();
+    trackSend.gain.value = track.delaySend;
+    env.connect(trackSend);
+    trackSend.connect(engine.delayNode);
+
+    const keys = [];
+    if(track.cutGroup) keys.push("group_" + track.cutGroup);
+    if(track.poly === false) keys.push("track_" + trackIdx);
+    keys.forEach(k => {
+      const prev = engine.chokeRefs[k];
+      if(prev){
+        try{
+          prev.cancelScheduledValues(time);
+          prev.setValueAtTime(prev.value, time);
+          prev.linearRampToValueAtTime(0.0001, time + 0.006);
+        }catch(e){}
+      }
+      engine.chokeRefs[k] = env.gain;
+    });
+
+    src.start(time);
+
+    return {
+      release(atTime){
+        const r = Math.max(track.adsr.r, 0.001);
+        try{
+          env.gain.cancelScheduledValues(atTime);
+          env.gain.setValueAtTime(env.gain.value, atTime);
+          env.gain.linearRampToValueAtTime(0.0001, atTime + r);
+          src.stop(atTime + r + 0.05);
+        }catch(e){}
+      }
+    };
+  }
+
+  const activePads = new Map(); // pointerId -> {padEl, handle}
+  const padsViewEl = document.getElementById("padsView");
+
+  function releasePad(e){
+    const held = activePads.get(e.pointerId);
+    if(!held) return;
+    held.handle.release(ctx.currentTime);
+    held.padEl.classList.remove("hit");
+    activePads.delete(e.pointerId);
+  }
+
+  function renderPads(){
+    padsViewEl.innerHTML = "";
+    const grid = document.createElement("div");
+    grid.className = "pad-grid";
+    TRACKS.forEach((track, idx) => {
+      const pad = document.createElement("div");
+      pad.className = "pad";
+      pad.innerHTML = `<div class="pad-name">${track.name}</div><div class="pad-type">${track.type}</div>`;
+      pad.addEventListener("pointerdown", (e) => {
+        ensureAudio();
+        try{ pad.setPointerCapture(e.pointerId); }catch(err){}
+        const rect = pad.getBoundingClientRect();
+        const relY = (e.clientY - rect.top) / rect.height;
+        const vel = Math.min(Math.max(1 - relY*0.7, 0.3), 1);
+        const handle = triggerPadOn(liveEngine, track, idx, ctx.currentTime + 0.003, vel);
+        activePads.set(e.pointerId, {padEl: pad, handle});
+        pad.classList.add("hit");
+        if(navigator.vibrate) navigator.vibrate(10);
+      });
+      pad.addEventListener("pointerup", releasePad);
+      pad.addEventListener("pointercancel", releasePad);
+      grid.appendChild(pad);
+    });
+    padsViewEl.appendChild(grid);
+  }
+
+  /* =========================================================
+     WAV EXPORT -- OfflineAudioContext bounce
+     Reuses buildEngine()/scheduleStep() verbatim against an offline
+     context instead of the live one: PAT mode bounces one loop of the
+     currently-selected pattern, SONG mode bounces the whole arrangement.
+  ========================================================== */
+  function audioBufferToWav(buffer){
+    const numCh = buffer.numberOfChannels;
+    const sr = buffer.sampleRate;
+    const numFrames = buffer.length;
+    const blockAlign = numCh * 2;
+    const dataSize = numFrames * blockAlign;
+    const arrBuf = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(arrBuf);
+    function writeStr(offset, str){ for(let i=0;i<str.length;i++) view.setUint8(offset+i, str.charCodeAt(i)); }
+    writeStr(0, "RIFF"); view.setUint32(4, 36 + dataSize, true); writeStr(8, "WAVE");
+    writeStr(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, numCh, true);
+    view.setUint32(24, sr, true); view.setUint32(28, sr * blockAlign, true);
+    view.setUint16(32, blockAlign, true); view.setUint16(34, 16, true);
+    writeStr(36, "data"); view.setUint32(40, dataSize, true);
+
+    const channels = [];
+    for(let c=0;c<numCh;c++) channels.push(buffer.getChannelData(c));
+    let offset = 44;
+    for(let i=0;i<numFrames;i++){
+      for(let c=0;c<numCh;c++){
+        let sample = Math.max(-1, Math.min(1, channels[c][i]));
+        sample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+        view.setInt16(offset, sample, true);
+        offset += 2;
+      }
+    }
+    return new Blob([arrBuf], {type:"audio/wav"});
+  }
+
+  async function renderOfflineWav(){
+    const sr = ctx ? ctx.sampleRate : 44100;
+    const dur = stepDuration();
+    const barDur = dur * STEPS_PER_TRACK;
+    const totalBars = songMode ? songBars : 1;
+    const tailSeconds = 2.0; // let release/delay/reverb tails ring out past the last step
+    const totalSamples = Math.ceil((barDur * totalBars + tailSeconds) * sr);
+
+    const offlineCtx = new OfflineAudioContext(2, totalSamples, sr);
+    const engine = buildEngine(offlineCtx);
+
+    const code = document.getElementById("delaySync").value;
+    engine.delayNode.delayTime.setValueAtTime(syncedSeconds(code, bpm), 0);
+    if(liveEngine){
+      engine.masterGain.gain.setValueAtTime(liveEngine.masterGain.gain.value, 0);
+      engine.reverbWet.gain.setValueAtTime(liveEngine.reverbWet.gain.value, 0);
+    }
+
+    for(let bar=0; bar<totalBars; bar++){
+      for(let step=0; step<STEPS_PER_TRACK; step++){
+        const isSwungStep = (step % 2) === 1;
+        const swingDelay = isSwungStep ? swingAmount * dur * 0.5 : 0;
+        scheduleStep(engine, step, bar*barDur + step*dur + swingDelay, bar);
+      }
+    }
+
+    const rendered = await offlineCtx.startRendering();
+    return audioBufferToWav(rendered);
+  }
+
+  async function shareOrDownloadWav(blob){
+    const filename = "strobe404-export.wav";
+    if(navigator.canShare){
+      try{
+        const file = new File([blob], filename, {type:"audio/wav"});
+        if(navigator.canShare({files:[file]})){
+          await navigator.share({files:[file], title:"STROBE::404 export"});
+          return;
+        }
+      }catch(e){ /* share cancelled/unsupported -- fall through to direct download */ }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  const exportBtnEl = document.getElementById("exportBtn");
+  exportBtnEl.addEventListener("click", async () => {
+    ensureAudio();
+    if(exportBtnEl.disabled) return;
+    exportBtnEl.disabled = true;
+    const prevLabel = exportBtnEl.textContent;
+    exportBtnEl.textContent = "...";
+    try{
+      const blob = await renderOfflineWav();
+      await shareOrDownloadWav(blob);
+    }catch(err){
+      console.error("WAV export failed", err);
+      alert("Export failed: " + err.message);
+    }finally{
+      exportBtnEl.disabled = false;
+      exportBtnEl.textContent = prevLabel;
+    }
+  });
 
   /* =========================================================
      RESIZE HANDLING
@@ -1917,6 +2220,7 @@
   renderGrid();
   renderGraphBars();
   renderEditView();
+  renderPads();
 
   // unlock audio context on first touch (mobile requirement)
   document.body.addEventListener("touchstart", ensureAudio, {once:true});

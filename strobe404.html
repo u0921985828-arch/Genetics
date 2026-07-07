@@ -537,6 +537,7 @@
             <button class="graph-tab" data-tab="pan">PAN</button>
             <button class="graph-tab" data-tab="pitch">PITCH</button>
             <button class="graph-tab" data-tab="rep">REP</button>
+            <button class="graph-tab" data-tab="cut">CUT</button>
           </div>
           <div id="graphBars"></div>
         </div>
@@ -549,9 +550,15 @@
       </div>
       <div class="edit-panels">
         <div class="panel" id="wavePanel">
-          <div class="panel-title">Oscillator / Waveform</div>
+          <div class="panel-title" id="wavePanelTitle">Oscillator / Waveform</div>
           <canvas id="waveCanvas"></canvas>
           <div class="wave-row" id="oscRow"></div>
+          <div class="wave-row" id="sampleRow">
+            <input type="file" id="sampleFileInput" accept="audio/*" style="display:none">
+            <button class="osc-btn" id="sampleImportBtn">IMPORT</button>
+            <button class="osc-btn" id="sampleUseBtn">USE SAMPLE</button>
+            <button class="osc-btn" id="sampleLoopToggle">LOOP OFF</button>
+          </div>
         </div>
         <div class="panel" id="envPanel">
           <div class="panel-title">ADSR Envelope</div>
@@ -722,6 +729,19 @@
     track.fxFilterOn = false; track.fxFilterCutoff = 0.7;
     track.reverbSend = 0.0;
     track.arp = {on:false, dir:"up", octaves:1, rate:"1/16"};
+    // one live-recordable cutoff automation lane per pattern -- null means
+    // "no recorded point here, fall back to the track's static cutoff knob"
+    track.autoCutoff = track.patterns.map(() => new Array(STEPS_PER_TRACK).fill(null));
+    // sampler: an imported AudioBuffer swaps in for the oscillator/noise
+    // source entirely (wave === "sample"); loop start/end are normalized
+    // 0..1 trim points into the buffer, doubling as both the one-shot
+    // in/out trim and the held-note loop region.
+    track.sampleBuffer = null;
+    track.samplePeaks = null;
+    track.sampleName = "";
+    track.sampleLoopStart = 0;
+    track.sampleLoopEnd = 1;
+    track.sampleLoopOn = false;
   });
 
   // Returns the step array for the pattern currently selected in the
@@ -751,6 +771,68 @@
   let songBars = 8;
   let currentBar = 0;
   let songArrangement = new Array(songBars).fill(1);
+  let compressorOn = true; // master-bus compressor toggle, shared by live + export
+
+  /* =========================================================
+     PROJECT PERSISTENCE -- localStorage autosave/restore
+     Serializes every piece of state a user can edit (patterns,
+     automation, per-track FX/ADSR, arrangement, transport) so closing
+     the tab never loses work; there is no filesystem in a mobile
+     WebView/PWA, so "the browser's storage" has to stand in for it.
+  ========================================================== */
+  const SAVE_KEY = "strobe404_project_v1";
+  let loadedProjectData = null; // stash for the bits (sync-select values) applied later in init
+
+  function serializeProject(){
+    return {
+      v: 1,
+      bpm, songBars, songArrangement, currentPattern, songMode, swingAmount, compressorOn,
+      delaySync: document.getElementById("delaySync").value,
+      lfoSync: document.getElementById("lfoSync").value,
+      tracks: TRACKS.map(t => ({
+        vol:t.vol, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
+        delaySend:t.delaySend, cutGroup:t.cutGroup, hold:t.hold, poly:t.poly,
+        fxDrive:t.fxDrive, fxDriveAmt:t.fxDriveAmt, fxFilterOn:t.fxFilterOn, fxFilterCutoff:t.fxFilterCutoff,
+        reverbSend:t.reverbSend, arp:t.arp, patterns:t.patterns, autoCutoff:t.autoCutoff
+      }))
+    };
+  }
+
+  function saveProject(){
+    try{ localStorage.setItem(SAVE_KEY, JSON.stringify(serializeProject())); }catch(e){}
+  }
+
+  function loadProject(){
+    let raw;
+    try{ raw = localStorage.getItem(SAVE_KEY); }catch(e){ return false; }
+    if(!raw) return false;
+    let data;
+    try{ data = JSON.parse(raw); }catch(e){ return false; }
+    if(!data || data.v !== 1 || !Array.isArray(data.tracks) || data.tracks.length !== TRACKS.length) return false;
+
+    bpm = data.bpm || 120;
+    songBars = data.songBars || 8;
+    songArrangement = Array.isArray(data.songArrangement) ? data.songArrangement : new Array(songBars).fill(1);
+    currentPattern = data.currentPattern || 0;
+    songMode = !!data.songMode;
+    swingAmount = data.swingAmount || 0;
+    compressorOn = data.compressorOn !== false;
+    TRACKS.forEach((t, i) => {
+      const s = data.tracks[i];
+      if(!s) return;
+      Object.assign(t, {
+        vol:s.vol, mute:s.mute, solo:s.solo, wave:s.wave, adsr:s.adsr, cutoff:s.cutoff,
+        delaySend:s.delaySend, cutGroup:s.cutGroup, hold:s.hold, poly:s.poly,
+        fxDrive:s.fxDrive, fxDriveAmt:s.fxDriveAmt, fxFilterOn:s.fxFilterOn, fxFilterCutoff:s.fxFilterCutoff,
+        reverbSend:s.reverbSend, arp:s.arp, patterns:s.patterns, autoCutoff:s.autoCutoff
+      });
+    });
+    loadedProjectData = data;
+    return true;
+  }
+
+  loadProject();
+  if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
   /* =========================================================
      AUDIO ENGINE
@@ -761,7 +843,6 @@
   ========================================================== */
   let ctx = null;
   let liveEngine = null;
-  let compressorOn = true; // master-bus compressor toggle, shared by live + export
 
   // Procedurally-generated impulse response: exponentially-decaying noise.
   // Mirrors the manual's description of Convolution Reverb -- "an impulse
@@ -921,7 +1002,7 @@
     return engine.noiseBuffer;
   }
 
-  function triggerHit(engine, track, trackIdx, time, stepData){
+  function triggerHit(engine, track, trackIdx, time, stepData, cutoffOverride){
     const ectx = engine.ctx;
     const env = ectx.createGain();
     env.gain.setValueAtTime(0, time);
@@ -939,14 +1020,33 @@
 
     const filter = ectx.createBiquadFilter();
     filter.type = "lowpass";
-    filter.frequency.value = 200 + track.cutoff * 9000;
+    const cutoff = cutoffOverride != null ? cutoffOverride : track.cutoff;
+    filter.frequency.value = 200 + cutoff * 9000;
 
     const pitchRatio = Math.pow(2, (stepData.pitch || 0) / 12);
 
     let src;
     let stopAt = releaseStart + r + 0.05;
+    let startOffset = 0;
+    let startDuration = null;
+    const isBufferSource = track.wave === "sample" || track.wave === "noise" || track.wave === "noise-hp";
 
-    if(track.wave === "noise" || track.wave === "noise-hp"){
+    if(track.wave === "sample" && track.sampleBuffer){
+      src = ectx.createBufferSource();
+      src.buffer = track.sampleBuffer;
+      src.playbackRate.value = pitchRatio;
+      const totalDur = track.sampleBuffer.duration;
+      const inPoint = track.sampleLoopStart * totalDur;
+      const outPoint = Math.max(track.sampleLoopEnd * totalDur, inPoint + 0.01);
+      startOffset = inPoint;
+      if(track.sampleLoopOn){
+        src.loop = true;
+        src.loopStart = inPoint;
+        src.loopEnd = outPoint;
+      } else {
+        startDuration = outPoint - inPoint;
+      }
+    } else if(track.wave === "noise" || track.wave === "noise-hp"){
       src = ectx.createBufferSource();
       src.buffer = getNoiseBuffer(engine);
       src.playbackRate.value = pitchRatio;
@@ -1003,7 +1103,12 @@
       engine.chokeRefs[k] = env.gain;
     });
 
-    src.start(time);
+    if(isBufferSource){
+      if(startDuration != null) src.start(time, startOffset, startDuration);
+      else src.start(time, startOffset);
+    } else {
+      src.start(time);
+    }
     src.stop(stopAt);
   }
 
@@ -1020,7 +1125,7 @@
     return seq[i % seq.length];
   }
 
-  function triggerTrack(engine, track, trackIdx, time, stepData){
+  function triggerTrack(engine, track, trackIdx, time, stepData, cutoffOverride){
     stepData = stepData || {vel:1, pan:0, pitch:0, rep:1};
     const dur = stepDuration();
 
@@ -1036,14 +1141,14 @@
       for(let i=0;i<notesCount;i++){
         const semi = arpSemitoneFor(track.arp, i, basePitch);
         const noteData = Object.assign({}, stepData, {pitch: semi, rep: 1});
-        triggerHit(engine, track, trackIdx, time + i*arpStep, noteData);
+        triggerHit(engine, track, trackIdx, time + i*arpStep, noteData, cutoffOverride);
       }
       return;
     }
 
     const rep = Math.min(Math.max(Math.round(stepData.rep || 1), 1), 8);
     for(let i=0;i<rep;i++){
-      triggerHit(engine, track, trackIdx, time + (dur/rep)*i, stepData);
+      triggerHit(engine, track, trackIdx, time + (dur/rep)*i, stepData, cutoffOverride);
     }
   }
 
@@ -1084,6 +1189,17 @@
     }
   }
 
+  // Sample-and-hold lookback: a recorded automation lane only has values
+  // at the exact steps the user touched the knob on, so playback holds
+  // the most recent breakpoint forward until the next one, exactly like
+  // a DAW's stepped automation curve. Returns null (use the track's
+  // static knob) if nothing has ever been recorded in this pattern.
+  function autoValueAt(arr, stepIdx){
+    if(!arr) return null;
+    for(let i=stepIdx;i>=0;i--){ if(arr[i] != null) return arr[i]; }
+    return null;
+  }
+
   function scheduleStep(engine, stepIdx, time, barIdx){
     // PAT mode: loop whichever pattern is selected in the transport,
     // ignoring the arrangement entirely (FL's "PAT" transport switch).
@@ -1103,7 +1219,8 @@
       if(!stepData.on) return;
       if(track.mute) return;
       if(anySolo && !track.solo) return;
-      triggerTrack(engine, track, tIdx, time, stepData);
+      const cutoffOverride = autoValueAt(track.autoCutoff[patternIdx], stepIdx);
+      triggerTrack(engine, track, tIdx, time, stepData, cutoffOverride);
     });
   }
 
@@ -1162,7 +1279,7 @@
   }
   document.getElementById("bpmUp").addEventListener("click", () => setBpm(bpm+1));
   document.getElementById("bpmDown").addEventListener("click", () => setBpm(bpm-1));
-  setBpm(120);
+  setBpm(bpm); // reflects whatever loadProject() restored (or the 120 default)
 
   function populateSyncSelect(sel){
     SUBDIVISIONS.forEach(s => {
@@ -1175,8 +1292,8 @@
   const lfoSyncSel = document.getElementById("lfoSync");
   populateSyncSelect(delaySyncSel);
   populateSyncSelect(lfoSyncSel);
-  delaySyncSel.value = "1/8.";
-  lfoSyncSel.value = "1/4";
+  delaySyncSel.value = (loadedProjectData && loadedProjectData.delaySync) || "1/8.";
+  lfoSyncSel.value = (loadedProjectData && loadedProjectData.lfoSync) || "1/4";
   delaySyncSel.addEventListener("change", updateDelayTime);
   lfoSyncSel.addEventListener("change", updateLfoRate);
 
@@ -1190,6 +1307,7 @@
   }
 
   const swingRangeEl = document.getElementById("swingRange");
+  swingRangeEl.value = swingAmount * 100;
   swingRangeEl.addEventListener("input", () => { swingAmount = swingRangeEl.value / 100; });
 
   /* ---- Pattern selector + PAT/SONG mode (FL's "from Patterns to Songs") ---- */
@@ -1393,14 +1511,34 @@
     else if(tab === "rep") stepData.rep = Math.round(norm*7) + 1;
   }
 
+  // "cut" is the one graph tab that isn't per-step note data -- it's a
+  // recorded automation lane (track.autoCutoff[pattern][step], null =
+  // "no breakpoint here, use the track's static cutoff knob"). Reusing
+  // this same VEL/PAN/PITCH/REP editor for it means live-recorded moves
+  // and manual dragging both edit the identical array.
+  function getGraphValue(track, idx, stepData){
+    if(graphTab === "cut"){
+      const v = track.autoCutoff[currentPattern][idx];
+      return v == null ? track.cutoff : v;
+    }
+    return normFromStep(stepData, graphTab);
+  }
+  function setGraphValue(track, idx, stepData, norm){
+    norm = Math.min(Math.max(norm, 0), 1);
+    if(graphTab === "cut") track.autoCutoff[currentPattern][idx] = norm;
+    else applyNormToStep(stepData, graphTab, norm);
+  }
+
   function renderGraphBars(){
     const track = TRACKS[selectedTrackIdx];
     graphTrackNameEl.textContent = track.name;
     graphBarsEl.innerHTML = "";
-    curSteps(track).forEach((stepData) => {
+    curSteps(track).forEach((stepData, idx) => {
       const bar = document.createElement("div");
-      bar.className = "graph-bar" + (stepData.on ? "" : " off");
-      const norm = normFromStep(stepData, graphTab);
+      const isRecorded = track.autoCutoff[currentPattern][idx] != null;
+      const dimmed = graphTab === "cut" ? !isRecorded : !stepData.on;
+      bar.className = "graph-bar" + (dimmed ? " off" : "");
+      const norm = getGraphValue(track, idx, stepData);
       const fill = document.createElement("div");
       fill.className = "graph-bar-fill";
       fill.style.height = (norm*100) + "%";
@@ -1410,8 +1548,16 @@
         centerLine.className = "graph-bar-center";
         bar.appendChild(centerLine);
       }
+      let lastTap = 0;
       bar.addEventListener("pointerdown", (e) => {
-        graphDragging = {stepData, barEl:bar, fillEl:fill};
+        const now = Date.now();
+        if(graphTab === "cut" && now - lastTap < 320){
+          track.autoCutoff[currentPattern][idx] = null;
+          renderGraphBars();
+          return;
+        }
+        lastTap = now;
+        graphDragging = {track, idx, stepData, barEl:bar, fillEl:fill};
         updateGraphDrag(e);
       });
       graphBarsEl.appendChild(bar);
@@ -1423,10 +1569,11 @@
     if(!graphDragging) return;
     const rect = graphDragging.barEl.getBoundingClientRect();
     const norm = 1 - Math.min(Math.max((e.clientY - rect.top) / rect.height, 0), 1);
-    applyNormToStep(graphDragging.stepData, graphTab, norm);
+    setGraphValue(graphDragging.track, graphDragging.idx, graphDragging.stepData, norm);
     // update just this bar's fill directly -- a full re-render mid-drag would
     // detach the element currently under the pointer and break the gesture
     graphDragging.fillEl.style.height = (norm*100) + "%";
+    graphDragging.fillEl.parentElement.classList.remove("off");
   }
   document.addEventListener("pointermove", (e) => { if(graphDragging) updateGraphDrag(e); });
   document.addEventListener("pointerup", () => { graphDragging = null; });
@@ -1483,15 +1630,77 @@
     return ctx2d;
   }
 
+  // Downsampled min/max-style peak cache, computed once at import time --
+  // redrawing from this on every zoom/scroll is what keeps the waveform
+  // view cheap even for a long sample (never re-walk the raw PCM per frame).
+  function computeSamplePeaks(buffer, numBuckets){
+    const peaks = new Float32Array(numBuckets);
+    const channels = [];
+    for(let c=0;c<buffer.numberOfChannels;c++) channels.push(buffer.getChannelData(c));
+    const perBucket = Math.max(1, Math.floor(buffer.length / numBuckets));
+    for(let b=0;b<numBuckets;b++){
+      let peak = 0;
+      const start = b*perBucket;
+      const end = Math.min(start+perBucket, buffer.length);
+      for(let i=start;i<end;i++){
+        for(let c=0;c<channels.length;c++){
+          const v = Math.abs(channels[c][i]);
+          if(v > peak) peak = v;
+        }
+      }
+      peaks[b] = peak;
+    }
+    return peaks;
+  }
+
+  async function importSampleFile(track, file){
+    ensureAudio();
+    const arrayBuf = await file.arrayBuffer();
+    const buffer = await ctx.decodeAudioData(arrayBuf);
+    track.sampleBuffer = buffer;
+    track.samplePeaks = computeSamplePeaks(buffer, 400);
+    track.sampleName = file.name;
+    track.sampleLoopStart = 0;
+    track.sampleLoopEnd = 1;
+    track.wave = "sample";
+    renderEditView();
+  }
+
   function drawWaveform(){
     const track = TRACKS[selectedTrackIdx];
     const c = fitCanvas(waveCanvas);
     const w = waveCanvas.clientWidth, h = waveCanvas.clientHeight;
     c.clearRect(0,0,w,h);
+    const mid = h/2;
+
+    if(track.wave === "sample" && track.samplePeaks){
+      c.strokeStyle = "#ffb02e";
+      c.lineWidth = 1;
+      c.beginPath();
+      const peaks = track.samplePeaks;
+      for(let x=0;x<w;x++){
+        const idx = Math.floor((x/w) * peaks.length);
+        const amp = peaks[Math.min(idx, peaks.length-1)];
+        c.moveTo(x, mid - amp*mid*0.9);
+        c.lineTo(x, mid + amp*mid*0.9);
+      }
+      c.stroke();
+
+      // in/out trim handles -- also the loop points when LOOP is on
+      [["sampleLoopStart","#4dd8e6"],["sampleLoopEnd","#ff5252"]].forEach(([key,color]) => {
+        const x = track[key] * w;
+        c.strokeStyle = color;
+        c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(x, 0); c.lineTo(x, h);
+        c.stroke();
+      });
+      return;
+    }
+
     c.strokeStyle = "#ffb02e";
     c.lineWidth = 2;
     c.beginPath();
-    const mid = h/2;
     for(let x=0;x<w;x++){
       const phase = (x/w) * Math.PI * 8;
       let y;
@@ -1505,6 +1714,53 @@
     }
     c.stroke();
   }
+
+  let draggingSampleHandle = null;
+  function waveCanvasPointerHandler(e){
+    const track = TRACKS[selectedTrackIdx];
+    if(track.wave !== "sample" || !track.sampleBuffer) return;
+    const rect = waveCanvas.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const w = waveCanvas.clientWidth;
+    const norm = Math.min(Math.max(px / w, 0), 1);
+
+    if(e.type === "pointerdown"){
+      const startX = track.sampleLoopStart * w, endX = track.sampleLoopEnd * w;
+      draggingSampleHandle = Math.abs(px-startX) <= Math.abs(px-endX) ? "sampleLoopStart" : "sampleLoopEnd";
+    } else if(e.type === "pointermove" && draggingSampleHandle){
+      if(draggingSampleHandle === "sampleLoopStart"){
+        track.sampleLoopStart = Math.min(norm, track.sampleLoopEnd - 0.01);
+      } else {
+        track.sampleLoopEnd = Math.max(norm, track.sampleLoopStart + 0.01);
+      }
+      drawWaveform();
+    } else if(e.type === "pointerup" || e.type === "pointercancel"){
+      draggingSampleHandle = null;
+    }
+  }
+  ["pointerdown","pointermove","pointerup","pointercancel"].forEach(evt => {
+    waveCanvas.addEventListener(evt, waveCanvasPointerHandler);
+  });
+
+  const sampleImportBtnEl = document.getElementById("sampleImportBtn");
+  const sampleFileInputEl = document.getElementById("sampleFileInput");
+  const sampleUseBtnEl = document.getElementById("sampleUseBtn");
+  const sampleLoopToggleEl = document.getElementById("sampleLoopToggle");
+  sampleImportBtnEl.addEventListener("click", () => sampleFileInputEl.click());
+  sampleFileInputEl.addEventListener("change", async () => {
+    const file = sampleFileInputEl.files[0];
+    sampleFileInputEl.value = "";
+    if(file) await importSampleFile(TRACKS[selectedTrackIdx], file);
+  });
+  sampleUseBtnEl.addEventListener("click", () => {
+    const track = TRACKS[selectedTrackIdx];
+    if(track.sampleBuffer){ track.wave = "sample"; renderEditView(); }
+  });
+  sampleLoopToggleEl.addEventListener("click", () => {
+    const track = TRACKS[selectedTrackIdx];
+    track.sampleLoopOn = !track.sampleLoopOn;
+    renderEditView();
+  });
 
   let draggingHandle = null;
   function envPoints(track, w, h){
@@ -1646,7 +1902,21 @@
     drawWaveform();
     drawEnvelope();
     const track = TRACKS[selectedTrackIdx];
-    bindKnob(cutoffKnobCanvas, () => track.cutoff, (v) => { track.cutoff = v; });
+    document.getElementById("wavePanelTitle").textContent = track.wave === "sample"
+      ? ("Sample: " + (track.sampleName || "—"))
+      : "Oscillator / Waveform";
+    sampleUseBtnEl.classList.toggle("active", track.wave === "sample");
+    sampleUseBtnEl.style.opacity = track.sampleBuffer ? "1" : "0.4";
+    sampleLoopToggleEl.classList.toggle("active", track.sampleLoopOn);
+    sampleLoopToggleEl.textContent = track.sampleLoopOn ? "LOOP ON" : "LOOP OFF";
+    bindKnob(cutoffKnobCanvas, () => track.cutoff, (v) => {
+      track.cutoff = v;
+      // "Live record" automation: while the transport is rolling, every
+      // move of this knob writes a breakpoint at the pattern's current
+      // step -- no separate arm/record button, exactly the FL-Studio-
+      // style "hit play, wiggle the knob, the sweep is captured" flow.
+      if(playing) track.autoCutoff[currentPattern][currentStep] = v;
+    });
     bindKnob(delaySendKnobCanvas, () => track.delaySend, (v) => { track.delaySend = v; });
     bindKnob(holdKnobCanvas, () => track.hold, (v) => { track.hold = v; });
     polyToggleEl.classList.toggle("active", track.poly);
@@ -2008,7 +2278,18 @@
     filter.frequency.value = 200 + track.cutoff * 9000;
 
     let src;
-    if(track.wave === "noise" || track.wave === "noise-hp"){
+    let startOffset = 0;
+    if(track.wave === "sample" && track.sampleBuffer){
+      src = ectx.createBufferSource();
+      src.buffer = track.sampleBuffer;
+      const totalDur = track.sampleBuffer.duration;
+      const inPoint = track.sampleLoopStart * totalDur;
+      const outPoint = Math.max(track.sampleLoopEnd * totalDur, inPoint + 0.01);
+      startOffset = inPoint;
+      src.loop = true; // held pad: sustain across the trimmed region until release() stops it
+      src.loopStart = inPoint;
+      src.loopEnd = outPoint;
+    } else if(track.wave === "noise" || track.wave === "noise-hp"){
       src = ectx.createBufferSource();
       src.buffer = getNoiseBuffer(engine);
       src.loop = true; // held pad: sustain the noise bed until release() stops it
@@ -2052,7 +2333,11 @@
       engine.chokeRefs[k] = env.gain;
     });
 
-    src.start(time);
+    if(track.wave === "sample" || track.wave === "noise" || track.wave === "noise-hp"){
+      src.start(time, startOffset);
+    } else {
+      src.start(time);
+    }
 
     return {
       release(atTime){
@@ -2221,6 +2506,18 @@
   renderGraphBars();
   renderEditView();
   renderPads();
+
+  // reflect whatever loadProject() restored (or the hardcoded demo state)
+  // in the transport controls that aren't touched by the renders above
+  setPattern(currentPattern);
+  setSongMode(songMode);
+  songLenDisplayEl.textContent = songBars;
+
+  // autosave: periodic + on backgrounding/close, since there's no
+  // filesystem "save" step in a mobile WebView/PWA to hang this on
+  setInterval(saveProject, 4000);
+  document.addEventListener("visibilitychange", () => { if(document.visibilityState === "hidden") saveProject(); });
+  window.addEventListener("pagehide", saveProject);
 
   // unlock audio context on first touch (mobile requirement)
   document.body.addEventListener("touchstart", ensureAudio, {once:true});

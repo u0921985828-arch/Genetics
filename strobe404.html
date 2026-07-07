@@ -152,6 +152,8 @@
   .br-item .dot{width:11px; height:11px; border:var(--bw) solid var(--ink); background:var(--tc,#ccc); flex:0 0 auto;}
   .br-item .br-load{margin-left:auto; font-size:9px; font-weight:800; color:var(--ink); cursor:pointer; border:var(--bw) solid var(--ink); border-radius:var(--r); padding:3px 6px; background:var(--bg); text-transform:uppercase;}
   .br-item .br-load:active{background:var(--ink); color:#fff;}
+  .br-actions{display:flex; gap:6px; padding:4px 2px 8px; border-bottom:var(--bw) solid var(--ink); margin-bottom:6px;}
+  .br-actions .br-load{padding:6px 8px; font-size:10px;}
 
   /* ---- rotate hint ---- */
   #rotateHint{position:fixed; inset:0; z-index:90; background:var(--bg); display:none; align-items:center; justify-content:center; text-align:center;}
@@ -431,6 +433,7 @@
     <div id="browserTabs">
       <button data-btab="sounds" class="active">Sounds</button>
       <button data-btab="patterns">Patterns</button>
+      <button data-btab="projects">Files</button>
     </div>
     <div id="browserBody"></div>
   </aside>
@@ -885,17 +888,58 @@
   const IDB_NAME = "strobe404_samples";
   const IDB_STORE = "samples";          // per-track live buffers, keyed by track index
   const IDB_LIB_STORE = "library";      // user's saved sound library, {name, blob}
+  const IDB_PROJ_STORE = "projects";    // saved project library, {name, path, data, updatedAt}
   function openSampleDB(){
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(IDB_NAME, 2);
+      const req = indexedDB.open(IDB_NAME, 3);
       req.onupgradeneeded = () => {
         const db = req.result;
         if(!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
         if(!db.objectStoreNames.contains(IDB_LIB_STORE)) db.createObjectStore(IDB_LIB_STORE, {autoIncrement:true});
+        if(!db.objectStoreNames.contains(IDB_PROJ_STORE)) db.createObjectStore(IDB_PROJ_STORE, {autoIncrement:true});
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
+  }
+  async function saveProjectEntry(entry){
+    try{
+      const db = await openSampleDB();
+      return await new Promise((res, rej) => {
+        const tx = db.transaction(IDB_PROJ_STORE, "readwrite");
+        const store = tx.objectStore(IDB_PROJ_STORE);
+        const rq = entry.key != null ? store.put({name:entry.name, path:entry.path, data:entry.data, updatedAt:entry.updatedAt}, entry.key)
+                                     : store.add({name:entry.name, path:entry.path, data:entry.data, updatedAt:entry.updatedAt});
+        rq.onsuccess = () => res(rq.result);
+        tx.onerror = () => rej(tx.error);
+      });
+    }catch(e){ return null; }
+  }
+  async function listProjectEntries(){
+    try{
+      const db = await openSampleDB();
+      return await new Promise((res, rej) => {
+        const items = [];
+        const tx = db.transaction(IDB_PROJ_STORE, "readonly");
+        const rq = tx.objectStore(IDB_PROJ_STORE).openCursor();
+        rq.onsuccess = () => {
+          const cur = rq.result;
+          if(cur){ items.push({key:cur.key, name:cur.value.name, path:cur.value.path || "", data:cur.value.data, updatedAt:cur.value.updatedAt}); cur.continue(); }
+          else res(items);
+        };
+        rq.onerror = () => rej(rq.error);
+      });
+    }catch(e){ return []; }
+  }
+  async function deleteProjectEntry(key){
+    try{
+      const db = await openSampleDB();
+      await new Promise((res) => {
+        const tx = db.transaction(IDB_PROJ_STORE, "readwrite");
+        tx.objectStore(IDB_PROJ_STORE).delete(key);
+        tx.oncomplete = res; tx.onerror = res;
+      });
+    }catch(e){}
   }
   async function saveLibraryItem(name, blob){
     try{
@@ -1823,7 +1867,7 @@
           async () => { try{ previewBuffer(await decodeBlobToBuffer(item.blob), null); }catch(e){} },
           async () => { try{ loadBufferToSelectedTrack(await decodeBlobToBuffer(item.blob), item.name); }catch(e){} }));
       });
-    } else {
+    } else if(browserTab === "patterns"){
       const g = document.createElement("div"); g.className = "br-group"; g.textContent = "Patterns";
       browserBodyEl.appendChild(g);
       for(let p=0;p<PATTERN_COUNT;p++){
@@ -1831,7 +1875,59 @@
         browserBodyEl.appendChild(brItem(label, PATTERN_COLORS[p % PATTERN_COLORS.length],
           () => { setPattern(p); renderBrowser(); }, null, p === currentPattern));
       }
+    } else {
+      await renderProjectsBrowser();
     }
+  }
+
+  /* ---- Projects "Files" tab: a folder tree of saved projects ---- */
+  function projPathParts(path){ return (path || "").split("/").map(s => s.trim()).filter(Boolean); }
+  async function renderProjectsBrowser(){
+    // top actions
+    const actions = document.createElement("div"); actions.className = "br-actions";
+    const saveBtn = document.createElement("button"); saveBtn.className = "br-load"; saveBtn.style.marginLeft = "0"; saveBtn.textContent = "+ SAVE CURRENT";
+    saveBtn.addEventListener("click", saveCurrentProjectPrompt);
+    actions.appendChild(saveBtn);
+    browserBodyEl.appendChild(actions);
+
+    const entries = await listProjectEntries();
+    if(!entries.length){
+      const e = document.createElement("div"); e.className = "br-item"; e.style.opacity = ".55";
+      e.textContent = "— no saved projects —";
+      browserBodyEl.appendChild(e);
+      return;
+    }
+    // group by folder path, sorted; render each folder header then its projects
+    const byPath = {};
+    entries.forEach(en => { const key = projPathParts(en.path).join(" / "); (byPath[key] || (byPath[key] = [])).push(en); });
+    Object.keys(byPath).sort().forEach(key => {
+      const g = document.createElement("div"); g.className = "br-group";
+      g.textContent = key ? ("📁 " + key) : "📁 Root";
+      browserBodyEl.appendChild(g);
+      byPath[key].sort((a,b) => a.name.localeCompare(b.name)).forEach(en => {
+        const it = document.createElement("div"); it.className = "br-item";
+        it.innerHTML = `<span class="dot" style="background:var(--orange)"></span><span>${en.name}</span>`;
+        const open = document.createElement("button"); open.className = "br-load"; open.textContent = "OPEN";
+        open.addEventListener("click", (e) => { e.stopPropagation(); openProjectEntry(en); });
+        const del = document.createElement("button"); del.className = "br-load"; del.style.color = "var(--c-red)"; del.style.marginLeft = "5px"; del.innerHTML = "&#10005;";
+        del.addEventListener("click", async (e) => { e.stopPropagation(); if(confirm("Delete project \"" + en.name + "\"?")){ await deleteProjectEntry(en.key); renderBrowser(); } });
+        it.appendChild(open); it.appendChild(del);
+        browserBodyEl.appendChild(it);
+      });
+    });
+  }
+  async function saveCurrentProjectPrompt(){
+    const name = prompt("Project name:", "My Project");
+    if(name == null || !name.trim()) return;
+    const path = prompt("Folder path (optional, use / for subfolders):", "") || "";
+    await saveProjectEntry({ name:name.trim(), path:path.trim(), data:serializeProject(), updatedAt:Date.now() });
+    renderBrowser();
+  }
+  function openProjectEntry(en){
+    if(!confirm("Open \"" + en.name + "\"? This replaces the current project.")) return;
+    ensureAudio();
+    loadFullProject(en.data);
+    renderBrowser();
   }
   document.querySelectorAll("#browserTabs button").forEach(b => {
     b.addEventListener("click", () => {

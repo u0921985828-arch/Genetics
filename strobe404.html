@@ -242,7 +242,11 @@
   .pl-pats{display:flex; gap:4px; flex:0 0 auto;}
   .pl-pats button{-webkit-appearance:none; appearance:none; cursor:pointer; width:30px; height:28px; font-size:11px; font-weight:800; color:var(--ink); background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r);}
   .pl-pats button.active{color:var(--tci,var(--ink));}
-  #plClearBtn{padding:6px 10px;}
+  #plClearBtn, #plAddAudioBtn{padding:6px 10px;}
+  .arrange-lane.audio-lane{position:relative; background:repeating-linear-gradient(90deg,var(--bg) 0 calc(var(--bar-w) - 1px), #d9d8d2 calc(var(--bar-w) - 1px) var(--bar-w));}
+  .audio-clip{position:absolute; top:4px; bottom:4px; background:var(--c-yellow); border:var(--bw) solid var(--ink); display:flex; align-items:center; padding:0 6px; overflow:hidden; cursor:pointer;}
+  .audio-clip-name{font-size:10px; font-weight:800; color:var(--ink); white-space:nowrap; text-overflow:ellipsis; overflow:hidden; text-transform:uppercase;}
+  #arrangeScroll.drop-hover{outline:3px dashed var(--orange); outline-offset:-3px;}
   .arrangeTop{flex:1; min-height:0; display:flex;}
   #arrangeHeaders{flex:0 0 130px; background:var(--bg); border-right:var(--bw) solid var(--ink); overflow-y:auto; touch-action:pan-y;}
   .arrange-header{height:52px; border-bottom:var(--bw) solid var(--ink); display:flex; flex-direction:column; justify-content:center; gap:2px; padding:5px 7px 5px 14px; position:relative;}
@@ -580,6 +584,7 @@
         <span class="pl-lbl">Pattern</span>
         <div class="pl-pats" id="plPatPicker"></div>
         <div class="t-spacer"></div>
+        <button id="plAddAudioBtn" class="menu-btn">+ Audio</button>
         <button id="plClearBtn" class="menu-btn">Clear all</button>
       </div>
       <div class="arrangeTop">
@@ -859,6 +864,11 @@
   let songBars = 8;
   let currentBar = 0;
   let songArrangement = new Array(songBars).fill(1);
+  // FL-style audio clips dropped onto the playlist. In-memory (buffers
+  // aren't JSON); each {id,name,buffer,bar,gain}. Played in SONG mode at
+  // the start of their bar.
+  let audioClips = [];
+  let audioClipSeq = 1;
   let compressorOn = true; // master-bus compressor toggle, shared by live + export
   let metroOn = false;     // metronome click on each beat
   let countInOn = true;    // one-bar count-in before playback (when metro on)
@@ -1664,6 +1674,10 @@
       if(metroOn && (stepIndexForSchedule % STEPS_PER_BEAT) === 0){
         metroClick(nextStepTime, stepIndexForSchedule === 0);
       }
+      // audio clips fire at the downbeat of their bar (SONG mode only)
+      if(songMode && stepIndexForSchedule === 0){
+        triggerAudioClipsForBar(liveEngine, currentBar, nextStepTime);
+      }
       scheduleStep(liveEngine, stepIndexForSchedule, triggerTime, barForThisStep);
       stepQueue.push({step:stepIndexForSchedule, bar:barForThisStep, time:triggerTime});
       nextStepTime += stepDuration();
@@ -1714,6 +1728,22 @@
 
   // Short metronome blip on the live engine's master bus. Accent (the
   // bar's downbeat) is a higher, slightly louder click.
+  // one-bar length in seconds at the current BPM/step count
+  function barSeconds(){ return stepDuration() * STEPS_PER_TRACK; }
+  // fire any audio clips anchored to `bar` at `time` on the given engine
+  function triggerAudioClipsForBar(engine, bar, time){
+    if(!engine) return;
+    audioClips.forEach(c => {
+      if(c.bar !== bar || !c.buffer) return;
+      const src = engine.ctx.createBufferSource();
+      src.buffer = c.buffer;
+      const g = engine.ctx.createGain();
+      g.gain.value = c.gain != null ? c.gain : 1;
+      src.connect(g); g.connect(engine.masterGain);
+      src.start(time);
+    });
+  }
+
   function metroClick(time, accent){
     if(!liveEngine) return;
     const osc = ctx.createOscillator();
@@ -3161,6 +3191,11 @@
       row.innerHTML = `<div class="track-name">${track.name}</div><div class="track-type">${track.type}</div>`;
       arrangeHeadersEl.appendChild(row);
     });
+    const audioHdr = document.createElement("div");
+    audioHdr.className = "arrange-header";
+    audioHdr.style.setProperty("--tc", "var(--ink)");
+    audioHdr.innerHTML = `<div class="track-name">AUDIO</div><div class="track-type">drop / + audio</div>`;
+    arrangeHeadersEl.appendChild(audioHdr);
   }
 
   function renderArrangeRuler(){
@@ -3238,6 +3273,29 @@
       }
       arrangeLanesEl.appendChild(lane);
     });
+
+    // ---- audio-clip lane (dropped audio files) ----
+    const audioLane = document.createElement("div");
+    audioLane.className = "arrange-lane audio-lane";
+    for(let b=0;b<songBars;b++){
+      const cell = document.createElement("div");
+      cell.className = "arrange-cell"; cell.dataset.bar = b;
+      audioLane.appendChild(cell);
+    }
+    audioClips.forEach(c => {
+      const clip = document.createElement("div");
+      clip.className = "audio-clip";
+      clip.style.left = (c.bar * barWidth + 2) + "px";
+      clip.style.width = (Math.max(1, c.durationBars) * barWidth - 4) + "px";
+      clip.innerHTML = `<span class="audio-clip-name">🔊 ${c.name}</span>`;
+      clip.title = "Tap to remove: " + c.name;
+      clip.addEventListener("click", () => {
+        if(confirm("Remove audio clip \"" + c.name + "\"?")){ audioClips = audioClips.filter(x => x.id !== c.id); renderArrangeLanes(); }
+      });
+      audioLane.appendChild(clip);
+    });
+    arrangeLanesEl.appendChild(audioLane);
+
     renderArrangePlayhead();
   }
 
@@ -3245,6 +3303,7 @@
     document.querySelectorAll(".arrange-lane").forEach((lane) => {
       lane.querySelectorAll(".arrange-cell").forEach(cell => {
         const clip = cell.querySelector(".arrange-clip");
+        if(!clip) return; // audio-lane cells have no pattern clip
         clip.classList.toggle("playing-bar", playing && songMode && parseInt(cell.dataset.bar,10) === uiPlayingBar);
       });
     });
@@ -3280,6 +3339,36 @@
   document.getElementById("plClearBtn").addEventListener("click", () => {
     if(!confirm("Clear the whole playlist?")) return;
     pushUndo(); songArrangement.fill(0); renderArrangeLanes();
+  });
+
+  /* ---- audio clips: + Audio button + drag-and-drop of audio files ---- */
+  async function addAudioClipFromFile(file, bar){
+    ensureAudio();
+    try{
+      const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+      const durationBars = Math.max(1, Math.round(buf.duration / Math.max(barSeconds(), 0.001)));
+      audioClips.push({ id: audioClipSeq++, name: (file.name || "audio").replace(/\.[^.]+$/, ""), buffer: buf, bar: Math.max(0, bar|0), gain: 1, durationBars });
+      renderArrangeLanes();
+    }catch(e){ alert("Could not load audio: " + e.message); }
+  }
+  const plAudioInput = document.createElement("input");
+  plAudioInput.type = "file"; plAudioInput.accept = "audio/*"; plAudioInput.id = "plAudioInput"; plAudioInput.style.display = "none";
+  document.body.appendChild(plAudioInput);
+  plAudioInput.addEventListener("change", () => { const f = plAudioInput.files[0]; plAudioInput.value = ""; if(f) addAudioClipFromFile(f, 0); });
+  document.getElementById("plAddAudioBtn").addEventListener("click", () => plAudioInput.click());
+
+  const arrangeScrollDropEl = document.getElementById("arrangeScroll");
+  // keep the fixed track-header column vertically in sync with the lanes
+  arrangeScrollDropEl.addEventListener("scroll", () => { arrangeHeadersEl.scrollTop = arrangeScrollDropEl.scrollTop; });
+  arrangeScrollDropEl.addEventListener("dragover", (e) => { e.preventDefault(); arrangeScrollDropEl.classList.add("drop-hover"); });
+  arrangeScrollDropEl.addEventListener("dragleave", () => arrangeScrollDropEl.classList.remove("drop-hover"));
+  arrangeScrollDropEl.addEventListener("drop", async (e) => {
+    e.preventDefault(); arrangeScrollDropEl.classList.remove("drop-hover");
+    const files = [...((e.dataTransfer && e.dataTransfer.files) || [])].filter(f => (f.type && f.type.startsWith("audio")) || /\.(wav|mp3|ogg|m4a|aac|flac)$/i.test(f.name));
+    if(!files.length) return;
+    const rect = arrangeInnerEl.getBoundingClientRect();
+    const bar = Math.max(0, Math.min(songBars-1, Math.floor((e.clientX - rect.left) / barWidth)));
+    for(const f of files) await addAudioClipFromFile(f, bar);
   });
 
   let plPainting = false, plPaintValue = 0;
@@ -3730,6 +3819,7 @@
     await applySideChain(engine);
 
     for(let bar=0; bar<totalBars; bar++){
+      if(songMode) triggerAudioClipsForBar(engine, bar, bar*barDur);
       for(let step=0; step<STEPS_PER_TRACK; step++){
         const isSwungStep = (step % 2) === 1;
         const swingDelay = isSwungStep ? swingAmount * dur * 0.5 : 0;

@@ -908,8 +908,8 @@
       return await new Promise((res, rej) => {
         const tx = db.transaction(IDB_PROJ_STORE, "readwrite");
         const store = tx.objectStore(IDB_PROJ_STORE);
-        const rq = entry.key != null ? store.put({name:entry.name, path:entry.path, data:entry.data, updatedAt:entry.updatedAt}, entry.key)
-                                     : store.add({name:entry.name, path:entry.path, data:entry.data, updatedAt:entry.updatedAt});
+        const val = {name:entry.name, path:entry.path, data:entry.data, samples:entry.samples || {}, updatedAt:entry.updatedAt};
+        const rq = entry.key != null ? store.put(val, entry.key) : store.add(val);
         rq.onsuccess = () => res(rq.result);
         tx.onerror = () => rej(tx.error);
       });
@@ -924,7 +924,7 @@
         const rq = tx.objectStore(IDB_PROJ_STORE).openCursor();
         rq.onsuccess = () => {
           const cur = rq.result;
-          if(cur){ items.push({key:cur.key, name:cur.value.name, path:cur.value.path || "", data:cur.value.data, updatedAt:cur.value.updatedAt}); cur.continue(); }
+          if(cur){ items.push({key:cur.key, name:cur.value.name, path:cur.value.path || "", data:cur.value.data, samples:cur.value.samples || {}, updatedAt:cur.value.updatedAt}); cur.continue(); }
           else res(items);
         };
         rq.onerror = () => rej(rq.error);
@@ -1158,13 +1158,33 @@
   // Replaces the whole session with a fresh project (Default or Empty):
   // applies the data, frees any loaded samples (and their IndexedDB
   // blobs), resets undo history, and saves.
-  function loadFullProject(data){
+  // `samples` (optional): { trackIndex: WAV Blob } to restore into the
+  // tracks, making a saved project self-contained. Tracks not present
+  // in the map are cleared.
+  async function loadFullProject(data, samples){
     applyProjectData(data);
     TRACKS.forEach((t, i) => {
-      t.sampleBuffer = null; t.samplePeaks = null; t.sampleName = "";
-      t.sampleSlices = []; t.sampleLoopStart = 0; t.sampleLoopEnd = 1; t.sampleLoopOn = false;
-      deleteSampleBlob(i);
+      const keep = samples && samples[i];
+      if(!keep){
+        t.sampleBuffer = null; t.samplePeaks = null; t.sampleName = "";
+        deleteSampleBlob(i);
+      }
     });
+    if(samples){
+      ensureAudio();
+      for(const key of Object.keys(samples)){
+        const i = +key;
+        try{
+          const blob = samples[key];
+          const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+          TRACKS[i].sampleBuffer = buf;
+          TRACKS[i].samplePeaks = computeSamplePeaks(buf, 400);
+          TRACKS[i].sampleName = (data.tracks[i] && data.tracks[i].sampleName) || "sample";
+          if(data.tracks[i] && data.tracks[i].wave === "sample") TRACKS[i].wave = "sample";
+          saveSampleBlob(i, blob); // keep it in the live per-track store for the session
+        }catch(e){}
+      }
+    }
     const ds = document.getElementById("delaySync"), ls = document.getElementById("lfoSync");
     if(data.delaySync && ds) ds.value = data.delaySync;
     if(data.lfoSync && ls) ls.value = data.lfoSync;
@@ -1174,6 +1194,14 @@
     saveProject();
   }
   function newProject(withDemo){ loadFullProject(buildProjectData(withDemo)); }
+
+  // Captures every track's current sample as a WAV blob keyed by track
+  // index -- packaged with a project so its audio travels with it.
+  function currentSampleBlobs(){
+    const map = {};
+    TRACKS.forEach((t, i) => { if(t.sampleBuffer){ try{ map[i] = audioBufferToWav(t.sampleBuffer); }catch(e){} } });
+    return map;
+  }
 
   loadProject();
   if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -1920,13 +1948,13 @@
     const name = prompt("Project name:", "My Project");
     if(name == null || !name.trim()) return;
     const path = prompt("Folder path (optional, use / for subfolders):", "") || "";
-    await saveProjectEntry({ name:name.trim(), path:path.trim(), data:serializeProject(), updatedAt:Date.now() });
+    await saveProjectEntry({ name:name.trim(), path:path.trim(), data:serializeProject(), samples:currentSampleBlobs(), updatedAt:Date.now() });
     renderBrowser();
   }
   function openProjectEntry(en){
     if(!confirm("Open \"" + en.name + "\"? This replaces the current project.")) return;
     ensureAudio();
-    loadFullProject(en.data);
+    loadFullProject(en.data, en.samples);
     renderBrowser();
   }
   document.querySelectorAll("#browserTabs button").forEach(b => {

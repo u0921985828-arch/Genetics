@@ -434,6 +434,38 @@
   }
   .pad.hit .pad-name, .pad.hit .pad-type{color:#1a1408;}
 
+  /* ---- SOUND LIBRARY OVERLAY ---- */
+  #libraryOverlay{
+    position:fixed; inset:0; z-index:60; background:rgba(10,9,11,.94);
+    display:none; flex-direction:column;
+  }
+  #libraryOverlay.open{display:flex;}
+  #libBody{flex:1; overflow-y:auto; touch-action:pan-y; padding:14px;}
+  .lib-section-title{
+    font-family:var(--font-display); font-size:11px; letter-spacing:1.5px; color:var(--text-lo);
+    text-transform:uppercase; font-weight:700; margin:6px 0 10px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .lib-grid{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(130px,1fr)); gap:10px; margin-bottom:18px;
+  }
+  .lib-tile{
+    background:var(--metal-tex), var(--panel-raised); border:1px solid var(--panel-line); border-radius:var(--r-lg);
+    box-shadow:var(--bevel-raised); padding:10px; display:flex; flex-direction:column; gap:8px;
+  }
+  .lib-tile-name{font-family:var(--font-display); font-weight:700; font-size:12px; letter-spacing:.5px;}
+  .lib-tile.playing{border-color:var(--cyan); box-shadow:var(--bevel-raised), 0 0 10px rgba(77,216,230,.4);}
+  .lib-tile-row{display:flex; gap:6px;}
+  .lib-btn{
+    flex:1; padding:7px 4px; border-radius:var(--r-sm); border:1px solid var(--panel-line);
+    background:var(--panel); color:var(--text-lo); font-size:10px; font-weight:700;
+    font-family:var(--font-display); letter-spacing:.5px; box-shadow:var(--bevel-raised);
+  }
+  .lib-btn:active{box-shadow:var(--bevel-raised-active); transform:translateY(1px);}
+  .lib-btn.load{color:var(--lcd-amber); border-color:var(--lcd-amber-dim);}
+  .lib-btn.del{flex:0 0 30px; color:var(--red);}
+  .lib-empty{color:var(--text-lo); font-size:11px; opacity:.6; padding:4px 0 14px;}
+
   ::-webkit-scrollbar{height:6px; width:6px;}
   ::-webkit-scrollbar-thumb{background:var(--panel-line); border-radius:3px;}
 </style>
@@ -557,6 +589,7 @@
             <input type="file" id="sampleFileInput" accept="audio/*" style="display:none">
             <button class="osc-btn" id="sampleImportBtn">IMPORT</button>
             <button class="osc-btn" id="sampleRecBtn">REC</button>
+            <button class="osc-btn" id="sampleLibBtn">LIBRARY</button>
             <button class="osc-btn" id="sampleUseBtn">USE SAMPLE</button>
             <button class="osc-btn" id="sampleLoopToggle">LOOP OFF</button>
           </div>
@@ -671,6 +704,23 @@
     <div id="prGridScroll">
       <div class="pr-grid-inner" id="prGridInner"></div>
     </div>
+  </div>
+</div>
+
+<div id="libraryOverlay">
+  <div class="pr-topbar">
+    <span>Sound Library — load into <b id="libTargetName">BASS</b></span>
+    <button class="pr-close" id="libCloseBtn">&#10005;</button>
+  </div>
+  <div id="libBody">
+    <div class="lib-section-title">Factory</div>
+    <div id="libFactory" class="lib-grid"></div>
+    <div class="lib-section-title">
+      My Samples
+      <button id="libSaveCurrent" class="lib-btn" style="flex:0 0 auto; padding:6px 12px;">SAVE CURRENT TRACK</button>
+    </div>
+    <div id="libFavorites" class="lib-grid"></div>
+    <div id="libFavEmpty" class="lib-empty">No saved samples yet — import or record a sample, then "Save Current Track".</div>
   </div>
 </div>
 
@@ -843,14 +893,55 @@
      per track as a WAV blob in IndexedDB, which handles binary natively
      and has a much larger quota. ------------------------------------ */
   const IDB_NAME = "strobe404_samples";
-  const IDB_STORE = "samples";
+  const IDB_STORE = "samples";          // per-track live buffers, keyed by track index
+  const IDB_LIB_STORE = "library";      // user's saved sound library, {name, blob}
   function openSampleDB(){
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(IDB_NAME, 1);
-      req.onupgradeneeded = () => { req.result.createObjectStore(IDB_STORE); };
+      const req = indexedDB.open(IDB_NAME, 2);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if(!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+        if(!db.objectStoreNames.contains(IDB_LIB_STORE)) db.createObjectStore(IDB_LIB_STORE, {autoIncrement:true});
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
+  }
+  async function saveLibraryItem(name, blob){
+    try{
+      const db = await openSampleDB();
+      await new Promise((res, rej) => {
+        const tx = db.transaction(IDB_LIB_STORE, "readwrite");
+        tx.objectStore(IDB_LIB_STORE).add({name, blob});
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    }catch(e){}
+  }
+  async function listLibraryItems(){
+    try{
+      const db = await openSampleDB();
+      return await new Promise((res, rej) => {
+        const items = [];
+        const tx = db.transaction(IDB_LIB_STORE, "readonly");
+        const rq = tx.objectStore(IDB_LIB_STORE).openCursor();
+        rq.onsuccess = () => {
+          const cur = rq.result;
+          if(cur){ items.push({key:cur.key, name:cur.value.name, blob:cur.value.blob}); cur.continue(); }
+          else res(items);
+        };
+        rq.onerror = () => rej(rq.error);
+      });
+    }catch(e){ return []; }
+  }
+  async function deleteLibraryItem(key){
+    try{
+      const db = await openSampleDB();
+      await new Promise((res) => {
+        const tx = db.transaction(IDB_LIB_STORE, "readwrite");
+        tx.objectStore(IDB_LIB_STORE).delete(key);
+        tx.oncomplete = res; tx.onerror = res;
+      });
+    }catch(e){}
   }
   async function saveSampleBlob(idx, blob){
     try{
@@ -2142,6 +2233,161 @@
     if(mediaRecorder && mediaRecorder.state === "recording") stopRecording();
     else startRecording();
   });
+
+  /* =========================================================
+     SOUND LIBRARY -- factory one-shots + user favorites
+     Factory sounds are synthesized into AudioBuffers at runtime (no
+     external asset files, so the app stays a single self-contained
+     HTML). User samples are saved to the IndexedDB "library" store as
+     WAV blobs and reload across sessions. Any library sound can be
+     previewed or loaded into the currently-selected track.
+  ========================================================== */
+  const libraryOverlayEl = document.getElementById("libraryOverlay");
+  const libFactoryEl = document.getElementById("libFactory");
+  const libFavoritesEl = document.getElementById("libFavorites");
+  const libFavEmptyEl = document.getElementById("libFavEmpty");
+  const sampleLibBtnEl = document.getElementById("sampleLibBtn");
+
+  let factorySamples = null;
+  function buildFactorySamples(){
+    if(factorySamples) return factorySamples;
+    const sr = ctx.sampleRate;
+    const make = (dur) => ctx.createBuffer(1, Math.max(1, Math.ceil(sr*dur)), sr);
+    const list = [];
+    const push = (name, dur, fn) => {
+      const b = make(dur); const d = b.getChannelData(0);
+      for(let i=0;i<d.length;i++) d[i] = fn(i/sr, i, d.length);
+      list.push({name, buffer:b});
+    };
+    push("Kick", 0.4, (t) => Math.sin(2*Math.PI*(45+75*Math.exp(-t*35))*t) * Math.exp(-t*8));
+    push("Snare", 0.25, (t) => ((Math.random()*2-1)*0.7 + Math.sin(2*Math.PI*180*t)*0.5) * Math.exp(-t*22));
+    // closed hat: noise through a crude one-pole highpass (difference), fast decay
+    (function(){
+      const b = make(0.08); const d = b.getChannelData(0); let prev = 0;
+      for(let i=0;i<d.length;i++){ const t=i/sr; const n=Math.random()*2-1; d[i]=(n-prev)*Math.exp(-t*70); prev=n; }
+      list.push({name:"Hat Closed", buffer:b});
+    })();
+    (function(){
+      const b = make(0.3); const d = b.getChannelData(0); let prev = 0;
+      for(let i=0;i<d.length;i++){ const t=i/sr; const n=Math.random()*2-1; d[i]=(n-prev)*Math.exp(-t*11); prev=n; }
+      list.push({name:"Hat Open", buffer:b});
+    })();
+    // clap: three quick noise bursts then a tail
+    push("Clap", 0.3, (t) => {
+      const bursts = [0, 0.012, 0.024];
+      let g = Math.exp(-t*9);
+      for(const bt of bursts){ if(t >= bt && t < bt+0.008) g += 0.8; }
+      return (Math.random()*2-1) * g * 0.6;
+    });
+    push("Tom", 0.35, (t) => Math.sin(2*Math.PI*(90+60*Math.exp(-t*30))*t) * Math.exp(-t*9));
+    push("Sub", 0.6, (t) => Math.sin(2*Math.PI*55*t) * Math.min(1, t*40) * Math.exp(-t*3));
+    push("Sine Blip", 0.2, (t) => Math.sin(2*Math.PI*880*t) * Math.exp(-t*14));
+    push("Saw Stab", 0.3, (t) => (2*((110*t)%1)-1) * Math.exp(-t*10));
+    push("Zap", 0.4, (t) => (2*(((1200*Math.exp(-t*6))*t)%1)-1) * Math.exp(-t*7));
+    factorySamples = list;
+    return list;
+  }
+
+  let previewSrc = null;
+  function previewBuffer(buffer, tileEl){
+    ensureAudio();
+    try{ if(previewSrc) previewSrc.stop(); }catch(e){}
+    document.querySelectorAll(".lib-tile.playing").forEach(t => t.classList.remove("playing"));
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const g = ctx.createGain(); g.gain.value = 0.9;
+    src.connect(g); g.connect(liveEngine ? liveEngine.masterGain : ctx.destination);
+    src.start();
+    previewSrc = src;
+    if(tileEl){
+      tileEl.classList.add("playing");
+      src.onended = () => tileEl.classList.remove("playing");
+    }
+  }
+
+  function loadBufferToSelectedTrack(buffer, name){
+    const track = TRACKS[selectedTrackIdx];
+    setTrackSample(track, buffer, name); // also persists to the per-track samples store
+    track.sampleLoopStart = 0; track.sampleLoopEnd = 1; track.sampleSlices = [];
+    closeLibrary();
+    renderEditView();
+  }
+
+  function makeLibTile(name, onPreview, onLoad, onDelete){
+    const tile = document.createElement("div");
+    tile.className = "lib-tile";
+    const nm = document.createElement("div");
+    nm.className = "lib-tile-name"; nm.textContent = name;
+    tile.appendChild(nm);
+    const row = document.createElement("div");
+    row.className = "lib-tile-row";
+    const pv = document.createElement("button");
+    pv.className = "lib-btn"; pv.textContent = "PREVIEW";
+    pv.addEventListener("click", () => onPreview(tile));
+    const ld = document.createElement("button");
+    ld.className = "lib-btn load"; ld.textContent = "LOAD";
+    ld.addEventListener("click", onLoad);
+    row.appendChild(pv); row.appendChild(ld);
+    if(onDelete){
+      const del = document.createElement("button");
+      del.className = "lib-btn del"; del.innerHTML = "&#10005;";
+      del.addEventListener("click", onDelete);
+      row.appendChild(del);
+    }
+    tile.appendChild(row);
+    return tile;
+  }
+
+  function renderLibraryFactory(){
+    libFactoryEl.innerHTML = "";
+    buildFactorySamples().forEach(item => {
+      const tile = makeLibTile(item.name,
+        (t) => previewBuffer(item.buffer, t),
+        () => loadBufferToSelectedTrack(item.buffer, item.name));
+      libFactoryEl.appendChild(tile);
+    });
+  }
+
+  async function decodeBlobToBuffer(blob){
+    ensureAudio();
+    return await ctx.decodeAudioData(await blob.arrayBuffer());
+  }
+
+  async function renderLibraryFavorites(){
+    const items = await listLibraryItems();
+    libFavoritesEl.innerHTML = "";
+    libFavEmptyEl.style.display = items.length ? "none" : "block";
+    items.forEach(item => {
+      const tile = makeLibTile(item.name,
+        async (t) => { try{ previewBuffer(await decodeBlobToBuffer(item.blob), t); }catch(e){} },
+        async () => { try{ loadBufferToSelectedTrack(await decodeBlobToBuffer(item.blob), item.name); }catch(e){} },
+        async () => { await deleteLibraryItem(item.key); renderLibraryFavorites(); });
+      libFavoritesEl.appendChild(tile);
+    });
+  }
+
+  async function saveCurrentToLibrary(){
+    const track = TRACKS[selectedTrackIdx];
+    if(!track.sampleBuffer){ alert("This track has no sample to save. Import or record one first."); return; }
+    const base = (track.sampleName || track.name || "sample").replace(/\.[^.]+$/, "");
+    await saveLibraryItem(base, audioBufferToWav(track.sampleBuffer));
+    renderLibraryFavorites();
+  }
+
+  function openLibrary(){
+    ensureAudio();
+    document.getElementById("libTargetName").textContent = TRACKS[selectedTrackIdx].name;
+    renderLibraryFactory();
+    renderLibraryFavorites();
+    libraryOverlayEl.classList.add("open");
+  }
+  function closeLibrary(){
+    try{ if(previewSrc) previewSrc.stop(); }catch(e){}
+    libraryOverlayEl.classList.remove("open");
+  }
+  sampleLibBtnEl.addEventListener("click", openLibrary);
+  document.getElementById("libCloseBtn").addEventListener("click", closeLibrary);
+  document.getElementById("libSaveCurrent").addEventListener("click", saveCurrentToLibrary);
 
   let draggingHandle = null;
   function envPoints(track, w, h){

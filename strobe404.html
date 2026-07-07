@@ -556,8 +556,16 @@
           <div class="wave-row" id="sampleRow">
             <input type="file" id="sampleFileInput" accept="audio/*" style="display:none">
             <button class="osc-btn" id="sampleImportBtn">IMPORT</button>
+            <button class="osc-btn" id="sampleRecBtn">REC</button>
             <button class="osc-btn" id="sampleUseBtn">USE SAMPLE</button>
             <button class="osc-btn" id="sampleLoopToggle">LOOP OFF</button>
+          </div>
+          <div class="wave-row" id="sampleEditRow">
+            <button class="osc-btn" data-edit="trim">TRIM</button>
+            <button class="osc-btn" data-edit="normalize">NORM</button>
+            <button class="osc-btn" data-edit="reverse">REV</button>
+            <button class="osc-btn" data-edit="fadein">FADE IN</button>
+            <button class="osc-btn" data-edit="fadeout">FADE OUT</button>
           </div>
         </div>
         <div class="panel" id="envPanel">
@@ -826,6 +834,11 @@
         fxDrive:s.fxDrive, fxDriveAmt:s.fxDriveAmt, fxFilterOn:s.fxFilterOn, fxFilterCutoff:s.fxFilterCutoff,
         reverbSend:s.reverbSend, arp:s.arp, patterns:s.patterns, autoCutoff:s.autoCutoff
       });
+      // Sample audio itself isn't persisted (an AudioBuffer isn't JSON,
+      // and blob-in-IndexedDB storage is a separate roadmap item), so a
+      // restored "sample" track has no buffer -- fall back to a real
+      // oscillator instead of leaving the UI pointing at a phantom sample.
+      if(t.wave === "sample" && !t.sampleBuffer) t.wave = "sine";
     });
     loadedProjectData = data;
     return true;
@@ -1653,16 +1666,79 @@
     return peaks;
   }
 
+  // Installs a freshly-built/decoded AudioBuffer as a track's sample,
+  // recomputes the peak cache, and switches the track to sample mode.
+  // Every sample source (file import, mic record, destructive edit)
+  // funnels through here so peaks/loop-points never drift out of sync.
+  function setTrackSample(track, buffer, name){
+    track.sampleBuffer = buffer;
+    track.samplePeaks = computeSamplePeaks(buffer, 400);
+    if(name != null) track.sampleName = name;
+    track.wave = "sample";
+  }
+
   async function importSampleFile(track, file){
     ensureAudio();
     const arrayBuf = await file.arrayBuffer();
     const buffer = await ctx.decodeAudioData(arrayBuf);
-    track.sampleBuffer = buffer;
-    track.samplePeaks = computeSamplePeaks(buffer, 400);
-    track.sampleName = file.name;
+    setTrackSample(track, buffer, file.name);
     track.sampleLoopStart = 0;
     track.sampleLoopEnd = 1;
-    track.wave = "sample";
+    renderEditView();
+  }
+
+  // ---- Destructive waveform edits (operate on the raw Float32 data and
+  // rebuild a new AudioBuffer). All synchronous: the imported-sample
+  // length is capped by real-world file sizes, and these are one-shot
+  // button presses, not per-frame work, so the main-thread cost is fine.
+  function mapBuffer(buffer, fn){
+    const out = ctx.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+    for(let c=0;c<buffer.numberOfChannels;c++){
+      fn(buffer.getChannelData(c), out.getChannelData(c), c);
+    }
+    return out;
+  }
+
+  function editSample(track, op){
+    if(!track.sampleBuffer) return;
+    const buf = track.sampleBuffer;
+    const len = buf.length;
+    let result;
+
+    if(op === "trim"){
+      const startF = Math.floor(track.sampleLoopStart * len);
+      const endF = Math.max(Math.floor(track.sampleLoopEnd * len), startF + 1);
+      const newLen = endF - startF;
+      result = ctx.createBuffer(buf.numberOfChannels, newLen, buf.sampleRate);
+      for(let c=0;c<buf.numberOfChannels;c++){
+        result.getChannelData(c).set(buf.getChannelData(c).subarray(startF, endF));
+      }
+      track.sampleLoopStart = 0; track.sampleLoopEnd = 1;
+    } else if(op === "reverse"){
+      result = mapBuffer(buf, (src, dst) => { for(let i=0;i<len;i++) dst[i] = src[len-1-i]; });
+    } else if(op === "normalize"){
+      let peak = 0;
+      for(let c=0;c<buf.numberOfChannels;c++){
+        const d = buf.getChannelData(c);
+        for(let i=0;i<len;i++){ const v = Math.abs(d[i]); if(v>peak) peak = v; }
+      }
+      const gain = peak > 0.0001 ? (0.99/peak) : 1;
+      result = mapBuffer(buf, (src, dst) => { for(let i=0;i<len;i++) dst[i] = src[i]*gain; });
+    } else if(op === "fadein" || op === "fadeout"){
+      const fadeLen = Math.min(len, Math.floor(buf.sampleRate * 0.3)); // 300ms ramp
+      result = mapBuffer(buf, (src, dst) => {
+        for(let i=0;i<len;i++){
+          let g = 1;
+          if(op === "fadein" && i < fadeLen) g = i/fadeLen;
+          else if(op === "fadeout" && i > len - fadeLen) g = (len - i)/fadeLen;
+          dst[i] = src[i]*g;
+        }
+      });
+    } else {
+      return;
+    }
+
+    setTrackSample(track, result, null);
     renderEditView();
   }
 
@@ -1760,6 +1836,63 @@
     const track = TRACKS[selectedTrackIdx];
     track.sampleLoopOn = !track.sampleLoopOn;
     renderEditView();
+  });
+  document.getElementById("sampleEditRow").addEventListener("click", (e) => {
+    const op = e.target.getAttribute("data-edit");
+    if(op) editSample(TRACKS[selectedTrackIdx], op);
+  });
+
+  /* ---- Mic recording (getUserMedia -> MediaRecorder) ---------------
+     Captures the mic into a compressed blob, decodes it back to an
+     AudioBuffer and installs it as the track's sample. NOTE: inside a
+     native Android WebView (not Chrome), getUserMedia only works if the
+     host app grants mic permission via WebChromeClient.onPermissionRequest
+     -- a packaging dependency outside this file's control. ----------- */
+  const sampleRecBtnEl = document.getElementById("sampleRecBtn");
+  let mediaRecorder = null, recChunks = null, recStream = null, recTrackIdx = -1;
+
+  async function startRecording(){
+    ensureAudio();
+    let stream;
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    }catch(err){
+      alert("Mic unavailable: " + err.message + "\n(In a native WebView the host app must grant mic permission.)");
+      return;
+    }
+    recStream = stream;
+    recTrackIdx = selectedTrackIdx;
+    recChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (ev) => { if(ev.data.size) recChunks.push(ev.data); };
+    mediaRecorder.onstop = async () => {
+      recStream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(recChunks, {type: mediaRecorder.mimeType || "audio/webm"});
+      try{
+        const buffer = await ctx.decodeAudioData(await blob.arrayBuffer());
+        const track = TRACKS[recTrackIdx];
+        setTrackSample(track, buffer, "mic-recording");
+        track.sampleLoopStart = 0; track.sampleLoopEnd = 1;
+      }catch(err){
+        alert("Could not decode recording: " + err.message);
+      }
+      mediaRecorder = null;
+      if(selectedTrackIdx === recTrackIdx) renderEditView();
+    };
+    mediaRecorder.start();
+    sampleRecBtnEl.classList.add("active");
+    sampleRecBtnEl.textContent = "STOP";
+  }
+
+  function stopRecording(){
+    if(mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+    sampleRecBtnEl.classList.remove("active");
+    sampleRecBtnEl.textContent = "REC";
+  }
+
+  sampleRecBtnEl.addEventListener("click", () => {
+    if(mediaRecorder && mediaRecorder.state === "recording") stopRecording();
+    else startRecording();
   });
 
   let draggingHandle = null;
@@ -1906,9 +2039,13 @@
       ? ("Sample: " + (track.sampleName || "—"))
       : "Oscillator / Waveform";
     sampleUseBtnEl.classList.toggle("active", track.wave === "sample");
-    sampleUseBtnEl.style.opacity = track.sampleBuffer ? "1" : "0.4";
+    const hasSample = !!track.sampleBuffer;
+    sampleUseBtnEl.style.opacity = hasSample ? "1" : "0.4";
     sampleLoopToggleEl.classList.toggle("active", track.sampleLoopOn);
     sampleLoopToggleEl.textContent = track.sampleLoopOn ? "LOOP ON" : "LOOP OFF";
+    document.querySelectorAll("#sampleEditRow .osc-btn").forEach(b => {
+      b.style.opacity = hasSample ? "1" : "0.4";
+    });
     bindKnob(cutoffKnobCanvas, () => track.cutoff, (v) => {
       track.cutoff = v;
       // "Live record" automation: while the transport is rolling, every

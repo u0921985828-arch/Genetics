@@ -1,0 +1,1928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>STROBE // step engine</title>
+<style>
+  :root{
+    --chassis:#141317;
+    --panel:#1c1b20;
+    --panel-raised:#232228;
+    --panel-line:#302f36;
+    --lcd-bg:#0d1410;
+    --lcd-amber:#ffb02e;
+    --lcd-amber-dim:#6b4d1c;
+    --cyan:#4dd8e6;
+    --cyan-dim:#204447;
+    --red:#ff5252;
+    --red-dim:#4a1f1f;
+    --green:#3ddc6a;
+    --green-dim:#1c3a26;
+    --text-hi:#eae6da;
+    --text-lo:#8b8790;
+    --step-off:#26252b;
+    --step-on:#ffb02e;
+    --step-accent:#ff8a3d;
+    --font-mono: ui-monospace, "SF Mono", "Courier New", monospace;
+    --font-display: ui-sans-serif, "Arial Narrow", Helvetica, sans-serif;
+
+    /* ---- hardware-panel system: shared across every module ---- */
+    --r-sm:4px; --r-md:6px; --r-lg:8px; --r-xl:10px;
+    --edge-hi: rgba(255,255,255,.05);
+    --edge-lo: rgba(0,0,0,.55);
+    /* machined-metal micro-texture: two near-invisible diagonal grain
+       layers + a very faint top-to-bottom sheen, never a photographic
+       or high-contrast pattern */
+    --metal-tex:
+      repeating-linear-gradient(115deg, rgba(255,255,255,.015) 0px, rgba(255,255,255,.015) 1px, transparent 1px, transparent 3px),
+      linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,0) 40%, rgba(0,0,0,.08) 100%);
+    /* raised control: convex plastic/rubber-key feel */
+    --bevel-raised:
+      inset 0 1px 0 var(--edge-hi),
+      inset 0 -2px 3px var(--edge-lo),
+      0 1px 1px rgba(0,0,0,.5);
+    --bevel-raised-active:
+      inset 0 1px 3px var(--edge-lo),
+      inset 0 -1px 0 var(--edge-hi);
+    /* recessed panel: machined chassis cutout feel */
+    --bevel-inset:
+      inset 0 1px 2px var(--edge-lo),
+      inset 0 -1px 0 var(--edge-hi);
+    /* embedded glass display, empotrado into the chassis */
+    --bevel-lcd:
+      inset 0 2px 4px rgba(0,0,0,.85),
+      inset 0 -1px 0 rgba(255,255,255,.03);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none;}
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:
+      var(--metal-tex),
+      radial-gradient(120% 140% at 50% -10%, #1a191e 0%, var(--chassis) 55%, #100f12 100%);
+    color:var(--text-hi);
+    font-family:var(--font-mono);
+    overscroll-behavior:none;
+    overflow:hidden;
+    touch-action:none;
+  }
+  #app{
+    width:100vw; height:100vh;
+    display:flex; flex-direction:column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* ===== TRANSPORT BAR ===== */
+  #transport{
+    flex:0 0 auto;
+    display:flex; align-items:center; gap:10px;
+    background:var(--metal-tex), var(--panel);
+    border-bottom:1px solid var(--panel-line);
+    box-shadow:inset 0 -1px 0 var(--edge-lo), 0 2px 4px rgba(0,0,0,.35);
+    padding:6px 10px;
+    height:52px;
+    position:relative; z-index:3;
+    overflow-x:auto; overflow-y:hidden; touch-action:pan-x;
+  }
+  #transport::-webkit-scrollbar{display:none;}
+  .brand{
+    font-family:var(--font-display); font-weight:800; letter-spacing:2px;
+    font-size:15px; color:var(--text-hi); margin-right:4px; white-space:nowrap;
+  }
+  .brand span{color:var(--lcd-amber);}
+  .xport-btn{
+    -webkit-appearance:none; appearance:none; border:none;
+    background:var(--panel-raised); color:var(--text-hi);
+    width:38px; height:38px; border-radius:var(--r-md);
+    display:flex; align-items:center; justify-content:center;
+    font-size:16px; border:1px solid var(--panel-line);
+    box-shadow:var(--bevel-raised);
+    touch-action:manipulation;
+    transition:box-shadow .08s ease, transform .08s ease;
+  }
+  .xport-btn.active{background:var(--green-dim); color:var(--green); border-color:var(--green); box-shadow:var(--bevel-raised-active);}
+  .xport-btn:active{box-shadow:var(--bevel-raised-active); transform:translateY(1px);}
+  .lcd{
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,0) 30%),
+      var(--lcd-bg);
+    border:1px solid #000; border-radius:var(--r-sm);
+    color:var(--lcd-amber); font-family:var(--font-mono); font-weight:700;
+    padding:4px 8px; font-size:13px; letter-spacing:1px;
+    box-shadow:var(--bevel-lcd);
+    min-width:52px; text-align:center;
+    text-shadow:0 0 6px rgba(255,176,46,.45);
+  }
+  .bpm-wrap{display:flex; align-items:center; gap:4px;}
+  .bpm-stepper{display:flex; flex-direction:column;}
+  .bpm-stepper button{
+    background:var(--panel-raised); border:1px solid var(--panel-line); color:var(--text-lo);
+    width:20px; height:17px; font-size:10px; line-height:0; border-radius:var(--r-sm);
+    box-shadow:var(--bevel-raised);
+  }
+  .bpm-stepper button:active{box-shadow:var(--bevel-raised-active); transform:translateY(1px);}
+  .label-eyebrow{
+    font-size:9px; letter-spacing:1.5px; color:var(--text-lo); text-transform:uppercase;
+  }
+  .field{display:flex; flex-direction:column; align-items:flex-start; gap:2px; flex-shrink:0;}
+  .spacer{flex:1; min-width:10px;}
+  select.sync-select{
+    background:var(--panel-raised); color:var(--cyan); border:1px solid var(--panel-line);
+    font-family:var(--font-mono); font-size:12px; border-radius:var(--r-sm); padding:4px;
+    box-shadow:var(--bevel-inset);
+    touch-action:manipulation;
+  }
+  .view-toggle{display:flex; border:1px solid var(--panel-line); border-radius:var(--r-md); overflow:hidden; box-shadow:var(--bevel-inset);}
+  .view-toggle button{
+    background:var(--panel-raised); color:var(--text-lo); border:none; padding:8px 12px;
+    font-family:var(--font-display); font-size:11px; letter-spacing:1px; font-weight:700;
+    touch-action:manipulation; border-right:1px solid var(--panel-line);
+  }
+  .view-toggle button:last-child{border-right:none;}
+  .view-toggle button.active{background:var(--cyan-dim); color:var(--cyan); box-shadow:inset 0 0 6px rgba(77,216,230,.25);}
+
+  /* ===== MAIN AREA ===== */
+  #main{flex:1; min-height:0; position:relative; overflow:hidden;}
+  .view{position:absolute; inset:0; display:none;}
+  .view.active{display:flex;}
+
+  /* ---- SEQUENCER VIEW ---- */
+  #seqView{flex-direction:column;}
+  .seqTop{flex:1; min-height:0; display:flex;}
+  .swing-range{width:70px; accent-color:var(--lcd-amber); height:20px;}
+  .fill-menu{
+    position:fixed; z-index:50; background:var(--metal-tex), var(--panel-raised); border:1px solid var(--panel-line);
+    border-radius:var(--r-lg); display:flex; flex-direction:column; overflow:hidden;
+    box-shadow:0 6px 16px rgba(0,0,0,.55), inset 0 1px 0 var(--edge-hi);
+  }
+  .fill-menu button{
+    background:none; border:none; color:var(--text-hi); padding:9px 16px; font-family:var(--font-mono);
+    font-size:11px; text-align:left; border-bottom:1px solid var(--panel-line); white-space:nowrap;
+  }
+  .fill-menu button:last-child{border-bottom:none;}
+  .track-name-row{display:flex; justify-content:space-between; align-items:center;}
+  .hold-hint{color:var(--text-lo); font-size:12px; opacity:.5; letter-spacing:1px;}
+  #trackHeaders{
+    flex:0 0 128px;
+    background:var(--metal-tex), var(--panel);
+    border-right:1px solid var(--panel-line);
+    box-shadow:inset -1px 0 0 var(--edge-lo);
+    overflow-y:auto;
+    touch-action:pan-y;
+  }
+  .track-header{
+    height:64px; border-bottom:1px solid var(--panel-line);
+    display:flex; flex-direction:column; justify-content:center; gap:4px;
+    padding:6px 8px;
+  }
+  .track-header.selected{background:var(--panel-raised); box-shadow:inset 3px 0 0 var(--lcd-amber), inset 0 0 8px rgba(255,176,46,.08);}
+  .track-name{
+    font-family:var(--font-display); font-weight:700; font-size:12px; letter-spacing:.5px;
+  }
+  .track-controls{display:flex; gap:5px; align-items:center;}
+  .mini-btn{
+    width:22px; height:20px; border-radius:var(--r-sm); border:1px solid var(--panel-line);
+    background:var(--panel-raised); font-size:9px; font-weight:800; color:var(--text-lo);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:var(--bevel-raised);
+  }
+  .mini-btn:active{box-shadow:var(--bevel-raised-active); transform:translateY(1px);}
+  .mini-btn.mute.on{background:var(--red-dim); color:var(--red); border-color:var(--red); box-shadow:var(--bevel-raised-active), 0 0 6px rgba(255,82,82,.3);}
+  .mini-btn.solo.on{background:var(--lcd-amber-dim); color:var(--lcd-amber); border-color:var(--lcd-amber); box-shadow:var(--bevel-raised-active), 0 0 6px rgba(255,176,46,.3);}
+  .mini-btn.fx.on{background:var(--cyan-dim); color:var(--cyan); border-color:var(--cyan); box-shadow:var(--bevel-raised-active), 0 0 6px rgba(77,216,230,.3);}
+  .vol-track{flex:1; height:16px; position:relative; background:var(--step-off); border-radius:var(--r-sm); box-shadow:var(--bevel-inset);}
+  .vol-fill{position:absolute; left:0; top:0; bottom:0; background:var(--cyan-dim); border-radius:var(--r-sm);}
+  .vol-fill::after{content:""; }
+
+  #gridScroll{
+    flex:1; overflow-x:auto; overflow-y:auto;
+    touch-action:pan-x pan-y;
+  }
+  .grid-inner{display:flex; flex-direction:column; min-width:max-content;}
+  .step-row{
+    height:64px; display:flex; align-items:center; border-bottom:1px solid var(--panel-line);
+    padding:0 6px;
+  }
+  .beat-group{display:flex; gap:4px; margin-right:10px; padding-right:10px; border-right:1px dashed var(--panel-line);}
+  .beat-group:last-child{border-right:none;}
+  .step-cell{
+    width:40px; height:40px; border-radius:var(--r-md); background:var(--step-off);
+    border:1px solid #000; position:relative;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:var(--bevel-raised);
+    touch-action:manipulation;
+  }
+  .step-cell.beat-lead{border-color:#3a3940;}
+  .step-cell.on{
+    background:var(--step-on);
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.5), 0 0 8px rgba(255,176,46,.55);
+  }
+  .step-cell.on.accent{background:var(--step-accent);}
+  .step-cell.playhead::before{
+    content:""; position:absolute; inset:-3px; border-radius:8px; border:2px solid var(--cyan);
+  }
+  .step-num{position:absolute; bottom:-14px; font-size:8px; color:var(--text-lo); left:50%; transform:translateX(-50%);}
+
+  /* ---- STEP GRAPH PANEL ---- */
+  #stepGraphPanel{
+    flex:0 0 auto; background:var(--metal-tex), var(--panel); border-top:1px solid var(--panel-line);
+    box-shadow:inset 0 1px 0 var(--edge-lo);
+    display:flex; flex-direction:column;
+  }
+  #graphHandle{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:7px 12px; font-size:10px; letter-spacing:1px; color:var(--text-lo);
+    font-family:var(--font-display); font-weight:700; text-transform:uppercase;
+  }
+  #graphHandle b{color:var(--cyan);}
+  #graphBody{height:0; overflow:hidden; transition:height .18s ease; display:flex; flex-direction:column;}
+  #stepGraphPanel.expanded #graphBody{height:112px;}
+  #graphTabs{display:flex; gap:4px; padding:0 10px 5px;}
+  .graph-tab{
+    flex:1; padding:5px 0; border-radius:var(--r-sm); border:1px solid var(--panel-line);
+    background:var(--panel-raised); color:var(--text-lo); font-size:9px; font-weight:700;
+    font-family:var(--font-display); letter-spacing:1px;
+    box-shadow:var(--bevel-raised);
+  }
+  .graph-tab.active{background:var(--cyan-dim); color:var(--cyan); border-color:var(--cyan); box-shadow:var(--bevel-raised-active), inset 0 0 6px rgba(77,216,230,.2);}
+  #graphBars{flex:1; display:flex; gap:4px; padding:4px 10px 8px; overflow-x:auto;}
+  .graph-bar{
+    width:40px; flex:0 0 40px; height:100%; background:var(--step-off); border-radius:var(--r-sm);
+    position:relative; touch-action:none; overflow:hidden; box-shadow:var(--bevel-inset);
+  }
+  .graph-bar.off{opacity:.35;}
+  .graph-bar-fill{position:absolute; left:0; right:0; bottom:0; background:var(--cyan); border-radius:4px 4px 0 0;}
+  .graph-bar-center{position:absolute; left:0; right:0; top:50%; height:1px; background:var(--panel-line);}
+
+  /* ---- SOUND EDIT VIEW ---- */
+  #editView{flex-direction:column; padding:12px; gap:12px; overflow-y:auto; touch-action:pan-y;}
+  .edit-topbar{display:flex; align-items:center; gap:10px;}
+  .track-picker{display:flex; gap:6px; overflow-x:auto; flex:1; touch-action:pan-x;}
+  .track-chip{
+    flex:0 0 auto; padding:6px 12px; border-radius:var(--r-lg); border:1px solid var(--panel-line);
+    background:var(--panel-raised); font-size:11px; font-weight:700; color:var(--text-lo);
+    font-family:var(--font-display); box-shadow:var(--bevel-raised);
+  }
+  .track-chip.active{background:var(--lcd-amber-dim); color:var(--lcd-amber); border-color:var(--lcd-amber); box-shadow:var(--bevel-raised-active), 0 0 6px rgba(255,176,46,.25);}
+  .edit-panels{display:flex; gap:12px; flex:1; min-height:0; overflow-x:auto;}
+  .panel{
+    background:var(--metal-tex), var(--panel); border:1px solid var(--panel-line); border-radius:var(--r-xl); padding:10px;
+    display:flex; flex-direction:column; gap:8px;
+    box-shadow:var(--bevel-inset), 0 1px 0 var(--edge-hi);
+  }
+  .panel-title{
+    font-family:var(--font-display); font-size:10px; letter-spacing:1.5px; color:var(--text-lo);
+    text-transform:uppercase; font-weight:700;
+  }
+  #wavePanel{flex:1.1; min-width:0;}
+  #wavePanel canvas, #envPanel canvas{width:100%; height:100%; border-radius:var(--r-md); background:var(--lcd-bg); box-shadow:var(--bevel-lcd); touch-action:none;}
+  .wave-row{display:flex; gap:6px;}
+  .osc-btn{
+    flex:1; padding:8px 4px; border-radius:var(--r-md); border:1px solid var(--panel-line);
+    background:var(--panel-raised); color:var(--text-lo); font-size:10px; font-weight:700;
+    font-family:var(--font-display); letter-spacing:.5px;
+    box-shadow:var(--bevel-raised);
+  }
+  .osc-btn:active{box-shadow:var(--bevel-raised-active); transform:translateY(1px);}
+  .osc-btn.active{background:var(--cyan-dim); color:var(--cyan); border-color:var(--cyan); box-shadow:var(--bevel-raised-active), inset 0 0 6px rgba(77,216,230,.2);}
+  #envPanel{flex:1; min-width:0;}
+  .env-readout{display:flex; justify-content:space-between; font-size:9px; color:var(--text-lo);}
+  .env-readout b{color:var(--lcd-amber); font-family:var(--font-mono);}
+  #fxPanel{flex:0 0 150px; display:flex; flex-direction:column; gap:10px;}
+  .fx-row{display:flex; flex-direction:column; gap:3px;}
+  .fx-row label{font-size:9px; color:var(--text-lo); letter-spacing:1px; text-transform:uppercase;}
+
+  /* ---- ARRANGE / PLAYLIST VIEW ---- */
+  #arrangeView{flex-direction:column;}
+  .arrangeTop{flex:1; min-height:0; display:flex;}
+  #arrangeHeaders{
+    flex:0 0 128px; background:var(--metal-tex), var(--panel); border-right:1px solid var(--panel-line);
+    box-shadow:inset -1px 0 0 var(--edge-lo);
+    overflow-y:auto; touch-action:pan-y;
+  }
+  .arrange-header{
+    height:56px; border-bottom:1px solid var(--panel-line);
+    display:flex; flex-direction:column; justify-content:center; gap:2px; padding:6px 8px;
+  }
+  .arrange-header .track-name{font-size:11px;}
+  .arrange-header .track-type{font-size:9px; color:var(--text-lo); text-transform:uppercase; letter-spacing:1px;}
+  #arrangeScroll{flex:1; overflow:auto; touch-action:pan-x pan-y; position:relative;}
+  .arrange-inner{position:relative; min-width:max-content;}
+  .arrange-ruler{
+    height:22px; display:flex; border-bottom:1px solid var(--panel-line);
+    position:sticky; top:0; background:var(--metal-tex), var(--panel); z-index:2;
+    box-shadow:inset 0 -1px 0 var(--edge-lo);
+  }
+  .ruler-bar{
+    flex:0 0 var(--bar-w); border-right:1px solid var(--panel-line);
+    font-size:9px; color:var(--text-lo); padding-left:4px; display:flex; align-items:center;
+  }
+  .arrange-lane{height:56px; border-bottom:1px solid var(--panel-line); display:flex; position:relative;}
+  .arrange-cell{
+    flex:0 0 var(--bar-w); border-right:1px dashed var(--panel-line); position:relative;
+    touch-action:manipulation;
+  }
+  .arrange-clip{
+    position:absolute; top:5px; bottom:5px; left:2px; right:2px; border-radius:var(--r-md);
+    background:var(--step-off); border:1px solid var(--panel-line);
+    box-shadow:var(--bevel-raised);
+    display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--text-lo);
+    font-family:var(--font-display); font-weight:700; letter-spacing:.5px;
+  }
+  .arrange-clip.active{
+    background:var(--lcd-amber-dim); border-color:var(--lcd-amber); color:var(--lcd-amber);
+    box-shadow:var(--bevel-raised-active), 0 0 6px rgba(255,176,46,.3);
+  }
+  .arrange-clip.active.playing-bar{box-shadow:var(--bevel-raised-active), 0 0 0 2px var(--green), 0 0 8px rgba(61,220,106,.4);}
+  .arrange-zoom{display:flex; align-items:center; gap:6px;}
+  .arrange-zoom button{
+    width:26px; height:26px; border-radius:var(--r-md); border:1px solid var(--panel-line);
+    background:var(--panel-raised); color:var(--text-lo); font-size:13px; box-shadow:var(--bevel-raised);
+  }
+  .arrange-zoom button:active{box-shadow:var(--bevel-raised-active); transform:translateY(1px);}
+
+  /* ---- PIANO ROLL OVERLAY ---- */
+  #pianoRollOverlay{
+    position:fixed; inset:0; z-index:60; background:rgba(10,9,11,.94);
+    display:none; flex-direction:column;
+  }
+  #pianoRollOverlay.open{display:flex;}
+  .pr-topbar{
+    flex:0 0 auto; display:flex; align-items:center; gap:10px; padding:8px 12px;
+    background:var(--metal-tex), var(--panel); border-bottom:1px solid var(--panel-line);
+    box-shadow:inset 0 -1px 0 var(--edge-lo);
+  }
+  .pr-topbar b{color:var(--lcd-amber); font-family:var(--font-display);}
+  .pr-close{
+    margin-left:auto; background:var(--panel-raised); border:1px solid var(--panel-line);
+    color:var(--text-hi); width:32px; height:32px; border-radius:var(--r-md); font-size:14px;
+    box-shadow:var(--bevel-raised);
+  }
+  .pr-close:active{box-shadow:var(--bevel-raised-active); transform:translateY(1px);}
+  #prBody{flex:1; display:flex; min-height:0;}
+  #prKeys{flex:0 0 56px; background:var(--metal-tex), var(--panel); overflow-y:auto; touch-action:pan-y;}
+  .pr-key{
+    height:22px; border-bottom:1px solid var(--panel-line); font-size:8px; color:var(--text-lo);
+    display:flex; align-items:center; justify-content:flex-end; padding-right:6px;
+  }
+  .pr-key.black{background:#141317; color:var(--text-lo);}
+  .pr-key.white{background:var(--panel-raised);}
+  #prGridScroll{flex:1; overflow:auto; touch-action:pan-x pan-y; position:relative;}
+  .pr-row{height:22px; border-bottom:1px solid var(--panel-line); display:flex;}
+  .pr-row.black-row{background:rgba(0,0,0,.18);}
+  .pr-cell{width:40px; flex:0 0 40px; border-right:1px solid var(--panel-line); position:relative;}
+  .pr-cell.beat-lead{border-right-color:#3a3940;}
+  .pr-note{
+    position:absolute; inset:2px; border-radius:var(--r-sm); background:var(--step-accent);
+    box-shadow:0 0 6px rgba(255,138,61,.5), inset 0 1px 2px rgba(0,0,0,.3);
+  }
+
+  /* ---- MIXER VIEW ---- */
+  #mixerView{overflow-x:auto; touch-action:pan-x; padding:10px; gap:8px;}
+  .chstrip{
+    flex:0 0 74px; background:var(--metal-tex), var(--panel); border:1px solid var(--panel-line); border-radius:var(--r-lg);
+    box-shadow:var(--bevel-inset), 0 1px 0 var(--edge-hi);
+    display:flex; flex-direction:column; align-items:center; padding:8px 6px; gap:6px;
+  }
+  .chstrip.master{border-color:var(--cyan); background:var(--metal-tex), var(--cyan-dim);}
+  .ch-name{font-size:9px; font-weight:700; font-family:var(--font-display); letter-spacing:.5px; text-align:center; height:22px;}
+  .ch-meter-row{display:flex; gap:3px; flex:1; min-height:120px;}
+  .ch-meter{
+    width:10px; height:100%; background:var(--lcd-bg); border-radius:var(--r-sm); position:relative;
+    overflow:hidden; border:1px solid #000; box-shadow:var(--bevel-lcd);
+  }
+  .ch-meter-fill{
+    position:absolute; left:0; right:0; bottom:0; border-radius:var(--r-sm) var(--r-sm) 0 0;
+    background:linear-gradient(to top, var(--green) 0%, var(--green) 65%, #ffd23d 85%, var(--red) 100%);
+    height:0%;
+  }
+  .ch-fader-wrap{height:100px; display:flex; align-items:center; justify-content:center;}
+  .ch-fader{
+    -webkit-appearance:none; appearance:none; width:100px; height:26px;
+    transform:rotate(-90deg); background:transparent;
+  }
+  .ch-fader::-webkit-slider-runnable-track{background:var(--step-off); height:4px; border-radius:var(--r-sm); box-shadow:var(--bevel-inset);}
+  .ch-fader::-webkit-slider-thumb{
+    -webkit-appearance:none; width:16px; height:16px; border-radius:var(--r-sm);
+    background:var(--lcd-amber); margin-top:-6px; border:1px solid #000; box-shadow:var(--bevel-raised);
+  }
+  .ch-btn-row{display:flex; gap:4px;}
+  /* ---- channel insert-FX row (mirrors FL's Mixer-track FX slots +
+     Send tracks: DRIVE/FILT are per-channel inserts, the knob below
+     is this channel's send amount into the single shared reverb bus) ---- */
+  .ch-fx-row{display:flex; gap:4px;}
+  .ch-fx-label{font-size:8px; color:var(--text-lo); letter-spacing:1px; text-align:center; width:100%;}
+  .ch-verb-knob, .master-verb-knob{width:100%; height:36px;}
+
+  ::-webkit-scrollbar{height:6px; width:6px;}
+  ::-webkit-scrollbar-thumb{background:var(--panel-line); border-radius:3px;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="transport">
+    <div class="brand">STROBE<span>::</span>404</div>
+
+    <button id="playBtn" class="xport-btn" aria-label="play">&#9658;</button>
+
+    <div class="field">
+      <span class="label-eyebrow">BPM</span>
+      <div class="bpm-wrap">
+        <div class="lcd" id="bpmDisplay">120</div>
+        <div class="bpm-stepper">
+          <button id="bpmUp">+</button>
+          <button id="bpmDown">-</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="label-eyebrow">Bar</span>
+      <div class="lcd" id="posDisplay">1.1</div>
+    </div>
+
+    <div class="field">
+      <span class="label-eyebrow">Delay Sync</span>
+      <select class="sync-select" id="delaySync"></select>
+    </div>
+
+    <div class="field">
+      <span class="label-eyebrow">LFO Sync</span>
+      <select class="sync-select" id="lfoSync"></select>
+    </div>
+
+    <div class="field">
+      <span class="label-eyebrow">Swing</span>
+      <input type="range" id="swingRange" class="swing-range" min="0" max="100" value="0">
+    </div>
+
+    <div class="field" id="songLenField">
+      <span class="label-eyebrow">Bars</span>
+      <div class="lcd" id="songLenDisplay">8</div>
+    </div>
+
+    <div class="field">
+      <span class="label-eyebrow">Pattern</span>
+      <div class="bpm-wrap">
+        <div class="lcd" id="patDisplay">1</div>
+        <div class="bpm-stepper">
+          <button id="patUp">+</button>
+          <button id="patDown">-</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="label-eyebrow">Mode</span>
+      <div class="view-toggle">
+        <button id="btnPatMode" class="active">PAT</button>
+        <button id="btnSongMode">SONG</button>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="view-toggle">
+      <button id="btnSeqView" class="active">SEQ</button>
+      <button id="btnArrangeView">ARRANGE</button>
+      <button id="btnMixerView">MIXER</button>
+      <button id="btnEditView">SOUND</button>
+    </div>
+  </div>
+
+  <div id="main">
+
+    <div id="seqView" class="view active">
+      <div class="seqTop">
+        <div id="trackHeaders"></div>
+        <div id="gridScroll">
+          <div class="grid-inner" id="gridInner"></div>
+        </div>
+      </div>
+      <div id="stepGraphPanel">
+        <div id="graphHandle">
+          <span>Step Edit — <b id="graphTrackName">KICK</b></span>
+          <span id="graphToggleIcon">▲ tap to expand</span>
+        </div>
+        <div id="graphBody">
+          <div id="graphTabs">
+            <button class="graph-tab active" data-tab="vel">VEL</button>
+            <button class="graph-tab" data-tab="pan">PAN</button>
+            <button class="graph-tab" data-tab="pitch">PITCH</button>
+            <button class="graph-tab" data-tab="rep">REP</button>
+          </div>
+          <div id="graphBars"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="editView" class="view">
+      <div class="edit-topbar">
+        <div class="track-picker" id="trackPicker"></div>
+      </div>
+      <div class="edit-panels">
+        <div class="panel" id="wavePanel">
+          <div class="panel-title">Oscillator / Waveform</div>
+          <canvas id="waveCanvas"></canvas>
+          <div class="wave-row" id="oscRow"></div>
+        </div>
+        <div class="panel" id="envPanel">
+          <div class="panel-title">ADSR Envelope</div>
+          <canvas id="envCanvas"></canvas>
+          <div class="env-readout">
+            <span>A <b id="rA">10ms</b></span>
+            <span>D <b id="rD">120ms</b></span>
+            <span>S <b id="rS">40%</b></span>
+            <span>R <b id="rR">200ms</b></span>
+          </div>
+        </div>
+        <div class="panel" id="fxPanel">
+          <div class="panel-title">Track FX</div>
+          <div class="fx-row">
+            <label>Filter Cutoff</label>
+            <canvas id="cutoffKnob" style="height:60px;"></canvas>
+          </div>
+          <div class="fx-row">
+            <label>Send: Sync Delay</label>
+            <canvas id="delaySendKnob" style="height:60px;"></canvas>
+          </div>
+        </div>
+        <div class="panel" id="seqPanel" style="flex:0 0 160px;">
+          <div class="panel-title">Seq / Choke</div>
+          <div class="fx-row">
+            <label>Hold</label>
+            <canvas id="holdKnob" style="height:50px;"></canvas>
+          </div>
+          <div class="fx-row">
+            <label>Poly</label>
+            <button id="polyToggle" class="osc-btn active">POLY</button>
+          </div>
+          <div class="fx-row">
+            <label>Cut Group</label>
+            <div id="cutGroupRow" class="wave-row"></div>
+          </div>
+        </div>
+        <div class="panel" id="arpPanel" style="flex:0 0 170px;">
+          <div class="panel-title">Arpeggiator</div>
+          <div class="fx-row">
+            <label>On / Off</label>
+            <button id="arpToggle" class="osc-btn">ARP OFF</button>
+          </div>
+          <div class="fx-row">
+            <label>Direction</label>
+            <button id="arpDirBtn" class="osc-btn active">UP</button>
+          </div>
+          <div class="fx-row">
+            <label>Octave Range</label>
+            <canvas id="arpOctKnob" style="height:44px;"></canvas>
+          </div>
+          <div class="fx-row">
+            <label>Rate</label>
+            <select class="sync-select" id="arpRateSel"></select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="arrangeView" class="view">
+      <div class="arrangeTop">
+        <div id="arrangeHeaders"></div>
+        <div id="arrangeScroll">
+          <div class="arrange-inner" id="arrangeInner">
+            <div class="arrange-ruler" id="arrangeRuler"></div>
+            <div id="arrangeLanes"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="mixerView" class="view"></div>
+
+  </div>
+</div>
+
+<div id="pianoRollOverlay">
+  <div class="pr-topbar">
+    <span>Piano Roll — <b id="prTrackName">BASS</b></span>
+    <span class="hold-hint">drag note top/bottom edge = velocity &nbsp;•&nbsp; tap grid = set pitch for that step</span>
+    <button class="pr-close" id="prCloseBtn">&#10005;</button>
+  </div>
+  <div id="prBody">
+    <div id="prKeys"></div>
+    <div id="prGridScroll">
+      <div class="pr-grid-inner" id="prGridInner"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* =========================================================
+     SUBDIVISION / BPM-SYNC MATH
+     Rigid mapping from a subdivision code to a beat-fraction,
+     so every synced timing value (delay, LFO) is always an
+     exact musical fraction of the master BPM. No free-floating
+     ms values are ever permitted for synced parameters.
+  ========================================================== */
+  const SUBDIVISIONS = [
+    {code:"1/1",   beats:4},
+    {code:"1/2",   beats:2},
+    {code:"1/4",   beats:1},
+    {code:"1/8",   beats:0.5},
+    {code:"1/16",  beats:0.25},
+    {code:"1/32",  beats:0.125},
+    {code:"1/4.",  beats:1.5},
+    {code:"1/8.",  beats:0.75},
+    {code:"1/16.", beats:0.375},
+    {code:"1/4T",  beats:2/3},
+    {code:"1/8T",  beats:1/3},
+    {code:"1/16T", beats:1/6},
+  ];
+
+  function beatSeconds(bpm){ return 60 / bpm; }
+
+  // Converts a subdivision code + bpm into a guaranteed musically-
+  // valid seconds value. This is the single choke point all synced
+  // timing must pass through -- prevents arbitrary float drift.
+  function syncedSeconds(code, bpm){
+    const entry = SUBDIVISIONS.find(s => s.code === code) || SUBDIVISIONS[2];
+    const raw = entry.beats * beatSeconds(bpm);
+    // Clamp to a sane audio range (5ms - 4s) to avoid degenerate
+    // scheduling (e.g. absurdly high BPM collapsing a delay to ~0).
+    return Math.min(Math.max(raw, 0.005), 4.0);
+  }
+
+  /* =========================================================
+     STATE
+  ========================================================== */
+  const STEPS_PER_TRACK = 16;
+  const STEPS_PER_BEAT = 4; // 16th-note grid
+
+  // Like FL Studio, a "Pattern" is a full 16-step snapshot for a track.
+  // A track keeps several of these (PATTERN_COUNT) and the transport's
+  // Pattern stepper just picks which one the grid/graph/piano-roll show
+  // and edit right now -- exactly FL's PAT selector in the toolbar.
+  const PATTERN_COUNT = 4;
+
+  function makeSteps(){
+    const arr = [];
+    for(let i=0;i<STEPS_PER_TRACK;i++) arr.push({on:false, vel:1, pan:0, pitch:0, rep:1});
+    return arr;
+  }
+  function makePatterns(){
+    const arr = [];
+    for(let p=0;p<PATTERN_COUNT;p++) arr.push(makeSteps());
+    return arr;
+  }
+
+  const TRACKS = [
+    {name:"KICK",  type:"kick",  patterns:makePatterns(), vol:0.9, mute:false, solo:false, wave:"sine",     adsr:{a:0.001,d:0.15,s:0.0,r:0.05}, cutoff:1.0, delaySend:0.0,  cutGroup:null, hold:0,    poly:true},
+    {name:"SNARE", type:"snare", patterns:makePatterns(), vol:0.8, mute:false, solo:false, wave:"noise",    adsr:{a:0.001,d:0.12,s:0.0,r:0.08}, cutoff:0.8, delaySend:0.1,  cutGroup:null, hold:0,    poly:true},
+    {name:"HAT",   type:"hat",   patterns:makePatterns(), vol:0.6, mute:false, solo:false, wave:"noise-hp", adsr:{a:0.001,d:0.04,s:0.0,r:0.02}, cutoff:0.9, delaySend:0.0,  cutGroup:"A",  hold:0,    poly:false},
+    {name:"CLAP",  type:"clap",  patterns:makePatterns(), vol:0.7, mute:false, solo:false, wave:"noise",    adsr:{a:0.002,d:0.18,s:0.0,r:0.1},  cutoff:0.7, delaySend:0.15, cutGroup:null, hold:0,    poly:true},
+    {name:"TOM",   type:"tom",   patterns:makePatterns(), vol:0.75,mute:false, solo:false, wave:"sine",     adsr:{a:0.001,d:0.22,s:0.0,r:0.08}, cutoff:1.0, delaySend:0.05, cutGroup:null, hold:0,    poly:true},
+    {name:"BASS",  type:"synth", patterns:makePatterns(), vol:0.7, mute:false, solo:false, wave:"saw",      adsr:{a:0.005,d:0.1,s:0.5,r:0.15},  cutoff:0.5, delaySend:0.2,  cutGroup:null, hold:0.05, poly:true},
+  ];
+
+  // Per-track Mixer-style insert FX + arpeggiator defaults (kept out of
+  // the literal above just to keep that table readable).
+  TRACKS.forEach(track => {
+    track.fxDrive = false; track.fxDriveAmt = 0.4;
+    track.fxFilterOn = false; track.fxFilterCutoff = 0.7;
+    track.reverbSend = 0.0;
+    track.arp = {on:false, dir:"up", octaves:1, rate:"1/16"};
+  });
+
+  // Returns the step array for the pattern currently selected in the
+  // transport -- every part of the UI (grid, graph editor, piano roll)
+  // reads/writes through this single choke point.
+  function curSteps(track){ return track.patterns[currentPattern]; }
+
+  function setOn(trackIdx, stepIdx){ TRACKS[trackIdx].patterns[0][stepIdx].on = true; }
+  // default pattern (Pattern 1) so the prototype makes sound immediately
+  setOn(0,0); setOn(0,4); setOn(0,8); setOn(0,12);
+  setOn(1,4); setOn(1,12);
+  TRACKS[2].patterns[0].forEach((st,i)=>{ if(i%2===0) st.on = true; }); // HAT: cutGroup A + mono, demonstrates choke
+  setOn(5,0); setOn(5,6); setOn(5,10);
+
+  let bpm = 120;
+  let playing = false;
+  let currentStep = 0;
+  let selectedTrackIdx = 0;
+  let swingAmount = 0; // 0..1, applied to even-indexed 16ths
+  let currentPattern = 0; // which of each track's PATTERN_COUNT patterns is being edited/looped
+  let songMode = false;   // false = PAT (loop the pattern above), true = SONG (play the arrangement below)
+
+  /* Arrangement/playlist: one Pattern number (or 0 = empty) per bar,
+     shared by every track -- exactly FL's Playlist, where a single
+     Pattern block carries all channels' data for that bar. Bars loop
+     over songBars, always locked to the same BPM-derived step clock. */
+  let songBars = 8;
+  let currentBar = 0;
+  let songArrangement = new Array(songBars).fill(1);
+
+  /* =========================================================
+     AUDIO ENGINE
+  ========================================================== */
+  let ctx = null;
+  let masterGain, delayNode, delayFeedback, delayWet, masterAnalyser;
+  let reverbBus, reverbNode, reverbWet; // shared Send Track, FL-style
+  const chokeRefs = {}; // group/track key -> AudioParam being held, for cut-group + mono choke
+
+  // Procedurally-generated impulse response: exponentially-decaying noise.
+  // Mirrors the manual's description of Convolution Reverb -- "an impulse
+  // file is convolved with the original wave file" -- built in code instead
+  // of loaded from disk so the app stays a single self-contained file.
+  function createReverbImpulse(actx, seconds, decay){
+    const rate = actx.sampleRate;
+    const length = Math.floor(rate * seconds);
+    const impulse = actx.createBuffer(2, length, rate);
+    for(let ch=0; ch<2; ch++){
+      const data = impulse.getChannelData(ch);
+      for(let i=0;i<length;i++){
+        data[i] = (Math.random()*2-1) * Math.pow(1 - i/length, decay);
+      }
+    }
+    return impulse;
+  }
+
+  // Waveshaper curve for the per-channel Drive/Distortion insert.
+  // amount 0 = identity (bypassed), higher = harder tanh saturation.
+  function makeDriveCurve(amount){
+    const n = 256;
+    const curve = new Float32Array(n);
+    const k = amount * 18;
+    for(let i=0;i<n;i++){
+      const x = (i/(n-1))*2 - 1;
+      curve[i] = amount <= 0 ? x : Math.tanh(x*(1+k)) / Math.tanh(1+k);
+    }
+    return curve;
+  }
+
+  // Applies a track's current insert-FX state (Drive on/off, Filter
+  // on/off + cutoff, Reverb send amount) to its persistent audio nodes.
+  // Called whenever the Mixer FX controls change.
+  function updateTrackInsertFX(track){
+    if(!ctx || !track.insertDrive) return;
+    track.insertDrive.curve = makeDriveCurve(track.fxDrive ? track.fxDriveAmt : 0);
+    const targetHz = track.fxFilterOn ? (200 + track.fxFilterCutoff*9000) : 20000;
+    track.insertFilter.frequency.setTargetAtTime(targetHz, ctx.currentTime, 0.01);
+    track.reverbSendGain.gain.setTargetAtTime(track.reverbSend, ctx.currentTime, 0.01);
+  }
+
+  function ensureAudio(){
+    if(ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = ctx.createGain();
+    masterGain.gain.value = 0.9;
+
+    delayNode = ctx.createDelay(4.0);
+    delayFeedback = ctx.createGain();
+    delayFeedback.gain.value = 0.32;
+    delayWet = ctx.createGain();
+    delayWet.gain.value = 0.0;
+
+    delayNode.connect(delayFeedback);
+    delayFeedback.connect(delayNode);
+    delayNode.connect(delayWet);
+    delayWet.connect(masterGain);
+
+    // shared reverb Send Track: every channel's insert chain can dial in
+    // how much of its dry signal feeds this one reverb -- same idea the
+    // manual describes for FL's dedicated Send Tracks (one plugin, many
+    // channels feeding it, instead of duplicating the effect per channel).
+    reverbBus = ctx.createGain();
+    reverbNode = ctx.createConvolver();
+    reverbNode.buffer = createReverbImpulse(ctx, 2.2, 3.0);
+    reverbWet = ctx.createGain();
+    reverbWet.gain.value = 0.9;
+    reverbBus.connect(reverbNode);
+    reverbNode.connect(reverbWet);
+    reverbWet.connect(masterGain);
+
+    masterGain.connect(ctx.destination);
+    masterAnalyser = ctx.createAnalyser();
+    masterAnalyser.fftSize = 256;
+    masterGain.connect(masterAnalyser);
+
+    // per-track metering taps + persistent insert-FX chain. Every note
+    // lands in insertIn first, then flows Drive -> Filter -> (Master and
+    // the Reverb send) -- this is the Mixer-track layer, separate from
+    // the per-note "Channel settings" style shaping done in triggerHit().
+    TRACKS.forEach(track => {
+      track.analyser = ctx.createAnalyser();
+      track.analyser.fftSize = 256;
+
+      track.insertIn = ctx.createGain();
+      track.insertDrive = ctx.createWaveShaper();
+      track.insertFilter = ctx.createBiquadFilter();
+      track.insertFilter.type = "lowpass";
+      track.reverbSendGain = ctx.createGain();
+
+      track.insertIn.connect(track.insertDrive);
+      track.insertDrive.connect(track.insertFilter);
+      track.insertFilter.connect(masterGain);
+      track.insertFilter.connect(track.reverbSendGain);
+      track.reverbSendGain.connect(reverbBus);
+      track.insertIn.connect(track.analyser);
+
+      updateTrackInsertFX(track);
+    });
+
+    updateDelayTime();
+  }
+
+  function updateDelayTime(){
+    if(!ctx) return;
+    const code = document.getElementById("delaySync").value;
+    delayNode.delayTime.setTargetAtTime(syncedSeconds(code, bpm), ctx.currentTime, 0.01);
+  }
+
+  // noise buffer cache
+  let noiseBuffer = null;
+  function getNoiseBuffer(){
+    if(noiseBuffer) return noiseBuffer;
+    const len = ctx.sampleRate * 1.0;
+    noiseBuffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = noiseBuffer.getChannelData(0);
+    for(let i=0;i<len;i++) d[i] = Math.random()*2-1;
+    return noiseBuffer;
+  }
+
+  function triggerHit(track, trackIdx, time, stepData){
+    if(!ctx) return;
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    const peak = track.vol * (stepData.vel != null ? stepData.vel : 1);
+    const a = Math.max(track.adsr.a, 0.001);
+    const d = Math.max(track.adsr.d, 0.001);
+    const s = track.adsr.s;
+    const r = Math.max(track.adsr.r, 0.001);
+    const hold = Math.max(track.hold || 0, 0);
+
+    env.gain.linearRampToValueAtTime(peak, time + a);
+    env.gain.linearRampToValueAtTime(peak * s, time + a + d);
+    const releaseStart = time + a + d + hold;
+    env.gain.linearRampToValueAtTime(0.0001, releaseStart + r);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 200 + track.cutoff * 9000;
+
+    const pitchRatio = Math.pow(2, (stepData.pitch || 0) / 12);
+
+    let src;
+    let stopAt = releaseStart + r + 0.05;
+
+    if(track.wave === "noise" || track.wave === "noise-hp"){
+      src = ctx.createBufferSource();
+      src.buffer = getNoiseBuffer();
+      src.playbackRate.value = pitchRatio;
+      if(track.wave === "noise-hp"){
+        filter.type = "highpass";
+        filter.frequency.value = 6000;
+      }
+    } else {
+      src = ctx.createOscillator();
+      src.type = (track.wave === "saw") ? "sawtooth" : (track.wave === "square") ? "square" : (track.wave === "triangle") ? "triangle" : "sine";
+      let baseFreq = 220;
+      if(track.type === "kick") baseFreq = 150;
+      if(track.type === "tom")  baseFreq = 180;
+      if(track.type === "synth") baseFreq = 110;
+      baseFreq *= pitchRatio;
+      src.frequency.setValueAtTime(baseFreq * 2.2, time);
+      // pitch envelope gives kick/tom their thump
+      if(track.type === "kick" || track.type === "tom"){
+        src.frequency.exponentialRampToValueAtTime(Math.max(baseFreq*0.5,30), time + 0.12);
+      } else {
+        src.frequency.setValueAtTime(baseFreq, time);
+      }
+    }
+
+    const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    if(panner) panner.pan.value = Math.min(Math.max(stepData.pan || 0, -1), 1);
+
+    const trackSend = ctx.createGain();
+    trackSend.gain.value = track.delaySend;
+
+    src.connect(filter);
+    if(panner){ filter.connect(panner); panner.connect(env); } else { filter.connect(env); }
+    // channel-level delay send stays pre-insert-FX (mirrors the manual's
+    // Channel-settings Echo vs. Mixer-track FX distinction); everything
+    // else flows into this track's persistent Mixer insert chain.
+    env.connect(track.insertIn || masterGain);
+    env.connect(trackSend);
+    trackSend.connect(delayNode);
+
+    // cut-group + mono choke: silence whatever previously held these keys
+    const keys = [];
+    if(track.cutGroup) keys.push("group_" + track.cutGroup);
+    if(track.poly === false) keys.push("track_" + trackIdx);
+    keys.forEach(k => {
+      const prev = chokeRefs[k];
+      if(prev){
+        try{
+          prev.cancelScheduledValues(time);
+          prev.setValueAtTime(prev.value, time);
+          prev.linearRampToValueAtTime(0.0001, time + 0.006);
+        }catch(e){}
+      }
+      chokeRefs[k] = env.gain;
+    });
+
+    src.start(time);
+    src.stop(stopAt);
+  }
+
+  // Builds the semitone sequence an arpeggiator plays for one held note,
+  // matching the manual's UP / DOWN / (implicit) UP-DOWN chord options.
+  function arpSemitoneFor(arp, i, basePitch){
+    const octs = Math.max(1, Math.round(arp.octaves || 1));
+    let seq = [];
+    for(let o=0;o<octs;o++) seq.push(basePitch + o*12);
+    if(arp.dir === "down") seq.reverse();
+    else if(arp.dir === "updown" && seq.length > 1){
+      seq = seq.concat(seq.slice(1,-1).reverse());
+    }
+    return seq[i % seq.length];
+  }
+
+  function triggerTrack(track, trackIdx, time, stepData){
+    stepData = stepData || {vel:1, pan:0, pitch:0, rep:1};
+    const dur = stepDuration();
+
+    // Arpeggiator: re-triggers the step's note across octaves over the
+    // Hold window, exactly the FUNC-panel Arpeggiator the manual
+    // describes ("place a single note and press play... you get a
+    // repeating arpeggio instead").
+    if(track.arp && track.arp.on){
+      const arpStep = syncedSeconds(track.arp.rate, bpm);
+      const span = Math.max(track.hold || 0, dur);
+      const notesCount = Math.max(1, Math.round(span / arpStep));
+      const basePitch = stepData.pitch || 0;
+      for(let i=0;i<notesCount;i++){
+        const semi = arpSemitoneFor(track.arp, i, basePitch);
+        const noteData = Object.assign({}, stepData, {pitch: semi, rep: 1});
+        triggerHit(track, trackIdx, time + i*arpStep, noteData);
+      }
+      return;
+    }
+
+    const rep = Math.min(Math.max(Math.round(stepData.rep || 1), 1), 8);
+    for(let i=0;i<rep;i++){
+      triggerHit(track, trackIdx, time + (dur/rep)*i, stepData);
+    }
+  }
+
+  /* =========================================================
+     SCHEDULER -- lookahead pattern, locked to BPM subdivisions
+  ========================================================== */
+  const LOOKAHEAD_MS = 25;
+  const SCHEDULE_AHEAD = 0.1; // seconds
+  let nextStepTime = 0;
+  let stepIndexForSchedule = 0;
+  let schedulerTimer = null;
+  const stepQueue = []; // {step, time} for UI playhead sync
+
+  function stepDuration(){
+    // one 16th note, always derived from BPM -- never a raw float typed by hand
+    return syncedSeconds("1/16", bpm);
+  }
+
+  function scheduler(){
+    while(nextStepTime < ctx.currentTime + SCHEDULE_AHEAD){
+      // swing: hold back every even-indexed 16th relative to the odd ones,
+      // scaled by swingAmount. The base grid clock (nextStepTime) always
+      // advances by the unswung duration so long-term timing never drifts.
+      const isSwungStep = (stepIndexForSchedule % 2) === 1;
+      const swingDelay = isSwungStep ? swingAmount * stepDuration() * 0.5 : 0;
+      const triggerTime = nextStepTime + swingDelay;
+      const barForThisStep = currentBar;
+      scheduleStep(stepIndexForSchedule, triggerTime, barForThisStep);
+      stepQueue.push({step:stepIndexForSchedule, bar:barForThisStep, time:triggerTime});
+      nextStepTime += stepDuration();
+      stepIndexForSchedule = (stepIndexForSchedule + 1) % STEPS_PER_TRACK;
+      if(stepIndexForSchedule === 0){
+        // one full 16-step loop = one bar in the arrangement timeline;
+        // in PAT mode there's no "song" to advance through, so keep the
+        // bar/position readout parked on bar 1 while it loops
+        currentBar = songMode ? (currentBar + 1) % songBars : 0;
+      }
+    }
+  }
+
+  function scheduleStep(stepIdx, time, barIdx){
+    // PAT mode: loop whichever pattern is selected in the transport,
+    // ignoring the arrangement entirely (FL's "PAT" transport switch).
+    // SONG mode: look up which pattern (if any) this bar plays (FL's
+    // "SONG" switch, playing the Playlist).
+    let patternIdx;
+    if(!songMode){
+      patternIdx = currentPattern;
+    } else {
+      const patNum = songArrangement[barIdx] || 0;
+      if(!patNum) return; // empty bar in the arrangement -- silence
+      patternIdx = patNum - 1;
+    }
+    const anySolo = TRACKS.some(t => t.solo);
+    TRACKS.forEach((track, tIdx) => {
+      const stepData = track.patterns[patternIdx][stepIdx];
+      if(!stepData.on) return;
+      if(track.mute) return;
+      if(anySolo && !track.solo) return;
+      triggerTrack(track, tIdx, time, stepData);
+    });
+  }
+
+  function play(){
+    ensureAudio();
+    if(ctx.state === "suspended") ctx.resume();
+    playing = true;
+    stepIndexForSchedule = 0;
+    currentBar = 0;
+    nextStepTime = ctx.currentTime + 0.05;
+    stepQueue.length = 0;
+    document.getElementById("playBtn").classList.add("active");
+    document.getElementById("playBtn").innerHTML = "&#9632;";
+    schedulerTimer = setInterval(scheduler, LOOKAHEAD_MS);
+    requestAnimationFrame(uiLoop);
+  }
+
+  function stop(){
+    playing = false;
+    clearInterval(schedulerTimer);
+    document.getElementById("playBtn").classList.remove("active");
+    document.getElementById("playBtn").innerHTML = "&#9658;";
+    currentStep = -1;
+    renderPlayhead();
+  }
+
+  let uiPlayingBar = 0;
+  function uiLoop(){
+    if(!playing) return;
+    const now = ctx.currentTime;
+    let barChanged = false;
+    while(stepQueue.length && stepQueue[0].time <= now){
+      const item = stepQueue.shift();
+      currentStep = item.step;
+      if(item.bar !== uiPlayingBar){ uiPlayingBar = item.bar; barChanged = true; }
+      renderPlayhead();
+      const beat = Math.floor((currentStep % STEPS_PER_TRACK) / STEPS_PER_BEAT) + 1;
+      document.getElementById("posDisplay").textContent = (uiPlayingBar+1) + "." + beat;
+    }
+    if(barChanged && document.getElementById("arrangeView").classList.contains("active")) renderArrangePlayhead();
+    if(document.getElementById("mixerView").classList.contains("active")) updateMixerMeters();
+    requestAnimationFrame(uiLoop);
+  }
+
+  /* =========================================================
+     UI: TRANSPORT
+  ========================================================== */
+  document.getElementById("playBtn").addEventListener("click", () => {
+    playing ? stop() : play();
+  });
+
+  function setBpm(v){
+    bpm = Math.min(Math.max(v, 40), 240);
+    document.getElementById("bpmDisplay").textContent = bpm;
+    updateDelayTime();
+  }
+  document.getElementById("bpmUp").addEventListener("click", () => setBpm(bpm+1));
+  document.getElementById("bpmDown").addEventListener("click", () => setBpm(bpm-1));
+  setBpm(120);
+
+  function populateSyncSelect(sel){
+    SUBDIVISIONS.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s.code; opt.textContent = s.code;
+      sel.appendChild(opt);
+    });
+  }
+  const delaySyncSel = document.getElementById("delaySync");
+  const lfoSyncSel = document.getElementById("lfoSync");
+  populateSyncSelect(delaySyncSel);
+  populateSyncSelect(lfoSyncSel);
+  delaySyncSel.value = "1/8.";
+  lfoSyncSel.value = "1/4";
+  delaySyncSel.addEventListener("change", updateDelayTime);
+  lfoSyncSel.addEventListener("change", updateLfoRate);
+
+  let lfo = null, lfoGain = null;
+  function updateLfoRate(){
+    if(!ctx) return;
+    const code = lfoSyncSel.value;
+    const seconds = syncedSeconds(code, bpm);
+    const hz = 1 / seconds;
+    if(lfo) lfo.frequency.setTargetAtTime(hz, ctx.currentTime, 0.01);
+  }
+
+  const swingRangeEl = document.getElementById("swingRange");
+  swingRangeEl.addEventListener("input", () => { swingAmount = swingRangeEl.value / 100; });
+
+  /* ---- Pattern selector + PAT/SONG mode (FL's "from Patterns to Songs") ---- */
+  const patDisplayEl = document.getElementById("patDisplay");
+  function setPattern(p){
+    currentPattern = ((p % PATTERN_COUNT) + PATTERN_COUNT) % PATTERN_COUNT;
+    patDisplayEl.textContent = currentPattern + 1;
+    renderGrid();
+    renderGraphBars();
+    if(document.getElementById("pianoRollOverlay").classList.contains("open")) renderPianoRoll();
+  }
+  document.getElementById("patUp").addEventListener("click", () => setPattern(currentPattern+1));
+  document.getElementById("patDown").addEventListener("click", () => setPattern(currentPattern-1));
+
+  function setSongMode(v){
+    songMode = v;
+    document.getElementById("btnPatMode").classList.toggle("active", !songMode);
+    document.getElementById("btnSongMode").classList.toggle("active", songMode);
+  }
+  document.getElementById("btnPatMode").addEventListener("click", () => setSongMode(false));
+  document.getElementById("btnSongMode").addEventListener("click", () => setSongMode(true));
+
+  document.getElementById("btnSeqView").addEventListener("click", () => switchView("seq"));
+  document.getElementById("btnEditView").addEventListener("click", () => switchView("edit"));
+  document.getElementById("btnArrangeView").addEventListener("click", () => switchView("arrange"));
+  document.getElementById("btnMixerView").addEventListener("click", () => switchView("mixer"));
+  function switchView(which){
+    document.getElementById("seqView").classList.toggle("active", which==="seq");
+    document.getElementById("editView").classList.toggle("active", which==="edit");
+    document.getElementById("arrangeView").classList.toggle("active", which==="arrange");
+    document.getElementById("mixerView").classList.toggle("active", which==="mixer");
+    document.getElementById("btnSeqView").classList.toggle("active", which==="seq");
+    document.getElementById("btnEditView").classList.toggle("active", which==="edit");
+    document.getElementById("btnArrangeView").classList.toggle("active", which==="arrange");
+    document.getElementById("btnMixerView").classList.toggle("active", which==="mixer");
+    if(which === "edit") renderEditView();
+    if(which === "arrange") renderArrangeView();
+    if(which === "mixer") renderMixer();
+  }
+
+  /* =========================================================
+     UI: TRACK HEADERS + STEP GRID
+  ========================================================== */
+  const trackHeadersEl = document.getElementById("trackHeaders");
+  const gridInnerEl = document.getElementById("gridInner");
+
+  function renderTrackHeaders(){
+    trackHeadersEl.innerHTML = "";
+    TRACKS.forEach((track, idx) => {
+      const row = document.createElement("div");
+      row.className = "track-header" + (idx === selectedTrackIdx ? " selected" : "");
+      row.innerHTML = `
+        <div class="track-name-row">
+          <div class="track-name">${track.name}</div>
+          <div class="hold-hint">⋮</div>
+        </div>
+        <div class="track-controls">
+          <div class="mini-btn mute ${track.mute?'on':''}" data-action="mute">M</div>
+          <div class="mini-btn solo ${track.solo?'on':''}" data-action="solo">S</div>
+          <div class="vol-track" data-action="vol"><div class="vol-fill" style="width:${track.vol*100}%"></div></div>
+        </div>
+      `;
+      row.addEventListener("click", (e) => {
+        const action = e.target.getAttribute("data-action");
+        if(action === "mute"){ track.mute = !track.mute; renderTrackHeaders(); }
+        else if(action === "solo"){ track.solo = !track.solo; renderTrackHeaders(); }
+        else if(action === "vol"){
+          const rect = e.target.getBoundingClientRect();
+          track.vol = Math.min(Math.max((e.clientX - rect.left)/rect.width,0),1);
+          renderTrackHeaders();
+        } else {
+          selectedTrackIdx = idx;
+          renderTrackHeaders();
+          renderGraphBars();
+        }
+      });
+      let longPressTimer = null;
+      row.addEventListener("pointerdown", (e) => {
+        if(e.target.closest("[data-action]")) return;
+        longPressTimer = setTimeout(() => showFillMenu(idx, row), 450);
+      });
+      ["pointerup","pointerleave","pointercancel"].forEach(evt => {
+        row.addEventListener(evt, () => clearTimeout(longPressTimer));
+      });
+      trackHeadersEl.appendChild(row);
+    });
+  }
+
+  /* ---- Fill / Clear long-press menu ---- */
+  function fillSteps(trackIdx, mode){
+    const track = TRACKS[trackIdx];
+    curSteps(track).forEach((st,i) => {
+      if(mode === "all") st.on = true;
+      else if(mode === "2") st.on = (i % 2 === 0);
+      else if(mode === "4") st.on = (i % 4 === 0);
+      else if(mode === "clear") st.on = false;
+    });
+    renderGrid();
+    if(trackIdx === selectedTrackIdx) renderGraphBars();
+  }
+
+  let fillMenuEl = null;
+  function closeFillMenu(){
+    if(fillMenuEl){ fillMenuEl.remove(); fillMenuEl = null; }
+    document.removeEventListener("pointerdown", outsideFillMenuHandler, true);
+  }
+  function outsideFillMenuHandler(e){
+    if(fillMenuEl && !fillMenuEl.contains(e.target)) closeFillMenu();
+  }
+  function showFillMenu(trackIdx, anchorEl){
+    closeFillMenu();
+    const rect = anchorEl.getBoundingClientRect();
+    fillMenuEl = document.createElement("div");
+    fillMenuEl.className = "fill-menu";
+    fillMenuEl.style.top = rect.top + "px";
+    fillMenuEl.style.left = (rect.right + 6) + "px";
+    fillMenuEl.innerHTML = `
+      <button data-m="all">Fill every step</button>
+      <button data-m="2">Fill each 2 steps</button>
+      <button data-m="4">Fill each 4 steps</button>
+      <button data-m="clear">Clear</button>
+    `;
+    fillMenuEl.addEventListener("click", (e) => {
+      const m = e.target.getAttribute("data-m");
+      if(m){ fillSteps(trackIdx, m); closeFillMenu(); }
+    });
+    document.body.appendChild(fillMenuEl);
+    setTimeout(() => document.addEventListener("pointerdown", outsideFillMenuHandler, true), 0);
+  }
+
+  function renderGrid(){
+    gridInnerEl.innerHTML = "";
+    TRACKS.forEach((track, tIdx) => {
+      const row = document.createElement("div");
+      row.className = "step-row";
+      for(let g=0; g<STEPS_PER_TRACK/STEPS_PER_BEAT; g++){
+        const group = document.createElement("div");
+        group.className = "beat-group";
+        for(let i=0;i<STEPS_PER_BEAT;i++){
+          const stepIdx = g*STEPS_PER_BEAT + i;
+          const stepData = curSteps(track)[stepIdx];
+          const cell = document.createElement("div");
+          cell.className = "step-cell" + (i===0 ? " beat-lead" : "") + (stepData.on ? " on" : "") + (stepData.on && i===0 ? " accent" : "");
+          cell.dataset.track = tIdx;
+          cell.dataset.step = stepIdx;
+          cell.addEventListener("click", () => {
+            ensureAudio();
+            stepData.on = !stepData.on;
+            if(stepData.on) triggerTrack(track, tIdx, ctx.currentTime + 0.01, stepData);
+            renderGrid();
+            if(tIdx === selectedTrackIdx) renderGraphBars();
+          });
+          group.appendChild(cell);
+        }
+        row.appendChild(group);
+      }
+      gridInnerEl.appendChild(row);
+    });
+  }
+
+  function renderPlayhead(){
+    document.querySelectorAll(".step-cell").forEach(cell => {
+      cell.classList.toggle("playhead", parseInt(cell.dataset.step,10) === currentStep);
+    });
+  }
+
+  /* =========================================================
+     UI: PER-STEP GRAPH EDITOR (VEL / PAN / PITCH / REP)
+  ========================================================== */
+  const stepGraphPanelEl = document.getElementById("stepGraphPanel");
+  const graphBarsEl = document.getElementById("graphBars");
+  const graphTrackNameEl = document.getElementById("graphTrackName");
+  let graphTab = "vel";
+
+  document.getElementById("graphHandle").addEventListener("click", () => {
+    stepGraphPanelEl.classList.toggle("expanded");
+  });
+  document.querySelectorAll(".graph-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      graphTab = btn.dataset.tab;
+      document.querySelectorAll(".graph-tab").forEach(b => b.classList.toggle("active", b===btn));
+      renderGraphBars();
+    });
+  });
+
+  function normFromStep(stepData, tab){
+    if(tab === "vel") return stepData.vel;
+    if(tab === "pan") return (stepData.pan + 1) / 2;
+    if(tab === "pitch") return (stepData.pitch + 24) / 48;
+    if(tab === "rep") return (stepData.rep - 1) / 7;
+    return 0;
+  }
+  function applyNormToStep(stepData, tab, norm){
+    norm = Math.min(Math.max(norm, 0), 1);
+    if(tab === "vel") stepData.vel = norm;
+    else if(tab === "pan") stepData.pan = norm*2 - 1;
+    else if(tab === "pitch") stepData.pitch = Math.round(norm*48 - 24);
+    else if(tab === "rep") stepData.rep = Math.round(norm*7) + 1;
+  }
+
+  function renderGraphBars(){
+    const track = TRACKS[selectedTrackIdx];
+    graphTrackNameEl.textContent = track.name;
+    graphBarsEl.innerHTML = "";
+    curSteps(track).forEach((stepData) => {
+      const bar = document.createElement("div");
+      bar.className = "graph-bar" + (stepData.on ? "" : " off");
+      const norm = normFromStep(stepData, graphTab);
+      const fill = document.createElement("div");
+      fill.className = "graph-bar-fill";
+      fill.style.height = (norm*100) + "%";
+      bar.appendChild(fill);
+      if(graphTab === "pan"){
+        const centerLine = document.createElement("div");
+        centerLine.className = "graph-bar-center";
+        bar.appendChild(centerLine);
+      }
+      bar.addEventListener("pointerdown", (e) => {
+        graphDragging = {stepData, barEl:bar, fillEl:fill};
+        updateGraphDrag(e);
+      });
+      graphBarsEl.appendChild(bar);
+    });
+  }
+
+  let graphDragging = null;
+  function updateGraphDrag(e){
+    if(!graphDragging) return;
+    const rect = graphDragging.barEl.getBoundingClientRect();
+    const norm = 1 - Math.min(Math.max((e.clientY - rect.top) / rect.height, 0), 1);
+    applyNormToStep(graphDragging.stepData, graphTab, norm);
+    // update just this bar's fill directly -- a full re-render mid-drag would
+    // detach the element currently under the pointer and break the gesture
+    graphDragging.fillEl.style.height = (norm*100) + "%";
+  }
+  document.addEventListener("pointermove", (e) => { if(graphDragging) updateGraphDrag(e); });
+  document.addEventListener("pointerup", () => { graphDragging = null; });
+
+  /* =========================================================
+     UI: SOUND EDIT VIEW
+  ========================================================== */
+  const trackPickerEl = document.getElementById("trackPicker");
+  const waveCanvas = document.getElementById("waveCanvas");
+  const envCanvas = document.getElementById("envCanvas");
+  const cutoffKnobCanvas = document.getElementById("cutoffKnob");
+  const delaySendKnobCanvas = document.getElementById("delaySendKnob");
+  const holdKnobCanvas = document.getElementById("holdKnob");
+  const polyToggleEl = document.getElementById("polyToggle");
+  const cutGroupRowEl = document.getElementById("cutGroupRow");
+  const oscRow = document.getElementById("oscRow");
+  const arpToggleEl = document.getElementById("arpToggle");
+  const arpDirBtnEl = document.getElementById("arpDirBtn");
+  const arpOctKnobCanvas = document.getElementById("arpOctKnob");
+  const arpRateSelEl = document.getElementById("arpRateSel");
+  populateSyncSelect(arpRateSelEl);
+
+  function renderTrackPicker(){
+    trackPickerEl.innerHTML = "";
+    TRACKS.forEach((track, idx) => {
+      const chip = document.createElement("div");
+      chip.className = "track-chip" + (idx===selectedTrackIdx ? " active" : "");
+      chip.textContent = track.name;
+      chip.addEventListener("click", () => { selectedTrackIdx = idx; renderEditView(); renderTrackHeaders(); renderGraphBars(); });
+      trackPickerEl.appendChild(chip);
+    });
+  }
+
+  const OSC_TYPES = ["sine","triangle","square","saw","noise","noise-hp"];
+  function renderOscRow(){
+    oscRow.innerHTML = "";
+    const track = TRACKS[selectedTrackIdx];
+    OSC_TYPES.forEach(w => {
+      const b = document.createElement("div");
+      b.className = "osc-btn" + (track.wave===w ? " active" : "");
+      b.textContent = w.toUpperCase();
+      b.addEventListener("click", () => { track.wave = w; renderEditView(); });
+      oscRow.appendChild(b);
+    });
+  }
+
+  function fitCanvas(canvas){
+    const rect = canvas.getBoundingClientRect();
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.max(rect.width,10) * ratio;
+    canvas.height = Math.max(rect.height,10) * ratio;
+    const ctx2d = canvas.getContext("2d");
+    ctx2d.setTransform(ratio,0,0,ratio,0,0);
+    return ctx2d;
+  }
+
+  function drawWaveform(){
+    const track = TRACKS[selectedTrackIdx];
+    const c = fitCanvas(waveCanvas);
+    const w = waveCanvas.clientWidth, h = waveCanvas.clientHeight;
+    c.clearRect(0,0,w,h);
+    c.strokeStyle = "#ffb02e";
+    c.lineWidth = 2;
+    c.beginPath();
+    const mid = h/2;
+    for(let x=0;x<w;x++){
+      const phase = (x/w) * Math.PI * 8;
+      let y;
+      if(track.wave === "sine") y = Math.sin(phase);
+      else if(track.wave === "triangle") y = Math.asin(Math.sin(phase)) * (2/Math.PI);
+      else if(track.wave === "square") y = Math.sign(Math.sin(phase));
+      else if(track.wave === "saw") y = ((phase/Math.PI) % 2) - 1;
+      else y = (Math.random()*2-1) * (1 - Math.abs((x/w)*2-1)*0.2);
+      const py = mid - y * (mid*0.8);
+      if(x===0) c.moveTo(x,py); else c.lineTo(x,py);
+    }
+    c.stroke();
+  }
+
+  let draggingHandle = null;
+  function envPoints(track, w, h){
+    const total = track.adsr.a + track.adsr.d + 0.3 + track.adsr.r; // 0.3 fixed sustain viewport
+    const x = (t) => (t/total) * w;
+    const p0 = {x:0, y:h, key:null};
+    const p1 = {x:x(track.adsr.a), y:0, key:"a"};
+    const p2 = {x:x(track.adsr.a+track.adsr.d), y:h - track.adsr.s*h, key:"d"};
+    const p3 = {x:x(track.adsr.a+track.adsr.d+0.3), y:h - track.adsr.s*h, key:"s"};
+    const p4 = {x:Math.min(x(track.adsr.a+track.adsr.d+0.3+track.adsr.r), w), y:h, key:"r"};
+    return [p0,p1,p2,p3,p4];
+  }
+
+  function drawEnvelope(){
+    const track = TRACKS[selectedTrackIdx];
+    const c = fitCanvas(envCanvas);
+    const w = envCanvas.clientWidth, h = envCanvas.clientHeight;
+    c.clearRect(0,0,w,h);
+    const pts = envPoints(track, w, h-8);
+    c.strokeStyle = "#4dd8e6";
+    c.lineWidth = 2;
+    c.beginPath();
+    pts.forEach((p,i) => { if(i===0) c.moveTo(p.x,p.y+4); else c.lineTo(p.x,p.y+4); });
+    c.stroke();
+    c.fillStyle = "#4dd8e6";
+    pts.forEach(p => {
+      if(p.key){
+        c.beginPath();
+        c.arc(p.x, p.y+4, 5, 0, Math.PI*2);
+        c.fill();
+      }
+    });
+    document.getElementById("rA").textContent = Math.round(track.adsr.a*1000)+"ms";
+    document.getElementById("rD").textContent = Math.round(track.adsr.d*1000)+"ms";
+    document.getElementById("rS").textContent = Math.round(track.adsr.s*100)+"%";
+    document.getElementById("rR").textContent = Math.round(track.adsr.r*1000)+"ms";
+  }
+
+  function envPointerHandler(e){
+    const rect = envCanvas.getBoundingClientRect();
+    const px = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const py = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+    const track = TRACKS[selectedTrackIdx];
+    const w = envCanvas.clientWidth, h = envCanvas.clientHeight - 8;
+
+    if(e.type === "mousedown" || e.type === "touchstart"){
+      const pts = envPoints(track, w, h);
+      let best = null, bestDist = 24;
+      pts.forEach(p => {
+        if(!p.key) return;
+        const d = Math.hypot(p.x-px, p.y-(py-4));
+        if(d < bestDist){ bestDist = d; best = p.key; }
+      });
+      draggingHandle = best;
+      return;
+    }
+    if((e.type==="mousemove" || e.type==="touchmove") && draggingHandle){
+      e.preventDefault();
+      const total = track.adsr.a + track.adsr.d + 0.3 + track.adsr.r;
+      const t = Math.max(px,0)/w * total;
+      const sVal = Math.min(Math.max(1 - py/h, 0), 1);
+      if(draggingHandle === "a"){
+        track.adsr.a = Math.min(Math.max(t, 0.001), 1.5);
+      } else if(draggingHandle === "d"){
+        track.adsr.d = Math.min(Math.max(t - track.adsr.a, 0.001), 1.5);
+      } else if(draggingHandle === "s"){
+        track.adsr.s = sVal;
+      } else if(draggingHandle === "r"){
+        track.adsr.r = Math.min(Math.max(t - (track.adsr.a+track.adsr.d+0.3), 0.001), 2.0);
+      }
+      drawEnvelope();
+    }
+    if(e.type === "mouseup" || e.type === "touchend"){
+      draggingHandle = null;
+    }
+  }
+  ["mousedown","mousemove","mouseup","mouseleave","touchstart","touchmove","touchend"].forEach(evt => {
+    envCanvas.addEventListener(evt, envPointerHandler, {passive:false});
+  });
+
+  function drawKnob(canvas, value, onChange){
+    const c = fitCanvas(canvas);
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    const cx = w/2, cy = h/2, r = Math.max(Math.min(w,h)/2 - 6, 1);
+    c.clearRect(0,0,w,h);
+    const startAngle = Math.PI*0.75, endAngle = Math.PI*2.25;
+    c.strokeStyle = "#302f36";
+    c.lineWidth = 6;
+    c.beginPath();
+    c.arc(cx,cy,r,startAngle,endAngle);
+    c.stroke();
+    c.strokeStyle = "#ffb02e";
+    c.beginPath();
+    c.arc(cx,cy,r,startAngle, startAngle + (endAngle-startAngle)*value);
+    c.stroke();
+    const angle = startAngle + (endAngle-startAngle)*value;
+    c.strokeStyle = "#eae6da";
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(cx,cy);
+    c.lineTo(cx + Math.cos(angle)*r*0.7, cy + Math.sin(angle)*r*0.7);
+    c.stroke();
+
+    let dragging = false, lastY = 0;
+    canvas.onmousedown = canvas.ontouchstart = (e) => { dragging = true; lastY = e.touches ? e.touches[0].clientY : e.clientY; };
+    canvas.onmousemove = canvas.ontouchmove = (e) => {
+      if(!dragging) return;
+      e.preventDefault();
+      const y = e.touches ? e.touches[0].clientY : e.clientY;
+      const delta = (lastY - y) / 120;
+      lastY = y;
+      onChange(delta);
+    };
+    canvas.onmouseup = canvas.ontouchend = canvas.onmouseleave = () => { dragging = false; };
+  }
+
+  function bindKnob(canvas, getValue, setValue){
+    drawKnob(canvas, getValue(), (delta) => {
+      setValue(Math.min(Math.max(getValue() + delta, 0), 1));
+      drawKnob(canvas, getValue(), () => {});
+    });
+  }
+
+  function renderCutGroupRow(track){
+    cutGroupRowEl.innerHTML = "";
+    ["-","A","B","C"].forEach(g => {
+      const b = document.createElement("div");
+      const isActive = (g==="-" ? !track.cutGroup : track.cutGroup===g);
+      b.className = "osc-btn" + (isActive ? " active" : "");
+      b.textContent = g;
+      b.addEventListener("click", () => { track.cutGroup = (g==="-") ? null : g; renderEditView(); });
+      cutGroupRowEl.appendChild(b);
+    });
+  }
+
+  function renderEditView(){
+    renderTrackPicker();
+    renderOscRow();
+    drawWaveform();
+    drawEnvelope();
+    const track = TRACKS[selectedTrackIdx];
+    bindKnob(cutoffKnobCanvas, () => track.cutoff, (v) => { track.cutoff = v; });
+    bindKnob(delaySendKnobCanvas, () => track.delaySend, (v) => { track.delaySend = v; });
+    bindKnob(holdKnobCanvas, () => track.hold, (v) => { track.hold = v; });
+    polyToggleEl.classList.toggle("active", track.poly);
+    polyToggleEl.textContent = track.poly ? "POLY" : "MONO";
+    polyToggleEl.onclick = () => { track.poly = !track.poly; renderEditView(); };
+    renderCutGroupRow(track);
+
+    // Arpeggiator (FUNC-panel style): direction cycles UP/DOWN/UP-DOWN,
+    // octave range via knob, rate locked to a BPM subdivision like the
+    // Delay/LFO sync selectors up in the transport.
+    arpToggleEl.classList.toggle("active", track.arp.on);
+    arpToggleEl.textContent = track.arp.on ? "ARP ON" : "ARP OFF";
+    arpToggleEl.onclick = () => { track.arp.on = !track.arp.on; renderEditView(); };
+    arpDirBtnEl.textContent = track.arp.dir.toUpperCase();
+    arpDirBtnEl.onclick = () => {
+      const order = ["up","down","updown"];
+      track.arp.dir = order[(order.indexOf(track.arp.dir)+1) % order.length];
+      renderEditView();
+    };
+    bindKnob(arpOctKnobCanvas, () => (track.arp.octaves-1)/3, (v) => { track.arp.octaves = Math.round(v*3)+1; });
+    arpRateSelEl.value = track.arp.rate;
+    arpRateSelEl.onchange = () => { track.arp.rate = arpRateSelEl.value; };
+  }
+
+  /* =========================================================
+     ARRANGEMENT / PLAYLIST VIEW
+  ========================================================== */
+  let barWidth = 64;
+  const arrangeHeadersEl = document.getElementById("arrangeHeaders");
+  const arrangeRulerEl = document.getElementById("arrangeRuler");
+  const arrangeLanesEl = document.getElementById("arrangeLanes");
+  const arrangeInnerEl = document.getElementById("arrangeInner");
+  const songLenDisplayEl = document.getElementById("songLenDisplay");
+
+  document.getElementById("songLenField").addEventListener("click", () => {
+    // cycle common song lengths -- always a whole number of bars, never
+    // an arbitrary fraction, so the arrangement stays step-clock aligned
+    const options = [4,8,16,32];
+    const next = options[(options.indexOf(songBars)+1) % options.length];
+    songBars = next;
+    const old = songArrangement;
+    songArrangement = new Array(songBars).fill(1).map((_,i) => i < old.length ? old[i] : 1);
+    songLenDisplayEl.textContent = songBars;
+    renderArrangeView();
+  });
+
+  function renderArrangeHeaders(){
+    arrangeHeadersEl.innerHTML = "";
+    const patRow = document.createElement("div");
+    patRow.className = "arrange-header";
+    patRow.innerHTML = `<div class="track-name" style="color:var(--lcd-amber)">PATTERN</div><div class="track-type">tap = cycle P1-${PATTERN_COUNT}</div>`;
+    arrangeHeadersEl.appendChild(patRow);
+    TRACKS.forEach((track) => {
+      const row = document.createElement("div");
+      row.className = "arrange-header";
+      row.innerHTML = `<div class="track-name">${track.name}</div><div class="track-type">${track.type}</div>`;
+      arrangeHeadersEl.appendChild(row);
+    });
+  }
+
+  function renderArrangeRuler(){
+    arrangeInnerEl.style.setProperty("--bar-w", barWidth+"px");
+    arrangeRulerEl.innerHTML = "";
+    for(let b=0;b<songBars;b++){
+      const cell = document.createElement("div");
+      cell.className = "ruler-bar";
+      cell.textContent = "Bar " + (b+1);
+      arrangeRulerEl.appendChild(cell);
+    }
+  }
+
+  function renderArrangeLanes(){
+    arrangeLanesEl.innerHTML = "";
+
+    // Pattern lane: the actual Playlist -- tapping a bar cycles which
+    // Pattern (or "empty") plays there, for every track at once, exactly
+    // FL's Pattern Clips in the Playlist.
+    const patLane = document.createElement("div");
+    patLane.className = "arrange-lane";
+    for(let b=0;b<songBars;b++){
+      const cell = document.createElement("div");
+      cell.className = "arrange-cell";
+      cell.dataset.bar = b;
+      const clip = document.createElement("div");
+      const patNum = songArrangement[b] || 0;
+      clip.className = "arrange-clip" + (patNum ? " active" : "");
+      clip.textContent = patNum ? ("P" + patNum) : "";
+      clip.addEventListener("click", () => {
+        songArrangement[b] = ((songArrangement[b] || 0) + 1) % (PATTERN_COUNT + 1);
+        renderArrangeLanes();
+      });
+      cell.appendChild(clip);
+      patLane.appendChild(cell);
+    }
+    arrangeLanesEl.appendChild(patLane);
+
+    // Per-track lanes: read-only reflection of whichever Pattern the bar
+    // above is set to -- double-tap jumps the transport to that Pattern
+    // and opens the Piano Roll on it, for quick editing from the Playlist.
+    TRACKS.forEach((track, tIdx) => {
+      const lane = document.createElement("div");
+      lane.className = "arrange-lane";
+      for(let b=0;b<songBars;b++){
+        const cell = document.createElement("div");
+        cell.className = "arrange-cell";
+        cell.dataset.bar = b;
+        const clip = document.createElement("div");
+        const patNum = songArrangement[b] || 0;
+        clip.className = "arrange-clip" + (patNum ? " active" : "");
+        clip.textContent = patNum ? track.name : "";
+        let lastTap = 0;
+        clip.addEventListener("click", () => {
+          const now = Date.now();
+          const cur = songArrangement[b] || 0;
+          if(now - lastTap < 320 && cur){
+            setPattern(cur - 1);
+            openPianoRoll(tIdx);
+          }
+          lastTap = now;
+        });
+        cell.appendChild(clip);
+        lane.appendChild(cell);
+      }
+      arrangeLanesEl.appendChild(lane);
+    });
+    renderArrangePlayhead();
+  }
+
+  function renderArrangePlayhead(){
+    document.querySelectorAll(".arrange-lane").forEach((lane) => {
+      lane.querySelectorAll(".arrange-cell").forEach(cell => {
+        const clip = cell.querySelector(".arrange-clip");
+        clip.classList.toggle("playing-bar", playing && songMode && parseInt(cell.dataset.bar,10) === uiPlayingBar);
+      });
+    });
+  }
+
+  function renderArrangeView(){
+    songLenDisplayEl.textContent = songBars;
+    renderArrangeHeaders();
+    renderArrangeRuler();
+    renderArrangeLanes();
+  }
+
+  /* =========================================================
+     PIANO ROLL OVERLAY
+     Edits the same per-step pitch/velocity data used by the step
+     sequencer -- it's an alternate, note-grid view onto one track's
+     16 steps, not a separate data model.
+  ========================================================== */
+  const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+  const PR_LOW = -24, PR_HIGH = 24; // semitone range shown, matches pitch graph range
+  const pianoRollOverlayEl = document.getElementById("pianoRollOverlay");
+  const prTrackNameEl = document.getElementById("prTrackName");
+  const prKeysEl = document.getElementById("prKeys");
+  const prGridInnerEl = document.getElementById("prGridInner");
+  let prTrackIdx = 0;
+
+  function semitoneLabel(semi){
+    const idx = ((semi % 12) + 12) % 12;
+    const octave = 4 + Math.floor(semi/12);
+    return NOTE_NAMES[idx] + octave;
+  }
+  function isBlackKey(semi){
+    const idx = ((semi % 12) + 12) % 12;
+    return [1,3,6,8,10].includes(idx);
+  }
+
+  function openPianoRoll(trackIdx){
+    prTrackIdx = trackIdx;
+    pianoRollOverlayEl.classList.add("open");
+    renderPianoRoll();
+  }
+  document.getElementById("prCloseBtn").addEventListener("click", () => {
+    pianoRollOverlayEl.classList.remove("open");
+  });
+
+  function renderPianoRoll(){
+    const track = TRACKS[prTrackIdx];
+    prTrackNameEl.textContent = track.name;
+    prKeysEl.innerHTML = "";
+    prGridInnerEl.innerHTML = "";
+    for(let semi=PR_HIGH; semi>=PR_LOW; semi--){
+      const keyEl = document.createElement("div");
+      keyEl.className = "pr-key " + (isBlackKey(semi) ? "black" : "white");
+      keyEl.textContent = semitoneLabel(semi);
+      prKeysEl.appendChild(keyEl);
+
+      const row = document.createElement("div");
+      row.className = "pr-row" + (isBlackKey(semi) ? " black-row" : "");
+      for(let s=0;s<STEPS_PER_TRACK;s++){
+        const cell = document.createElement("div");
+        cell.className = "pr-cell" + (s % STEPS_PER_BEAT === 0 ? " beat-lead" : "");
+        const stepData = curSteps(track)[s];
+        if(stepData.on && (stepData.pitch||0) === semi){
+          const note = document.createElement("div");
+          note.className = "pr-note";
+          note.style.opacity = 0.4 + 0.6*(stepData.vel!=null?stepData.vel:1);
+          cell.appendChild(note);
+        }
+        cell.addEventListener("click", () => {
+          ensureAudio();
+          if(stepData.on && (stepData.pitch||0) === semi){
+            stepData.on = false; // tap the same note again to clear it
+          } else {
+            stepData.on = true;
+            stepData.pitch = semi;
+            triggerTrack(track, prTrackIdx, ctx.currentTime + 0.01, stepData);
+          }
+          renderPianoRoll();
+          if(prTrackIdx === selectedTrackIdx){ renderGrid(); renderGraphBars(); }
+        });
+        row.appendChild(cell);
+      }
+      prGridInnerEl.appendChild(row);
+    }
+  }
+
+  /* =========================================================
+     MIXER VIEW -- vertical channel strips with LED peak meters.
+     Meter ballistics: fast attack (read every frame), slow-ish
+     decay via a held peak value that eases down each frame, then
+     colour-mapped green -> yellow -> red via the CSS gradient.
+  ========================================================== */
+  const mixerViewEl = document.getElementById("mixerView");
+  const meterPeaks = {}; // key -> held peak 0..1, for smooth decay
+
+  function renderMixer(){
+    mixerViewEl.innerHTML = "";
+    TRACKS.forEach((track, tIdx) => {
+      const strip = document.createElement("div");
+      strip.className = "chstrip";
+      strip.innerHTML = `
+        <div class="ch-name">${track.name}</div>
+        <div class="ch-meter-row"><div class="ch-meter"><div class="ch-meter-fill" data-key="t${tIdx}"></div></div></div>
+        <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1" step="0.01" value="${track.vol}"></div>
+        <div class="ch-btn-row">
+          <button class="mini-btn mute ${track.mute?'on':''}" data-a="mute">M</button>
+          <button class="mini-btn solo ${track.solo?'on':''}" data-a="solo">S</button>
+        </div>
+        <div class="ch-fx-row">
+          <button class="mini-btn fx ${track.fxDrive?'on':''}" data-a="drive" title="Drive insert">D</button>
+          <button class="mini-btn fx ${track.fxFilterOn?'on':''}" data-a="filt" title="Filter insert">F</button>
+        </div>
+        <span class="ch-fx-label">VERB SEND</span>
+        <canvas class="ch-verb-knob"></canvas>
+      `;
+      strip.querySelector(".ch-fader").addEventListener("input", (e) => {
+        track.vol = parseFloat(e.target.value);
+      });
+      strip.querySelector('[data-a="mute"]').addEventListener("click", (e) => {
+        track.mute = !track.mute; e.target.classList.toggle("on", track.mute);
+        renderTrackHeaders();
+      });
+      strip.querySelector('[data-a="solo"]').addEventListener("click", (e) => {
+        track.solo = !track.solo; e.target.classList.toggle("on", track.solo);
+        renderTrackHeaders();
+      });
+      strip.querySelector('[data-a="drive"]').addEventListener("click", (e) => {
+        ensureAudio();
+        track.fxDrive = !track.fxDrive; e.target.classList.toggle("on", track.fxDrive);
+        updateTrackInsertFX(track);
+      });
+      strip.querySelector('[data-a="filt"]').addEventListener("click", (e) => {
+        ensureAudio();
+        track.fxFilterOn = !track.fxFilterOn; e.target.classList.toggle("on", track.fxFilterOn);
+        updateTrackInsertFX(track);
+      });
+      bindKnob(strip.querySelector(".ch-verb-knob"), () => track.reverbSend, (v) => {
+        ensureAudio(); track.reverbSend = v; updateTrackInsertFX(track);
+      });
+      mixerViewEl.appendChild(strip);
+    });
+    const masterStrip = document.createElement("div");
+    masterStrip.className = "chstrip master";
+    masterStrip.innerHTML = `
+      <div class="ch-name">MASTER</div>
+      <div class="ch-meter-row"><div class="ch-meter"><div class="ch-meter-fill" data-key="master"></div></div></div>
+      <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1" step="0.01" value="0.9"></div>
+      <span class="ch-fx-label">REVERB WET</span>
+      <canvas class="master-verb-knob"></canvas>
+    `;
+    masterStrip.querySelector(".ch-fader").addEventListener("input", (e) => {
+      if(masterGain) masterGain.gain.setTargetAtTime(parseFloat(e.target.value), ctx.currentTime, 0.01);
+    });
+    bindKnob(masterStrip.querySelector(".master-verb-knob"), () => (reverbWet ? reverbWet.gain.value : 0.9), (v) => {
+      ensureAudio();
+      if(reverbWet) reverbWet.gain.setTargetAtTime(v, ctx.currentTime, 0.01);
+    });
+    mixerViewEl.appendChild(masterStrip);
+    updateMixerMeters();
+  }
+
+  function readPeak(analyser){
+    if(!analyser) return 0;
+    const buf = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(buf);
+    let peak = 0;
+    for(let i=0;i<buf.length;i++){
+      const v = Math.abs(buf[i]-128)/128;
+      if(v > peak) peak = v;
+    }
+    return peak;
+  }
+
+  function updateMixerMeters(){
+    if(!ctx) return;
+    TRACKS.forEach((track, tIdx) => {
+      const key = "t"+tIdx;
+      const raw = readPeak(track.analyser);
+      const held = meterPeaks[key] || 0;
+      const next = raw > held ? raw : held * 0.82; // fast attack, eased decay
+      meterPeaks[key] = next;
+      const el = document.querySelector(`.ch-meter-fill[data-key="${key}"]`);
+      if(el) el.style.height = Math.min(next*140, 100) + "%";
+    });
+    const rawM = readPeak(masterAnalyser);
+    const heldM = meterPeaks["master"] || 0;
+    const nextM = rawM > heldM ? rawM : heldM * 0.82;
+    meterPeaks["master"] = nextM;
+    const elM = document.querySelector('.ch-meter-fill[data-key="master"]');
+    if(elM) elM.style.height = Math.min(nextM*140, 100) + "%";
+  }
+
+  // keep meters animating while the mixer tab is open, even if transport is stopped
+  setInterval(() => {
+    if(document.getElementById("mixerView").classList.contains("active")) updateMixerMeters();
+  }, 40);
+
+  /* =========================================================
+     RESIZE HANDLING
+  ========================================================== */
+  window.addEventListener("resize", () => {
+    if(document.getElementById("editView").classList.contains("active")) renderEditView();
+  });
+
+  /* =========================================================
+     INIT
+  ========================================================== */
+  renderTrackHeaders();
+  renderGrid();
+  renderGraphBars();
+  renderEditView();
+
+  // unlock audio context on first touch (mobile requirement)
+  document.body.addEventListener("touchstart", ensureAudio, {once:true});
+  document.body.addEventListener("mousedown", ensureAudio, {once:true});
+
+})();
+</script>
+</body>
+</html>

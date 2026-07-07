@@ -567,6 +567,10 @@
             <button class="osc-btn" data-edit="fadein">FADE IN</button>
             <button class="osc-btn" data-edit="fadeout">FADE OUT</button>
           </div>
+          <div class="wave-row" id="sampleSliceRow">
+            <button class="osc-btn" id="sliceModeBtn">SLICE MODE</button>
+            <button class="osc-btn" id="sliceClearBtn">CLEAR SLICES</button>
+          </div>
         </div>
         <div class="panel" id="envPanel">
           <div class="panel-title">ADSR Envelope</div>
@@ -750,6 +754,10 @@
     track.sampleLoopStart = 0;
     track.sampleLoopEnd = 1;
     track.sampleLoopOn = false;
+    // manual slice points: sorted normalized 0..1 cut positions into the
+    // buffer. N cut points yield N+1 slices, each becoming its own pad in
+    // the PADS view (MPC-style chop). Empty = the whole sample is one pad.
+    track.sampleSlices = [];
   });
 
   // Returns the step array for the pattern currently selected in the
@@ -801,13 +809,97 @@
         vol:t.vol, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
         delaySend:t.delaySend, cutGroup:t.cutGroup, hold:t.hold, poly:t.poly,
         fxDrive:t.fxDrive, fxDriveAmt:t.fxDriveAmt, fxFilterOn:t.fxFilterOn, fxFilterCutoff:t.fxFilterCutoff,
-        reverbSend:t.reverbSend, arp:t.arp, patterns:t.patterns, autoCutoff:t.autoCutoff
+        reverbSend:t.reverbSend, arp:t.arp, patterns:t.patterns, autoCutoff:t.autoCutoff,
+        sampleName:t.sampleName, sampleLoopStart:t.sampleLoopStart, sampleLoopEnd:t.sampleLoopEnd,
+        sampleLoopOn:t.sampleLoopOn, sampleSlices:t.sampleSlices
       }))
     };
   }
 
   function saveProject(){
     try{ localStorage.setItem(SAVE_KEY, JSON.stringify(serializeProject())); }catch(e){}
+  }
+
+  /* ---- Sample blobs live in IndexedDB, not localStorage ------------
+     An AudioBuffer can't go in JSON, and raw PCM is far too big for
+     localStorage's ~5MB string quota. So the JSON project (loop points,
+     slices, names) stays in localStorage, and the heavy audio is stored
+     per track as a WAV blob in IndexedDB, which handles binary natively
+     and has a much larger quota. ------------------------------------ */
+  const IDB_NAME = "strobe404_samples";
+  const IDB_STORE = "samples";
+  function openSampleDB(){
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore(IDB_STORE); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function saveSampleBlob(idx, blob){
+    try{
+      const db = await openSampleDB();
+      await new Promise((res, rej) => {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).put(blob, idx);
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    }catch(e){}
+  }
+  async function loadSampleBlob(idx){
+    try{
+      const db = await openSampleDB();
+      return await new Promise((res, rej) => {
+        const tx = db.transaction(IDB_STORE, "readonly");
+        const rq = tx.objectStore(IDB_STORE).get(idx);
+        rq.onsuccess = () => res(rq.result || null);
+        rq.onerror = () => rej(rq.error);
+      });
+    }catch(e){ return null; }
+  }
+  async function deleteSampleBlob(idx){
+    try{
+      const db = await openSampleDB();
+      await new Promise((res) => {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).delete(idx);
+        tx.oncomplete = res; tx.onerror = res;
+      });
+    }catch(e){}
+  }
+
+  // Encodes a track's current sample buffer to a WAV blob and stashes it
+  // in IndexedDB (fire-and-forget). Called wherever a new buffer is
+  // created: file import, mic capture, destructive edit.
+  function persistSample(track){
+    const idx = TRACKS.indexOf(track);
+    if(idx < 0 || !track.sampleBuffer) return;
+    try{ saveSampleBlob(idx, audioBufferToWav(track.sampleBuffer)); }catch(e){}
+  }
+
+  // Reloads persisted sample buffers from IndexedDB and reattaches them
+  // to their tracks, honoring the wave choice saved in the JSON project
+  // (so a track that had a sample but was switched back to an oscillator
+  // keeps the buffer available without forcing sample playback).
+  async function restoreSamples(){
+    if(!loadedProjectData) return;
+    let restoredAny = false;
+    for(let i=0;i<TRACKS.length;i++){
+      const blob = await loadSampleBlob(i);
+      if(!blob) continue;
+      ensureAudio(); // only spin up a (suspended) context if there's audio to decode
+      try{
+        const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+        TRACKS[i].sampleBuffer = buf;
+        TRACKS[i].samplePeaks = computeSamplePeaks(buf, 400);
+        const savedWave = loadedProjectData.tracks[i] && loadedProjectData.tracks[i].wave;
+        if(savedWave === "sample") TRACKS[i].wave = "sample";
+        restoredAny = true;
+      }catch(e){}
+    }
+    if(!restoredAny) return;
+    if(document.getElementById("editView").classList.contains("active")) renderEditView();
+    renderPads();
   }
 
   function loadProject(){
@@ -832,7 +924,10 @@
         vol:s.vol, mute:s.mute, solo:s.solo, wave:s.wave, adsr:s.adsr, cutoff:s.cutoff,
         delaySend:s.delaySend, cutGroup:s.cutGroup, hold:s.hold, poly:s.poly,
         fxDrive:s.fxDrive, fxDriveAmt:s.fxDriveAmt, fxFilterOn:s.fxFilterOn, fxFilterCutoff:s.fxFilterCutoff,
-        reverbSend:s.reverbSend, arp:s.arp, patterns:s.patterns, autoCutoff:s.autoCutoff
+        reverbSend:s.reverbSend, arp:s.arp, patterns:s.patterns, autoCutoff:s.autoCutoff,
+        sampleName:s.sampleName || "", sampleLoopStart:s.sampleLoopStart != null ? s.sampleLoopStart : 0,
+        sampleLoopEnd:s.sampleLoopEnd != null ? s.sampleLoopEnd : 1, sampleLoopOn:!!s.sampleLoopOn,
+        sampleSlices:Array.isArray(s.sampleSlices) ? s.sampleSlices : []
       });
       // Sample audio itself isn't persisted (an AudioBuffer isn't JSON,
       // and blob-in-IndexedDB storage is a separate roadmap item), so a
@@ -1362,6 +1457,7 @@
     if(which === "edit") renderEditView();
     if(which === "arrange") renderArrangeView();
     if(which === "mixer") renderMixer();
+    if(which === "pads") renderPads(); // rebuild so slice pads reflect current samples
   }
 
   /* =========================================================
@@ -1675,6 +1771,7 @@
     track.samplePeaks = computeSamplePeaks(buffer, 400);
     if(name != null) track.sampleName = name;
     track.wave = "sample";
+    persistSample(track); // stash the new buffer in IndexedDB for next session
   }
 
   async function importSampleFile(track, file){
@@ -1762,6 +1859,18 @@
       }
       c.stroke();
 
+      // manual slice markers (green dashed), drawn under the trim handles
+      if(track.sampleSlices.length){
+        c.strokeStyle = "#3ddc6a";
+        c.lineWidth = 1;
+        c.setLineDash([4,3]);
+        track.sampleSlices.forEach(s => {
+          const x = s * w;
+          c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke();
+        });
+        c.setLineDash([]);
+      }
+
       // in/out trim handles -- also the loop points when LOOP is on
       [["sampleLoopStart","#4dd8e6"],["sampleLoopEnd","#ff5252"]].forEach(([key,color]) => {
         const x = track[key] * w;
@@ -1792,6 +1901,7 @@
   }
 
   let draggingSampleHandle = null;
+  let sliceMode = false;
   function waveCanvasPointerHandler(e){
     const track = TRACKS[selectedTrackIdx];
     if(track.wave !== "sample" || !track.sampleBuffer) return;
@@ -1799,6 +1909,19 @@
     const px = e.clientX - rect.left;
     const w = waveCanvas.clientWidth;
     const norm = Math.min(Math.max(px / w, 0), 1);
+
+    // SLICE mode: a tap inserts a cut point (or removes a nearby one),
+    // instead of dragging the trim handles.
+    if(sliceMode){
+      if(e.type !== "pointerdown") return;
+      const tol = 0.02;
+      const nearIdx = track.sampleSlices.findIndex(s => Math.abs(s - norm) < tol);
+      if(nearIdx >= 0) track.sampleSlices.splice(nearIdx, 1);
+      else { track.sampleSlices.push(norm); track.sampleSlices.sort((a,b)=>a-b); }
+      drawWaveform();
+      if(document.getElementById("padsView").classList.contains("active")) renderPads();
+      return;
+    }
 
     if(e.type === "pointerdown"){
       const startX = track.sampleLoopStart * w, endX = track.sampleLoopEnd * w;
@@ -1836,6 +1959,18 @@
     const track = TRACKS[selectedTrackIdx];
     track.sampleLoopOn = !track.sampleLoopOn;
     renderEditView();
+  });
+  const sliceModeBtnEl = document.getElementById("sliceModeBtn");
+  const sliceClearBtnEl = document.getElementById("sliceClearBtn");
+  sliceModeBtnEl.addEventListener("click", () => {
+    sliceMode = !sliceMode;
+    sliceModeBtnEl.classList.toggle("active", sliceMode);
+    sliceModeBtnEl.textContent = sliceMode ? "SLICE: TAP WAVE" : "SLICE MODE";
+  });
+  sliceClearBtnEl.addEventListener("click", () => {
+    TRACKS[selectedTrackIdx].sampleSlices = [];
+    drawWaveform();
+    if(document.getElementById("padsView").classList.contains("active")) renderPads();
   });
   document.getElementById("sampleEditRow").addEventListener("click", (e) => {
     const op = e.target.getAttribute("data-edit");
@@ -2046,6 +2181,11 @@
     document.querySelectorAll("#sampleEditRow .osc-btn").forEach(b => {
       b.style.opacity = hasSample ? "1" : "0.4";
     });
+    document.querySelectorAll("#sampleSliceRow .osc-btn").forEach(b => {
+      b.style.opacity = hasSample ? "1" : "0.4";
+    });
+    sliceModeBtnEl.classList.toggle("active", sliceMode);
+    sliceModeBtnEl.textContent = sliceMode ? "SLICE: TAP WAVE" : "SLICE MODE";
     bindKnob(cutoffKnobCanvas, () => track.cutoff, (v) => {
       track.cutoff = v;
       // "Live record" automation: while the transport is rolling, every
@@ -2399,7 +2539,7 @@
      on pointerdown and only the release fires on pointerup, driven by
      touch Y-position as a velocity proxy (no pressure API on the web).
   ========================================================== */
-  function triggerPadOn(engine, track, trackIdx, time, vel){
+  function triggerPadOn(engine, track, trackIdx, time, vel, sliceRegion){
     const ectx = engine.ctx;
     const env = ectx.createGain();
     env.gain.setValueAtTime(0, time);
@@ -2420,10 +2560,14 @@
       src = ectx.createBufferSource();
       src.buffer = track.sampleBuffer;
       const totalDur = track.sampleBuffer.duration;
-      const inPoint = track.sampleLoopStart * totalDur;
-      const outPoint = Math.max(track.sampleLoopEnd * totalDur, inPoint + 0.01);
+      // a slice pad plays its own [start,end] chop; a plain sample pad
+      // uses the track's global trim/loop region.
+      const startN = sliceRegion ? sliceRegion.start : track.sampleLoopStart;
+      const endN = sliceRegion ? sliceRegion.end : track.sampleLoopEnd;
+      const inPoint = startN * totalDur;
+      const outPoint = Math.max(endN * totalDur, inPoint + 0.01);
       startOffset = inPoint;
-      src.loop = true; // held pad: sustain across the trimmed region until release() stops it
+      src.loop = true; // held pad: sustain across the region until release() stops it
       src.loopStart = inPoint;
       src.loopEnd = outPoint;
     } else if(track.wave === "noise" || track.wave === "noise-hp"){
@@ -2500,28 +2644,56 @@
     activePads.delete(e.pointerId);
   }
 
+  // Turns the sorted cut points into [start,end] slice regions covering
+  // the whole buffer (N cuts -> N+1 slices).
+  function sliceRegionsFor(track){
+    const cuts = [0, ...track.sampleSlices, 1];
+    const regions = [];
+    for(let i=0;i<cuts.length-1;i++){
+      if(cuts[i+1] - cuts[i] > 0.001) regions.push({start:cuts[i], end:cuts[i+1]});
+    }
+    return regions;
+  }
+
+  function wirePad(pad, track, idx, sliceRegion){
+    pad.addEventListener("pointerdown", (e) => {
+      ensureAudio();
+      try{ pad.setPointerCapture(e.pointerId); }catch(err){}
+      const rect = pad.getBoundingClientRect();
+      const relY = (e.clientY - rect.top) / rect.height;
+      const vel = Math.min(Math.max(1 - relY*0.7, 0.3), 1);
+      const handle = triggerPadOn(liveEngine, track, idx, ctx.currentTime + 0.003, vel, sliceRegion);
+      activePads.set(e.pointerId, {padEl: pad, handle});
+      pad.classList.add("hit");
+      if(navigator.vibrate) navigator.vibrate(10);
+    });
+    pad.addEventListener("pointerup", releasePad);
+    pad.addEventListener("pointercancel", releasePad);
+  }
+
   function renderPads(){
     padsViewEl.innerHTML = "";
     const grid = document.createElement("div");
     grid.className = "pad-grid";
     TRACKS.forEach((track, idx) => {
-      const pad = document.createElement("div");
-      pad.className = "pad";
-      pad.innerHTML = `<div class="pad-name">${track.name}</div><div class="pad-type">${track.type}</div>`;
-      pad.addEventListener("pointerdown", (e) => {
-        ensureAudio();
-        try{ pad.setPointerCapture(e.pointerId); }catch(err){}
-        const rect = pad.getBoundingClientRect();
-        const relY = (e.clientY - rect.top) / rect.height;
-        const vel = Math.min(Math.max(1 - relY*0.7, 0.3), 1);
-        const handle = triggerPadOn(liveEngine, track, idx, ctx.currentTime + 0.003, vel);
-        activePads.set(e.pointerId, {padEl: pad, handle});
-        pad.classList.add("hit");
-        if(navigator.vibrate) navigator.vibrate(10);
-      });
-      pad.addEventListener("pointerup", releasePad);
-      pad.addEventListener("pointercancel", releasePad);
-      grid.appendChild(pad);
+      // A sliced sample track fans out into one pad per chop; every other
+      // track (synth, or an unsliced sample) stays a single pad.
+      const isSliced = track.wave === "sample" && track.sampleBuffer && track.sampleSlices.length > 0;
+      if(isSliced){
+        sliceRegionsFor(track).forEach((region, sIdx) => {
+          const pad = document.createElement("div");
+          pad.className = "pad";
+          pad.innerHTML = `<div class="pad-name">${track.name} ${sIdx+1}</div><div class="pad-type">slice</div>`;
+          wirePad(pad, track, idx, region);
+          grid.appendChild(pad);
+        });
+      } else {
+        const pad = document.createElement("div");
+        pad.className = "pad";
+        pad.innerHTML = `<div class="pad-name">${track.name}</div><div class="pad-type">${track.type}</div>`;
+        wirePad(pad, track, idx, null);
+        grid.appendChild(pad);
+      }
     });
     padsViewEl.appendChild(grid);
   }
@@ -2655,6 +2827,9 @@
   setInterval(saveProject, 4000);
   document.addEventListener("visibilitychange", () => { if(document.visibilityState === "hidden") saveProject(); });
   window.addEventListener("pagehide", saveProject);
+
+  // pull any persisted sample buffers back out of IndexedDB (async)
+  restoreSamples();
 
   // unlock audio context on first touch (mobile requirement)
   document.body.addEventListener("touchstart", ensureAudio, {once:true});

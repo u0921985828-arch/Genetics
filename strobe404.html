@@ -236,6 +236,13 @@
 
   /* ===================== PLAYLIST ===================== */
   #arrangeView{flex-direction:column; background:var(--bg-soft);}
+  #arrangeTools{flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg); border-bottom:var(--bw) solid var(--ink); overflow-x:auto;}
+  #arrangeTools::-webkit-scrollbar{display:none;}
+  .pl-lbl{font-size:9px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; color:var(--text-lo); flex:0 0 auto;}
+  .pl-pats{display:flex; gap:4px; flex:0 0 auto;}
+  .pl-pats button{-webkit-appearance:none; appearance:none; cursor:pointer; width:30px; height:28px; font-size:11px; font-weight:800; color:var(--ink); background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r);}
+  .pl-pats button.active{color:var(--tci,var(--ink));}
+  #plClearBtn{padding:6px 10px;}
   .arrangeTop{flex:1; min-height:0; display:flex;}
   #arrangeHeaders{flex:0 0 130px; background:var(--bg); border-right:var(--bw) solid var(--ink); overflow-y:auto; touch-action:pan-y;}
   .arrange-header{height:52px; border-bottom:var(--bw) solid var(--ink); display:flex; flex-direction:column; justify-content:center; gap:2px; padding:5px 7px 5px 14px; position:relative;}
@@ -564,6 +571,17 @@
     </div>
 
     <div id="arrangeView" class="view active">
+      <div id="arrangeTools">
+        <span class="pl-lbl">Tool</span>
+        <div class="seg" id="plToolSeg">
+          <button data-tool="paint" class="active">Paint</button>
+          <button data-tool="erase">Erase</button>
+        </div>
+        <span class="pl-lbl">Pattern</span>
+        <div class="pl-pats" id="plPatPicker"></div>
+        <div class="t-spacer"></div>
+        <button id="plClearBtn" class="menu-btn">Clear all</button>
+      </div>
       <div class="arrangeTop">
         <div id="arrangeHeaders"></div>
         <div id="arrangeScroll">
@@ -3178,8 +3196,10 @@
       cell.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         pushUndo();
-        songArrangement[b] = ((songArrangement[b] || 0) + 1) % (PATTERN_COUNT + 1);
-        plPaintValue = songArrangement[b];
+        // Paint tool stamps the picked pattern; Erase clears the bar.
+        const v = (plTool === "erase") ? 0 : plPaintPattern;
+        songArrangement[b] = v;
+        plPaintValue = v;
         plPainting = true;
         renderArrangeLanes();
       });
@@ -3232,12 +3252,36 @@
 
   function renderArrangeView(){
     songLenDisplayEl.textContent = songBars;
+    renderPlPatPicker();
     renderArrangeHeaders();
     renderArrangeRuler();
     renderArrangeLanes();
   }
 
-  /* ---- playlist paint: drag across bars to stamp the same pattern ---- */
+  /* ---- playlist tools: paint/erase + pattern picker + clear ---- */
+  let plTool = "paint", plPaintPattern = 1;
+  const plPatPickerEl = document.getElementById("plPatPicker");
+  function renderPlPatPicker(){
+    plPatPickerEl.innerHTML = "";
+    for(let p=1;p<=PATTERN_COUNT;p++){
+      const b = document.createElement("button");
+      b.textContent = "P" + p;
+      const pc = PATTERN_COLORS[(p-1) % PATTERN_COLORS.length];
+      if(p === plPaintPattern){ b.classList.add("active"); b.style.background = pc; b.style.setProperty("--tci", inkFor(pc)); b.style.borderColor = "var(--ink)"; }
+      b.addEventListener("click", () => { plPaintPattern = p; plTool = "paint"; syncPlToolUI(); });
+      plPatPickerEl.appendChild(b);
+    }
+  }
+  function syncPlToolUI(){
+    document.querySelectorAll("#plToolSeg button").forEach(x => x.classList.toggle("active", x.dataset.tool === plTool));
+    renderPlPatPicker();
+  }
+  document.querySelectorAll("#plToolSeg button").forEach(x => x.addEventListener("click", () => { plTool = x.dataset.tool; syncPlToolUI(); }));
+  document.getElementById("plClearBtn").addEventListener("click", () => {
+    if(!confirm("Clear the whole playlist?")) return;
+    pushUndo(); songArrangement.fill(0); renderArrangeLanes();
+  });
+
   let plPainting = false, plPaintValue = 0;
   document.addEventListener("pointermove", (e) => {
     if(!plPainting) return;

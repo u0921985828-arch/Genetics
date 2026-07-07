@@ -92,6 +92,10 @@
     width:40px; height:40px; font-size:16px; display:flex; align-items:center; justify-content:center; flex:0 0 auto;
   }
   .icon-btn:active{background:var(--ink); color:#fff;}
+  .icon-btn.active{background:var(--orange); color:var(--ink);}
+  .icon-btn:disabled{opacity:.32; cursor:default;}
+  .icon-btn:disabled:active{background:var(--bg); color:var(--ink);}
+  .undo-group{display:flex; gap:5px; flex:0 0 auto;}
   .t-spacer{flex:1; min-width:0;}
 
   /* ===================== MENU SHEET ===================== */
@@ -328,6 +332,13 @@
   <div id="toolbar">
     <button id="menuBtn" class="icon-btn" aria-label="menu">&#9776;</button>
     <button id="playBtn" aria-label="play">&#9658;</button>
+    <button id="metroBtn" class="icon-btn" aria-label="metronome" title="Metronome / count-in">&#9201;</button>
+
+    <div class="tb-div"></div>
+    <div class="undo-group">
+      <button id="undoBtn" class="icon-btn" aria-label="undo" title="Undo" disabled>&#8630;</button>
+      <button id="redoBtn" class="icon-btn" aria-label="redo" title="Redo" disabled>&#8631;</button>
+    </div>
 
     <div class="t-group">
       <div class="t-readout"><span class="val" id="bpmDisplay">120</span><span class="cap">bpm</span></div>
@@ -889,14 +900,12 @@
     renderPads();
   }
 
-  function loadProject(){
-    let raw;
-    try{ raw = localStorage.getItem(SAVE_KEY); }catch(e){ return false; }
-    if(!raw) return false;
-    let data;
-    try{ data = JSON.parse(raw); }catch(e){ return false; }
+  // Restores every editable field from a serialized project object. Used
+  // by both localStorage load and the undo/redo history (which snapshot
+  // and re-apply this same shape). Does NOT re-render or touch audio --
+  // callers do that via refreshAllFromState().
+  function applyProjectData(data){
     if(!data || data.v !== 1 || !Array.isArray(data.tracks) || data.tracks.length !== TRACKS.length) return false;
-
     bpm = data.bpm || 120;
     songBars = data.songBars || 8;
     songArrangement = Array.isArray(data.songArrangement) ? data.songArrangement : new Array(songBars).fill(1);
@@ -917,14 +926,86 @@
         sampleSlices:Array.isArray(s.sampleSlices) ? s.sampleSlices : [],
         duckSource:(s.duckSource != null ? s.duckSource : null), duckAmount:(s.duckAmount != null ? s.duckAmount : 0.7)
       });
-      // Sample audio itself isn't persisted (an AudioBuffer isn't JSON,
-      // and blob-in-IndexedDB storage is a separate roadmap item), so a
-      // restored "sample" track has no buffer -- fall back to a real
-      // oscillator instead of leaving the UI pointing at a phantom sample.
+      // Sample audio isn't part of the JSON; a "sample" track whose buffer
+      // is gone falls back to an oscillator instead of a phantom sample.
       if(t.wave === "sample" && !t.sampleBuffer) t.wave = "sine";
     });
+    return true;
+  }
+
+  function loadProject(){
+    let raw;
+    try{ raw = localStorage.getItem(SAVE_KEY); }catch(e){ return false; }
+    if(!raw) return false;
+    let data;
+    try{ data = JSON.parse(raw); }catch(e){ return false; }
+    if(!applyProjectData(data)) return false;
     loadedProjectData = data;
     return true;
+  }
+
+  /* =========================================================
+     UNDO / REDO -- snapshot history of the whole project JSON.
+     Discrete edits call pushUndo() just before mutating; undo/redo
+     re-apply a snapshot and refresh every view + audio param.
+  ========================================================== */
+  const undoStack = [], redoStack = [];
+  const UNDO_MAX = 80;
+  function snapshotJSON(){ try{ return JSON.stringify(serializeProject()); }catch(e){ return null; } }
+  function pushUndo(){
+    const snap = snapshotJSON();
+    if(snap == null) return;
+    if(undoStack.length && undoStack[undoStack.length-1] === snap) return; // no-op edits
+    undoStack.push(snap);
+    if(undoStack.length > UNDO_MAX) undoStack.shift();
+    redoStack.length = 0;
+    refreshUndoButtons();
+  }
+  function applySnapshot(json){
+    let data; try{ data = JSON.parse(json); }catch(e){ return; }
+    applyProjectData(data);
+    refreshAllFromState();
+  }
+  function doUndo(){
+    if(!undoStack.length) return;
+    const cur = snapshotJSON();
+    if(cur != null) redoStack.push(cur);
+    applySnapshot(undoStack.pop());
+    refreshUndoButtons();
+  }
+  function doRedo(){
+    if(!redoStack.length) return;
+    const cur = snapshotJSON();
+    if(cur != null) undoStack.push(cur);
+    applySnapshot(redoStack.pop());
+    refreshUndoButtons();
+  }
+  function refreshUndoButtons(){
+    const u = document.getElementById("undoBtn"), r = document.getElementById("redoBtn");
+    if(u) u.disabled = !undoStack.length;
+    if(r) r.disabled = !redoStack.length;
+  }
+
+  // Re-render every view and re-push audio-graph parameters from the
+  // current state -- called after an undo/redo restore.
+  function refreshAllFromState(){
+    if(liveEngine){
+      TRACKS.forEach((t, i) => updateTrackInsertFX(liveEngine, t, i));
+      applyCompressorState(liveEngine);
+      applySideChain(liveEngine);
+      updateDelayTime();
+    }
+    renderTrackHeaders(); renderGrid(); renderGraphBars(); renderEditView();
+    renderArrangeView(); renderBrowser();
+    if(document.getElementById("mixerView").classList.contains("active")) renderMixer();
+    if(document.getElementById("padsView").classList.contains("active")) renderPads();
+    if(document.getElementById("pianoRollOverlay").classList.contains("open")) renderPianoRoll();
+    setPattern(currentPattern);
+    setSongMode(songMode);
+    if(typeof songLenDisplayEl !== "undefined" && songLenDisplayEl) songLenDisplayEl.textContent = songBars;
+    if(typeof swingRangeEl !== "undefined" && swingRangeEl) swingRangeEl.value = swingAmount * 100;
+    document.getElementById("bpmDisplay").textContent = bpm;
+    refreshCompMenuBtn && refreshCompMenuBtn();
   }
 
   loadProject();
@@ -1622,6 +1703,17 @@
   });
   refreshCompMenuBtn();
 
+  /* ---- undo / redo wiring (buttons + Ctrl/Cmd+Z / Ctrl+Y) ---- */
+  document.getElementById("undoBtn").addEventListener("click", doUndo);
+  document.getElementById("redoBtn").addEventListener("click", doRedo);
+  window.addEventListener("keydown", (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    if(!mod) return;
+    const k = e.key.toLowerCase();
+    if(k === "z" && !e.shiftKey){ e.preventDefault(); doUndo(); }
+    else if((k === "z" && e.shiftKey) || k === "y"){ e.preventDefault(); doRedo(); }
+  });
+
   /* =========================================================
      UI: TRACK HEADERS + STEP GRID
   ========================================================== */
@@ -1647,9 +1739,10 @@
       `;
       row.addEventListener("click", (e) => {
         const action = e.target.getAttribute("data-action");
-        if(action === "mute"){ track.mute = !track.mute; renderTrackHeaders(); }
-        else if(action === "solo"){ track.solo = !track.solo; renderTrackHeaders(); }
+        if(action === "mute"){ pushUndo(); track.mute = !track.mute; renderTrackHeaders(); }
+        else if(action === "solo"){ pushUndo(); track.solo = !track.solo; renderTrackHeaders(); }
         else if(action === "vol"){
+          pushUndo();
           const rect = e.target.getBoundingClientRect();
           track.vol = Math.min(Math.max((e.clientX - rect.left)/rect.width,0),1);
           renderTrackHeaders();
@@ -1673,6 +1766,7 @@
 
   /* ---- Fill / Clear long-press menu ---- */
   function fillSteps(trackIdx, mode){
+    pushUndo();
     const track = TRACKS[trackIdx];
     curSteps(track).forEach((st,i) => {
       if(mode === "all") st.on = true;
@@ -1731,6 +1825,7 @@
           cell.dataset.step = stepIdx;
           cell.addEventListener("click", () => {
             ensureAudio();
+            pushUndo();
             stepData.on = !stepData.on;
             if(stepData.on) triggerTrack(liveEngine, track, tIdx, ctx.currentTime + 0.01, stepData);
             renderGrid();
@@ -1825,11 +1920,13 @@
       bar.addEventListener("pointerdown", (e) => {
         const now = Date.now();
         if(graphTab === "cut" && now - lastTap < 320){
+          pushUndo();
           track.autoCutoff[currentPattern][idx] = null;
           renderGraphBars();
           return;
         }
         lastTap = now;
+        pushUndo();
         graphDragging = {track, idx, stepData, barEl:bar, fillEl:fill};
         updateGraphDrag(e);
       });
@@ -1892,7 +1989,7 @@
       const b = document.createElement("div");
       b.className = "osc-btn" + (track.wave===w ? " active" : "");
       b.textContent = w.toUpperCase();
-      b.addEventListener("click", () => { track.wave = w; renderEditView(); });
+      b.addEventListener("click", () => { pushUndo(); track.wave = w; renderEditView(); });
       oscRow.appendChild(b);
     });
   }
@@ -1966,6 +2063,7 @@
 
   function editSample(track, op){
     if(!track.sampleBuffer) return;
+    pushUndo();
     const buf = track.sampleBuffer;
     const len = buf.length;
     let result;
@@ -2489,7 +2587,7 @@
       const isActive = (g==="-" ? !track.cutGroup : track.cutGroup===g);
       b.className = "osc-btn" + (isActive ? " active" : "");
       b.textContent = g;
-      b.addEventListener("click", () => { track.cutGroup = (g==="-") ? null : g; renderEditView(); });
+      b.addEventListener("click", () => { pushUndo(); track.cutGroup = (g==="-") ? null : g; renderEditView(); });
       cutGroupRowEl.appendChild(b);
     });
   }
@@ -2528,7 +2626,7 @@
     bindKnob(holdKnobCanvas, () => track.hold, (v) => { track.hold = v; });
     polyToggleEl.classList.toggle("active", track.poly);
     polyToggleEl.textContent = track.poly ? "POLY" : "MONO";
-    polyToggleEl.onclick = () => { track.poly = !track.poly; renderEditView(); };
+    polyToggleEl.onclick = () => { pushUndo(); track.poly = !track.poly; renderEditView(); };
     renderCutGroupRow(track);
 
     // Arpeggiator (FUNC-panel style): direction cycles UP/DOWN/UP-DOWN,
@@ -2536,7 +2634,7 @@
     // Delay/LFO sync selectors up in the transport.
     arpToggleEl.classList.toggle("active", track.arp.on);
     arpToggleEl.textContent = track.arp.on ? "ARP ON" : "ARP OFF";
-    arpToggleEl.onclick = () => { track.arp.on = !track.arp.on; renderEditView(); };
+    arpToggleEl.onclick = () => { pushUndo(); track.arp.on = !track.arp.on; renderEditView(); };
     arpDirBtnEl.textContent = track.arp.dir.toUpperCase();
     arpDirBtnEl.onclick = () => {
       const order = ["up","down","updown"];
@@ -2639,6 +2737,7 @@
       if(patNum){ const pc = PATTERN_COLORS[(patNum-1) % PATTERN_COLORS.length]; clip.style.setProperty("--tc", pc); clip.style.setProperty("--tci", inkFor(pc)); }
       clip.textContent = patNum ? ("P" + patNum) : "";
       clip.addEventListener("click", () => {
+        pushUndo();
         songArrangement[b] = ((songArrangement[b] || 0) + 1) % (PATTERN_COUNT + 1);
         renderArrangeLanes();
       });
@@ -2754,6 +2853,7 @@
         }
         cell.addEventListener("click", () => {
           ensureAudio();
+          pushUndo();
           if(stepData.on && (stepData.pitch||0) === semi){
             stepData.on = false; // tap the same note again to clear it
           } else {
@@ -2804,21 +2904,21 @@
         track.vol = parseFloat(e.target.value);
       });
       strip.querySelector('[data-a="mute"]').addEventListener("click", (e) => {
-        track.mute = !track.mute; e.target.classList.toggle("on", track.mute);
+        pushUndo(); track.mute = !track.mute; e.target.classList.toggle("on", track.mute);
         renderTrackHeaders();
       });
       strip.querySelector('[data-a="solo"]').addEventListener("click", (e) => {
-        track.solo = !track.solo; e.target.classList.toggle("on", track.solo);
+        pushUndo(); track.solo = !track.solo; e.target.classList.toggle("on", track.solo);
         renderTrackHeaders();
       });
       strip.querySelector('[data-a="drive"]').addEventListener("click", (e) => {
         ensureAudio();
-        track.fxDrive = !track.fxDrive; e.target.classList.toggle("on", track.fxDrive);
+        pushUndo(); track.fxDrive = !track.fxDrive; e.target.classList.toggle("on", track.fxDrive);
         updateTrackInsertFX(liveEngine, track, tIdx);
       });
       strip.querySelector('[data-a="filt"]').addEventListener("click", (e) => {
         ensureAudio();
-        track.fxFilterOn = !track.fxFilterOn; e.target.classList.toggle("on", track.fxFilterOn);
+        pushUndo(); track.fxFilterOn = !track.fxFilterOn; e.target.classList.toggle("on", track.fxFilterOn);
         updateTrackInsertFX(liveEngine, track, tIdx);
       });
       bindKnob(strip.querySelector(".ch-verb-knob"), () => track.reverbSend, (v) => {

@@ -1911,11 +1911,13 @@
   /* ---- Projects "Files" tab: a folder tree of saved projects ---- */
   function projPathParts(path){ return (path || "").split("/").map(s => s.trim()).filter(Boolean); }
   async function renderProjectsBrowser(){
-    // top actions
+    // top actions: save current + import
     const actions = document.createElement("div"); actions.className = "br-actions";
-    const saveBtn = document.createElement("button"); saveBtn.className = "br-load"; saveBtn.style.marginLeft = "0"; saveBtn.textContent = "+ SAVE CURRENT";
+    const saveBtn = document.createElement("button"); saveBtn.className = "br-load"; saveBtn.textContent = "+ SAVE";
     saveBtn.addEventListener("click", saveCurrentProjectPrompt);
-    actions.appendChild(saveBtn);
+    const impBtn = document.createElement("button"); impBtn.className = "br-load"; impBtn.textContent = "IMPORT";
+    impBtn.addEventListener("click", () => projImportInput.click());
+    actions.appendChild(saveBtn); actions.appendChild(impBtn);
     browserBodyEl.appendChild(actions);
 
     const entries = await listProjectEntries();
@@ -1937,13 +1939,72 @@
         it.innerHTML = `<span class="dot" style="background:var(--orange)"></span><span>${en.name}</span>`;
         const open = document.createElement("button"); open.className = "br-load"; open.textContent = "OPEN";
         open.addEventListener("click", (e) => { e.stopPropagation(); openProjectEntry(en); });
-        const del = document.createElement("button"); del.className = "br-load"; del.style.color = "var(--c-red)"; del.style.marginLeft = "5px"; del.innerHTML = "&#10005;";
-        del.addEventListener("click", async (e) => { e.stopPropagation(); if(confirm("Delete project \"" + en.name + "\"?")){ await deleteProjectEntry(en.key); renderBrowser(); } });
-        it.appendChild(open); it.appendChild(del);
+        const more = document.createElement("button"); more.className = "br-load"; more.style.marginLeft = "5px"; more.innerHTML = "&#8942;";
+        more.addEventListener("click", (e) => { e.stopPropagation(); showProjectMenu(more, en); });
+        it.appendChild(open); it.appendChild(more);
         browserBodyEl.appendChild(it);
       });
     });
   }
+
+  /* ---- per-project menu: rename / move / export / delete ---- */
+  function showProjectMenu(anchorEl, en){
+    closeFillMenu();
+    const rect = anchorEl.getBoundingClientRect();
+    fillMenuEl = document.createElement("div"); fillMenuEl.className = "fill-menu";
+    fillMenuEl.style.top = (rect.bottom + 4) + "px";
+    fillMenuEl.style.left = Math.max(4, rect.left - 90) + "px";
+    fillMenuEl.innerHTML = `
+      <button data-a="rename">Rename</button>
+      <button data-a="move">Move to folder</button>
+      <button data-a="export">Export .json</button>
+      <button data-a="delete">Delete</button>`;
+    fillMenuEl.addEventListener("click", async (e) => {
+      const a = e.target.getAttribute("data-a"); if(!a) return; closeFillMenu();
+      if(a === "rename"){
+        const n = prompt("New name:", en.name);
+        if(n && n.trim()){ await saveProjectEntry({key:en.key, name:n.trim(), path:en.path, data:en.data, samples:en.samples, updatedAt:Date.now()}); renderBrowser(); }
+      } else if(a === "move"){
+        const pth = prompt("Move to folder path:", en.path);
+        if(pth != null){ await saveProjectEntry({key:en.key, name:en.name, path:pth.trim(), data:en.data, samples:en.samples, updatedAt:Date.now()}); renderBrowser(); }
+      } else if(a === "export"){
+        await exportProjectEntry(en);
+      } else if(a === "delete"){
+        if(confirm("Delete project \"" + en.name + "\"?")){ await deleteProjectEntry(en.key); renderBrowser(); }
+      }
+    });
+    document.body.appendChild(fillMenuEl);
+    setTimeout(() => document.addEventListener("pointerdown", outsideFillMenuHandler, true), 0);
+  }
+
+  function blobToDataURL(blob){ return new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); }); }
+  function downloadBlob(blob, filename){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+  async function exportProjectEntry(en){
+    const samples = {};
+    for(const k of Object.keys(en.samples || {})){ try{ samples[k] = await blobToDataURL(en.samples[k]); }catch(e){} }
+    const payload = { v:1, strobe:"project", name:en.name, path:en.path, data:en.data, samples };
+    downloadBlob(new Blob([JSON.stringify(payload)], {type:"application/json"}),
+      (en.name || "project").replace(/[^\w-]+/g, "_") + ".strobe.json");
+  }
+  async function importProjectFile(file){
+    try{
+      const payload = JSON.parse(await file.text());
+      if(!payload || !payload.data) throw new Error("not a Strobe project");
+      const samples = {};
+      for(const k of Object.keys(payload.samples || {})){ try{ samples[k] = await (await fetch(payload.samples[k])).blob(); }catch(e){} }
+      await saveProjectEntry({ name:payload.name || "Imported", path:payload.path || "", data:payload.data, samples, updatedAt:Date.now() });
+      renderBrowser();
+    }catch(err){ alert("Import failed: " + err.message); }
+  }
+  const projImportInput = document.createElement("input");
+  projImportInput.type = "file"; projImportInput.accept = ".json,application/json"; projImportInput.style.display = "none";
+  projImportInput.addEventListener("change", () => { const f = projImportInput.files[0]; projImportInput.value = ""; if(f) importProjectFile(f); });
+  document.body.appendChild(projImportInput);
   async function saveCurrentProjectPrompt(){
     const name = prompt("Project name:", "My Project");
     if(name == null || !name.trim()) return;

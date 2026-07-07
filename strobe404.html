@@ -174,7 +174,7 @@
   .track-name{font-weight:800; font-size:12px; color:var(--ink); text-transform:uppercase; letter-spacing:.3px;}
   .hold-hint{color:var(--text-lo); font-size:13px;}
   .track-controls{display:flex; gap:5px; align-items:center;}
-  .mini-btn{width:22px; height:19px; cursor:pointer; background:var(--bg); color:var(--ink); font-size:9px; font-weight:800; border:var(--bw) solid var(--ink); border-radius:var(--r); display:flex; align-items:center; justify-content:center;}
+  .mini-btn{width:27px; height:24px; cursor:pointer; background:var(--bg); color:var(--ink); font-size:10px; font-weight:800; border:var(--bw) solid var(--ink); border-radius:var(--r); display:flex; align-items:center; justify-content:center;}
   .mini-btn:active{background:var(--ink); color:#fff;}
   .mini-btn.mute.on{background:var(--c-red); color:var(--ink);}
   .mini-btn.solo.on{background:var(--c-yellow); color:var(--ink);}
@@ -218,7 +218,7 @@
   .track-chip.active{background:var(--tc,var(--c-cyan)); color:var(--tci,var(--ink));}
   .track-chip.active::before{background:var(--bg);}
   .edit-panels{flex:1; min-height:0; display:flex; gap:10px; overflow-x:auto; padding:8px 10px 12px; touch-action:pan-x pan-y;}
-  .panel{background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); padding:10px; display:flex; flex-direction:column; gap:9px; flex:0 0 auto; width:240px;}
+  .panel{background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); padding:10px; display:flex; flex-direction:column; gap:9px; flex:0 0 auto; width:240px; overflow-y:auto; overflow-x:hidden; touch-action:pan-y; align-self:stretch;}
   #wavePanel{width:290px;}
   .panel-title{font-size:11px; letter-spacing:.6px; color:var(--ink); text-transform:uppercase; font-weight:800; padding-bottom:7px; border-bottom:var(--bw) solid var(--ink);}
   #wavePanel canvas, #envPanel canvas{width:100%; height:150px; background:var(--bg-soft); border:var(--bw) solid var(--ink); touch-action:none;}
@@ -3476,6 +3476,19 @@
   document.body.appendChild(plAudioInput);
   plAudioInput.addEventListener("change", () => { const f = plAudioInput.files[0]; plAudioInput.value = ""; if(f) addAudioClipFromFile(f, 0); });
   document.getElementById("plAddAudioBtn").addEventListener("click", () => plAudioInput.click());
+
+  // Rack: the header column and the step grid are separate scroll
+  // containers, so keep their vertical scroll locked together (either can
+  // be dragged) — otherwise the lower tracks' headers and steps desync
+  // and become effectively unreachable on a phone.
+  (function(){
+    const gs = document.getElementById("gridScroll");
+    const th = document.getElementById("trackHeaders");
+    if(!gs || !th) return;
+    let lock = false;
+    gs.addEventListener("scroll", () => { if(lock) return; lock = true; th.scrollTop = gs.scrollTop; lock = false; });
+    th.addEventListener("scroll", () => { if(lock) return; lock = true; gs.scrollTop = th.scrollTop; lock = false; });
+  })();
 
   const arrangeScrollDropEl = document.getElementById("arrangeScroll");
   // keep the fixed track-header column vertically in sync with the lanes

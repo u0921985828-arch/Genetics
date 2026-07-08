@@ -2281,7 +2281,14 @@
       const g = engine.ctx.createGain();
       g.gain.value = c.gain != null ? c.gain : 1;
       src.connect(g); g.connect(engine.masterGain);
+      // clip length (durationBars) can be shorter than the sample (trim) or
+      // longer (loop) than its natural length -- honour it on playback.
+      const barSec = barSeconds();
+      const clipSec = Math.max(0.01, (c.durationBars || 1) * barSec);
+      const natural = c.buffer.duration;
+      if(clipSec > natural + 0.001) src.loop = true;   // longer than the sample -> loop to fill
       src.start(time);
+      if(clipSec < natural - 0.001 || src.loop) src.stop(time + clipSec);  // trim / cap the loop
     });
   }
 
@@ -3996,9 +4003,12 @@
     label.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="width:11px;height:11px;vertical-align:-1px;margin-right:3px"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9a4 4 0 0 1 0 6"/></svg>';
     label.appendChild(document.createTextNode(c.name));
     el.appendChild(label);
+    const handle = document.createElement("div"); handle.className = "pl-clip-handle";
+    el.appendChild(handle);
     // draw peaks next frame (needs layout for pixel width)
     requestAnimationFrame(() => drawClipWave(wave, c.buffer, w));
     el.addEventListener("pointerdown", (e) => onClipPointerDown(e, c, "move"));
+    handle.addEventListener("pointerdown", (e) => onClipPointerDown(e, c, "resize"));
     return el;
   }
   function drawClipWave(canvas, buffer, w){
@@ -4167,7 +4177,6 @@
       return;
     }
     // audio clips can't be resized (length is tied to the buffer)
-    if(mode === "resize" && !clip.pat) mode = "move";
     pushUndo();
     plDrag = { mode, clip, moved:false, isNew:false };
     // if this clip is part of a multi-selection, move the whole group together

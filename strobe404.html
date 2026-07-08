@@ -262,12 +262,18 @@
   .arrange-inner{position:relative; min-width:max-content;}
   .arrange-ruler{height:22px; display:flex; border-bottom:var(--bw) solid var(--ink); position:sticky; top:0; background:var(--bg); z-index:2;}
   .ruler-bar{flex:0 0 var(--bar-w); border-right:1px solid var(--ink); font-size:9px; color:var(--ink); padding-left:5px; display:flex; align-items:center; font-weight:800; text-transform:uppercase;}
-  .arrange-lane{height:52px; border-bottom:1px solid var(--hair); display:flex; position:relative;}
-  .arrange-cell{flex:0 0 var(--bar-w); border-right:1px solid var(--hair-2); position:relative; cursor:pointer;}
-  /* empty cells stay blank; active clips are flush so a run reads as one band */
-  .arrange-clip{position:absolute; top:4px; bottom:4px; left:0; right:0; display:flex; align-items:center; padding:0 8px; font-size:10px; color:var(--text-lo); font-weight:800; text-transform:uppercase; letter-spacing:.4px;}
-  .arrange-clip.active{background:var(--tc,var(--grey)); color:var(--tci,#fff);}
-  .arrange-clip.active.playing-bar{outline:2px solid var(--orange); outline-offset:-2px;}
+  /* FL-style playlist: generic lanes with freely-placed absolute clips */
+  .arrange-lane{height:52px; border-bottom:1px solid var(--hair); position:relative; box-sizing:border-box;}
+  .pl-lane{background-image:repeating-linear-gradient(90deg, transparent 0 calc(var(--bar-w) - 1px), var(--hair-2) calc(var(--bar-w) - 1px) var(--bar-w));}
+  .pl-clip{position:absolute; top:3px; bottom:3px; box-sizing:border-box; border:1px solid var(--ink); display:flex; align-items:center; padding:0 7px; overflow:hidden; cursor:grab; touch-action:none;}
+  .pl-clip:active{cursor:grabbing;}
+  .pat-clip{background:var(--tc,var(--grey)); color:var(--tci,#fff);}
+  .audio-pl-clip{background:var(--bg);}
+  .pl-clip-name{font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none; position:relative; z-index:2;}
+  .audio-pl-clip .pl-clip-name{color:var(--ink);}
+  .pl-clip-wave{position:absolute; left:0; top:3px; pointer-events:none; z-index:1;}
+  .pl-clip-handle{position:absolute; right:0; top:0; bottom:0; width:9px; background:rgba(0,0,0,.28); cursor:ew-resize; touch-action:none; z-index:3;}
+  .pl-playline{position:absolute; top:22px; bottom:0; width:2px; background:var(--orange); z-index:6; pointer-events:none; display:none;}
 
   /* ===================== MIXER ===================== */
   #mixerView{overflow-x:auto; touch-action:pan-x; padding:10px 8px; gap:7px; align-items:stretch; background:var(--bg-soft);}
@@ -921,8 +927,8 @@
   }
   function buildProjectData(withDemo){
     return {
-      v:1, bpm:120, songBars:8,
-      songArrangement:new Array(8).fill(withDemo ? 1 : 0),
+      v:1, bpm:120, songBars:8, songLanes:6,
+      arrClips: withDemo ? [{lane:0, start:0, len:8, pat:1}] : [],
       currentPattern:0, songMode:false, swingAmount:0, compressorOn:true, masterVol:0.9,
       patternNames:new Array(PATTERN_COUNT).fill(""), stepCount:16, beatRes:4, automation:{},
       delaySync:"1/8.", lfoSync:"1/4",
@@ -973,7 +979,18 @@
      over songBars, always locked to the same BPM-derived step clock. */
   let songBars = 8;
   let currentBar = 0;
-  let songArrangement = new Array(songBars).fill(1);
+  // FL-style arrangement: generic playlist tracks (lanes) holding freely
+  // placed clips. Pattern clips {id,lane,start,len,pat} loop their pattern
+  // for `len` bars; audio clips live in audioClips (with a `lane`). Multiple
+  // pattern clips overlapping a bar layer their patterns.
+  let songLanes = 6;
+  let arrClips = [{ id: 1, lane:0, start:0, len:8, pat:1 }]; // default: P1 across the song (overwritten on project load)
+  let arrClipSeq = 2;
+  function patternsAtBar(bar){
+    const out = [];
+    for(const c of arrClips){ if(c.pat && bar >= c.start && bar < c.start + c.len && out.indexOf(c.pat-1) < 0) out.push(c.pat-1); }
+    return out;
+  }
   // FL-style audio clips dropped onto the playlist. In-memory (buffers
   // aren't JSON); each {id,name,buffer,bar,gain}. Played in SONG mode at
   // the start of their bar.
@@ -1004,12 +1021,13 @@
   function serializeProject(){
     return {
       v: 1,
-      bpm, songBars, songArrangement, currentPattern, songMode, swingAmount, compressorOn, patternNames,
+      bpm, songBars, songLanes, currentPattern, songMode, swingAmount, compressorOn, patternNames,
       stepCount: STEPS_PER_TRACK, beatRes: STEPS_PER_BEAT, masterVol,
       delaySync: document.getElementById("delaySync").value,
       lfoSync: document.getElementById("lfoSync").value,
       automation,
-      audioClips: audioClips.map(c => ({ name:c.name, bar:c.bar, gain:c.gain, durationBars:c.durationBars })),
+      arrClips: arrClips.map(c => ({ lane:c.lane, start:c.start, len:c.len, pat:c.pat })),
+      audioClips: audioClips.map(c => ({ name:c.name, bar:c.bar, lane:c.lane||0, gain:c.gain, durationBars:c.durationBars })),
       tracks: TRACKS.map(t => ({
         vol:t.vol, pan:t.pan, eq:t.eq, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
         delaySend:t.delaySend, cutGroup:t.cutGroup, hold:t.hold, poly:t.poly,
@@ -1243,13 +1261,30 @@
     if(!data || data.v !== 1 || !Array.isArray(data.tracks) || data.tracks.length !== TRACKS.length) return false;
     bpm = data.bpm || 120;
     songBars = data.songBars || 8;
-    songArrangement = Array.isArray(data.songArrangement) ? data.songArrangement : new Array(songBars).fill(1);
+    songLanes = (data.songLanes > 0 && data.songLanes <= 16) ? data.songLanes : 6;
+    // arrangement clips: use new arrClips, else migrate legacy songArrangement
+    if(Array.isArray(data.arrClips)){
+      arrClips = data.arrClips.filter(c => c && c.pat).map(c => ({
+        id: arrClipSeq++, lane: Math.max(0, c.lane|0), start: Math.max(0, c.start|0),
+        len: Math.max(1, c.len|0 || 1), pat: c.pat|0
+      }));
+    } else if(Array.isArray(data.songArrangement)){
+      arrClips = []; // collapse runs of the same pattern into single clips on lane 0
+      const sa = data.songArrangement; let b = 0;
+      while(b < sa.length){
+        const p = sa[b] || 0;
+        if(!p){ b++; continue; }
+        let e = b; while(e+1 < sa.length && (sa[e+1]||0) === p) e++;
+        arrClips.push({ id: arrClipSeq++, lane:0, start:b, len:(e-b+1), pat:p });
+        b = e + 1;
+      }
+    } else arrClips = [];
     currentPattern = data.currentPattern || 0;
     STEPS_PER_BEAT = [2,3,4,6,8].includes(data.beatRes) ? data.beatRes : 4;
     STEPS_PER_TRACK = (data.stepCount > 0 && data.stepCount <= 512) ? data.stepCount : 16;
     // audio-clip metadata (buffers reattached separately from blobs)
     audioClips = Array.isArray(data.audioClips) ? data.audioClips.map(c => ({
-      id: audioClipSeq++, name:c.name || "audio", bar:c.bar|0, gain:c.gain != null ? c.gain : 1,
+      id: audioClipSeq++, name:c.name || "audio", bar:c.bar|0, lane:Math.max(0, c.lane|0), gain:c.gain != null ? c.gain : 1,
       durationBars: Math.max(1, c.durationBars|0 || 1), buffer:null
     })) : [];
     patternNames = Array.isArray(data.patternNames) ? data.patternNames.slice(0, PATTERN_COUNT) : new Array(PATTERN_COUNT).fill("");
@@ -2022,26 +2057,26 @@
   function autoTargetLabel(id){ const f = autoTargetList().find(x => x.id === id); return f ? f.label : id; }
 
   function scheduleStep(engine, stepIdx, time, barIdx){
-    // PAT mode: loop whichever pattern is selected in the transport,
-    // ignoring the arrangement entirely (FL's "PAT" transport switch).
-    // SONG mode: look up which pattern (if any) this bar plays (FL's
-    // "SONG" switch, playing the Playlist).
-    let patternIdx;
+    // PAT mode: loop the selected pattern, ignoring the arrangement.
+    // SONG mode: play EVERY pattern clip covering this bar (layered), so
+    // multiple playlist tracks can stack patterns at the same time (FL).
+    let patterns;
     if(!songMode){
-      patternIdx = currentPattern;
+      patterns = [currentPattern];
     } else {
-      const patNum = songArrangement[barIdx] || 0;
-      if(!patNum) return; // empty bar in the arrangement -- silence
-      patternIdx = patNum - 1;
+      patterns = patternsAtBar(barIdx);
+      if(!patterns.length) return; // no clips over this bar -- silence
     }
     const anySolo = TRACKS.some(t => t.solo);
-    TRACKS.forEach((track, tIdx) => {
-      const stepData = track.patterns[patternIdx][stepIdx];
-      if(!stepData.on) return;
-      if(track.mute) return;
-      if(anySolo && !track.solo) return;
-      const cutoffOverride = autoValueAt(track.autoCutoff[patternIdx], stepIdx);
-      triggerTrack(engine, track, tIdx, time, stepData, cutoffOverride);
+    patterns.forEach(patternIdx => {
+      TRACKS.forEach((track, tIdx) => {
+        const stepData = track.patterns[patternIdx] && track.patterns[patternIdx][stepIdx];
+        if(!stepData || !stepData.on) return;
+        if(track.mute) return;
+        if(anySolo && !track.solo) return;
+        const cutoffOverride = autoValueAt(track.autoCutoff[patternIdx], stepIdx);
+        triggerTrack(engine, track, tIdx, time, stepData, cutoffOverride);
+      });
     });
   }
 
@@ -3486,13 +3521,12 @@
   document.getElementById("songLenField").addEventListener("click", () => {
     // cycle common song lengths -- always a whole number of bars, never
     // an arbitrary fraction, so the arrangement stays step-clock aligned
-    const options = [4,8,16,32];
+    const options = [4,8,16,32,64];
     const next = options[(options.indexOf(songBars)+1) % options.length];
     songBars = next;
-    const old = songArrangement;
-    songArrangement = new Array(songBars).fill(1).map((_,i) => i < old.length ? old[i] : 1);
     songLenDisplayEl.textContent = songBars;
     renderArrangeView();
+    saveProject();
   });
 
   const stepLenBtn = document.getElementById("stepLenBtn");
@@ -3509,139 +3543,110 @@
   });
   refreshGridUI();
 
+  const LANE_H = 52;
+  // clip position/length accessors that work for both pattern clips
+  // ({start,len}) and audio clips ({bar,durationBars}).
+  function clipStart(c){ return c.start != null ? c.start : (c.bar || 0); }
+  function clipLen(c){ return c.len != null ? c.len : Math.max(1, c.durationBars || 1); }
+  function setClipStart(c, v){ if(c.start != null) c.start = v; else c.bar = v; }
+  function setClipLen(c, v){ if(c.len != null) c.len = v; else c.durationBars = v; }
+  function removeClip(c){
+    if(c.pat) arrClips = arrClips.filter(x => x.id !== c.id);
+    else { audioClips = audioClips.filter(x => x.id !== c.id); persistAudioClips(); }
+  }
+
   function renderArrangeHeaders(){
     arrangeHeadersEl.innerHTML = "";
-    const patRow = document.createElement("div");
-    patRow.className = "arrange-header";
-    patRow.style.setProperty("--tc", "var(--accent)");
-    patRow.innerHTML = `<div class="track-name" style="color:var(--accent)">PATTERN</div><div class="track-type">tap = cycle P1-${PATTERN_COUNT}</div>`;
-    arrangeHeadersEl.appendChild(patRow);
-    TRACKS.forEach((track) => {
+    for(let i=0;i<songLanes;i++){
       const row = document.createElement("div");
       row.className = "arrange-header";
-      row.style.setProperty("--tc", track.color);
-      row.innerHTML = `<div class="track-name">${track.name}</div><div class="track-type">${track.type}</div>`;
+      row.style.setProperty("--tc", "var(--grey)");
+      row.innerHTML = `<div class="track-name">Track ${i+1}</div><div class="track-type">playlist</div>`;
       arrangeHeadersEl.appendChild(row);
-    });
-    const audioHdr = document.createElement("div");
-    audioHdr.className = "arrange-header";
-    audioHdr.style.setProperty("--tc", "var(--ink)");
-    audioHdr.innerHTML = `<div class="track-name">AUDIO</div><div class="track-type">drop / + audio</div>`;
-    arrangeHeadersEl.appendChild(audioHdr);
+    }
   }
 
   function renderArrangeRuler(){
     arrangeInnerEl.style.setProperty("--bar-w", barWidth+"px");
+    arrangeRulerEl.style.width = (songBars*barWidth) + "px";
     arrangeRulerEl.innerHTML = "";
     for(let b=0;b<songBars;b++){
       const cell = document.createElement("div");
       cell.className = "ruler-bar";
-      cell.textContent = "Bar " + (b+1);
+      cell.textContent = (b+1);
       arrangeRulerEl.appendChild(cell);
     }
   }
 
+  // Builds a pattern-clip block (draggable body + resize handle).
+  function makePatClipEl(c){
+    const el = document.createElement("div");
+    el.className = "pl-clip pat-clip";
+    el.style.left = (clipStart(c)*barWidth) + "px";
+    el.style.width = (clipLen(c)*barWidth) + "px";
+    const pc = PATTERN_COLORS[(c.pat-1) % PATTERN_COLORS.length];
+    el.style.setProperty("--tc", pc); el.style.setProperty("--tci", inkFor(pc));
+    const name = patternNames[c.pat-1] || ("Pattern " + c.pat);
+    el.innerHTML = `<span class="pl-clip-name">${name}</span><div class="pl-clip-handle"></div>`;
+    el.dataset.cid = c.id;
+    el.addEventListener("pointerdown", (e) => onClipPointerDown(e, c, "move"));
+    el.querySelector(".pl-clip-handle").addEventListener("pointerdown", (e) => onClipPointerDown(e, c, "resize"));
+    return el;
+  }
+  // Builds an audio-clip block with a mini waveform.
+  function makeAudioClipEl(c){
+    const el = document.createElement("div");
+    el.className = "pl-clip audio-pl-clip";
+    const w = Math.max(1, clipLen(c))*barWidth;
+    el.style.left = (clipStart(c)*barWidth) + "px";
+    el.style.width = w + "px";
+    el.dataset.cid = c.id;
+    const wave = document.createElement("canvas");
+    wave.className = "pl-clip-wave";
+    el.appendChild(wave);
+    const label = document.createElement("span");
+    label.className = "pl-clip-name"; label.textContent = "🔊 " + c.name;
+    el.appendChild(label);
+    // draw peaks next frame (needs layout for pixel width)
+    requestAnimationFrame(() => drawClipWave(wave, c.buffer, w));
+    el.addEventListener("pointerdown", (e) => onClipPointerDown(e, c, "move"));
+    return el;
+  }
+  function drawClipWave(canvas, buffer, w){
+    const h = LANE_H - 6, dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, w*dpr); canvas.height = h*dpr;
+    canvas.style.width = w+"px"; canvas.style.height = h+"px";
+    const g = canvas.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
+    if(!buffer) return;
+    const peaks = computeSamplePeaks(buffer, Math.max(8, Math.floor(w/2)));
+    g.strokeStyle = "rgba(20,20,20,.55)"; g.beginPath();
+    for(let i=0;i<peaks.length;i++){ const x=(i/peaks.length)*w, amp=peaks[i]*(h/2); g.moveTo(x, h/2-amp); g.lineTo(x, h/2+amp); }
+    g.stroke();
+  }
+
   function renderArrangeLanes(){
     arrangeLanesEl.innerHTML = "";
-
-    // Pattern lane: the actual Playlist -- tapping a bar cycles which
-    // Pattern (or "empty") plays there, for every track at once, exactly
-    // FL's Pattern Clips in the Playlist.
-    const patLane = document.createElement("div");
-    patLane.className = "arrange-lane";
-    for(let b=0;b<songBars;b++){
-      const cell = document.createElement("div");
-      cell.className = "arrange-cell patcell";
-      cell.dataset.bar = b;
-      const clip = document.createElement("div");
-      const patNum = songArrangement[b] || 0;
-      clip.className = "arrange-clip" + (patNum ? " active" : "");
-      if(patNum){ const pc = PATTERN_COLORS[(patNum-1) % PATTERN_COLORS.length]; clip.style.setProperty("--tc", pc); clip.style.setProperty("--tci", inkFor(pc)); }
-      clip.textContent = patNum ? ("P" + patNum) : "";
-      // tap cycles the bar's pattern; then dragging paints that same value
-      // across the bars you sweep over (FL-style clip painting).
-      cell.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        pushUndo();
-        // Paint tool stamps the picked pattern; Erase clears the bar.
-        const v = (plTool === "erase") ? 0 : plPaintPattern;
-        songArrangement[b] = v;
-        plPaintValue = v;
-        plPainting = true;
-        renderArrangeLanes();
-      });
-      cell.appendChild(clip);
-      patLane.appendChild(cell);
-    }
-    arrangeLanesEl.appendChild(patLane);
-
-    // Per-track lanes: read-only reflection of whichever Pattern the bar
-    // above is set to -- double-tap jumps the transport to that Pattern
-    // and opens the Piano Roll on it, for quick editing from the Playlist.
-    TRACKS.forEach((track, tIdx) => {
+    arrangeLanesEl.style.setProperty("--bar-w", barWidth+"px");
+    const laneW = songBars * barWidth;
+    for(let i=0;i<songLanes;i++){
       const lane = document.createElement("div");
-      lane.className = "arrange-lane";
-      for(let b=0;b<songBars;b++){
-        const cell = document.createElement("div");
-        cell.className = "arrange-cell";
-        cell.dataset.bar = b;
-        const clip = document.createElement("div");
-        const patNum = songArrangement[b] || 0;
-        clip.className = "arrange-clip" + (patNum ? " active" : "");
-        if(patNum){ clip.style.setProperty("--tc", track.color); clip.style.setProperty("--tci", track.ink); }
-        // label only the first bar of a contiguous run of the same pattern,
-        // so a long clip reads as one block instead of a wall of labels
-        const prevPat = b > 0 ? (songArrangement[b-1] || 0) : -1;
-        clip.textContent = (patNum && patNum !== prevPat) ? track.name : "";
-        let lastTap = 0;
-        clip.addEventListener("click", () => {
-          const now = Date.now();
-          const cur = songArrangement[b] || 0;
-          if(now - lastTap < 320 && cur){
-            setPattern(cur - 1);
-            openPianoRoll(tIdx);
-          }
-          lastTap = now;
-        });
-        cell.appendChild(clip);
-        lane.appendChild(cell);
-      }
+      lane.className = "arrange-lane pl-lane";
+      lane.dataset.lane = i;
+      lane.style.width = laneW + "px";
+      lane.addEventListener("pointerdown", (e) => onLanePointerDown(e, i, lane));
       arrangeLanesEl.appendChild(lane);
-    });
-
-    // ---- audio-clip lane (dropped audio files) ----
-    const audioLane = document.createElement("div");
-    audioLane.className = "arrange-lane audio-lane";
-    for(let b=0;b<songBars;b++){
-      const cell = document.createElement("div");
-      cell.className = "arrange-cell"; cell.dataset.bar = b;
-      audioLane.appendChild(cell);
     }
-    audioClips.forEach(c => {
-      const clip = document.createElement("div");
-      clip.className = "audio-clip";
-      clip.style.left = (c.bar * barWidth + 2) + "px";
-      clip.style.width = (Math.max(1, c.durationBars) * barWidth - 4) + "px";
-      clip.innerHTML = `<span class="audio-clip-name">🔊 ${c.name}</span>`;
-      clip.title = "Tap to remove: " + c.name;
-      clip.addEventListener("click", () => {
-        if(confirm("Remove audio clip \"" + c.name + "\"?")){ audioClips = audioClips.filter(x => x.id !== c.id); renderArrangeLanes(); persistAudioClips(); saveProject(); }
-      });
-      audioLane.appendChild(clip);
-    });
-    arrangeLanesEl.appendChild(audioLane);
-
+    arrClips.forEach(c => { const lane = arrangeLanesEl.children[c.lane]; if(lane) lane.appendChild(makePatClipEl(c)); });
+    audioClips.forEach(c => { const lane = arrangeLanesEl.children[c.lane||0]; if(lane) lane.appendChild(makeAudioClipEl(c)); });
     renderArrangePlayhead();
   }
 
   function renderArrangePlayhead(){
-    document.querySelectorAll(".arrange-lane").forEach((lane) => {
-      lane.querySelectorAll(".arrange-cell").forEach(cell => {
-        const clip = cell.querySelector(".arrange-clip");
-        if(!clip) return; // audio-lane cells have no pattern clip
-        clip.classList.toggle("playing-bar", playing && songMode && parseInt(cell.dataset.bar,10) === uiPlayingBar);
-      });
-    });
+    let line = document.getElementById("arrangePlayline");
+    if(!line){ line = document.createElement("div"); line.id = "arrangePlayline"; line.className = "pl-playline"; arrangeLanesEl.parentElement.appendChild(line); }
+    const show = playing && songMode;
+    line.style.display = show ? "block" : "none";
+    if(show) line.style.left = (uiPlayingBar*barWidth) + "px";
   }
 
   function renderArrangeView(){
@@ -3650,6 +3655,64 @@
     renderArrangeHeaders();
     renderArrangeRuler();
     renderArrangeLanes();
+  }
+
+  /* ---- clip create / move / resize (document-level drag) ---- */
+  let plDrag = null;
+  function plBarAtX(clientX){
+    const r = arrangeLanesEl.getBoundingClientRect();
+    return Math.floor((clientX - r.left) / barWidth);
+  }
+  function plLaneAtY(clientY){
+    const r = arrangeLanesEl.getBoundingClientRect();
+    return Math.max(0, Math.min(songLanes-1, Math.floor((clientY - r.top) / LANE_H)));
+  }
+  function onLanePointerDown(e, laneIdx, laneEl){
+    if(e.target.closest(".pl-clip")) return;   // clip handlers deal with clips
+    if(plTool === "erase") return;
+    e.preventDefault();
+    const bar = Math.max(0, Math.min(songBars-1, plBarAtX(e.clientX)));
+    ensureAudio(); pushUndo();
+    const clip = { id: arrClipSeq++, lane: laneIdx, start: bar, len: 1, pat: plPaintPattern };
+    arrClips.push(clip);
+    plDrag = { mode:"resize", clip, moved:false, isNew:true };
+    window.addEventListener("pointermove", onPlDragMove);
+    window.addEventListener("pointerup", endPlDrag, { once:true });
+    renderArrangeLanes();
+  }
+  function onClipPointerDown(e, clip, mode){
+    e.preventDefault(); e.stopPropagation();
+    ensureAudio();
+    if(plTool === "erase"){ pushUndo(); removeClip(clip); renderArrangeLanes(); saveProject(); return; }
+    // audio clips can't be resized (length is tied to the buffer)
+    if(mode === "resize" && !clip.pat) mode = "move";
+    pushUndo();
+    plDrag = { mode, clip, moved:false, isNew:false };
+    window.addEventListener("pointermove", onPlDragMove);
+    window.addEventListener("pointerup", endPlDrag, { once:true });
+  }
+  function onPlDragMove(e){
+    if(!plDrag) return;
+    const c = plDrag.clip;
+    if(plDrag.mode === "resize"){
+      const newLen = Math.max(1, Math.min(plBarAtX(e.clientX) - clipStart(c) + 1, songBars - clipStart(c)));
+      if(newLen !== clipLen(c)){ setClipLen(c, newLen); plDrag.moved = true; renderArrangeLanes(); }
+    } else {
+      const bar = Math.max(0, Math.min(songBars - clipLen(c), plBarAtX(e.clientX)));
+      const lane = plLaneAtY(e.clientY);
+      if(bar !== clipStart(c) || lane !== c.lane){
+        setClipStart(c, bar); c.lane = lane; plDrag.moved = true; renderArrangeLanes();
+      }
+    }
+  }
+  function endPlDrag(){
+    window.removeEventListener("pointermove", onPlDragMove);
+    const d = plDrag; plDrag = null;
+    if(!d) return;
+    if(!d.moved && !d.isNew && d.clip.pat) setPattern(d.clip.pat - 1); // tap selects the pattern
+    renderArrangeLanes();
+    if(!d.clip.pat) persistAudioClips();
+    saveProject();
   }
 
   /* ---- playlist tools: paint/erase + pattern picker + clear ---- */
@@ -3672,26 +3735,26 @@
   }
   document.querySelectorAll("#plToolSeg button").forEach(x => x.addEventListener("click", () => { plTool = x.dataset.tool; syncPlToolUI(); }));
   document.getElementById("plClearBtn").addEventListener("click", () => {
-    if(!confirm("Clear the whole playlist?")) return;
-    pushUndo(); songArrangement.fill(0); renderArrangeLanes();
+    if(!confirm("Clear the whole playlist (pattern + audio clips)?")) return;
+    pushUndo(); arrClips = []; audioClips = []; renderArrangeLanes(); persistAudioClips(); saveProject();
   });
 
   /* ---- audio clips: + Audio button + drag-and-drop of audio files ---- */
-  async function addAudioClipFromFile(file, bar){
+  async function addAudioClipFromFile(file, bar, lane){
     ensureAudio();
     try{
       const buf = await ctx.decodeAudioData(await file.arrayBuffer());
       const durationBars = Math.max(1, Math.round(buf.duration / Math.max(barSeconds(), 0.001)));
-      audioClips.push({ id: audioClipSeq++, name: (file.name || "audio").replace(/\.[^.]+$/, ""), buffer: buf, bar: Math.max(0, bar|0), gain: 1, durationBars });
+      audioClips.push({ id: audioClipSeq++, name: (file.name || "audio").replace(/\.[^.]+$/, ""), buffer: buf, bar: Math.max(0, bar|0), lane: lane|0, gain: 1, durationBars });
       renderArrangeLanes();
       persistAudioClips(); saveProject();
     }catch(e){ alert("Could not load audio: " + e.message); }
   }
   // Adds an already-decoded AudioBuffer straight to the playlist (used by
   // the master resampler; file import routes through addAudioClipFromFile).
-  function addAudioClipFromBuffer(buf, name, bar){
+  function addAudioClipFromBuffer(buf, name, bar, lane){
     const durationBars = Math.max(1, Math.round(buf.duration / Math.max(barSeconds(), 0.001)));
-    audioClips.push({ id: audioClipSeq++, name: name || "rec", buffer: buf, bar: Math.max(0, bar|0), gain: 1, durationBars });
+    audioClips.push({ id: audioClipSeq++, name: name || "rec", buffer: buf, bar: Math.max(0, bar|0), lane: lane|0, gain: 1, durationBars });
     renderArrangeLanes();
     persistAudioClips(); saveProject();
   }
@@ -3740,7 +3803,7 @@
   const plAudioInput = document.createElement("input");
   plAudioInput.type = "file"; plAudioInput.accept = "audio/*"; plAudioInput.id = "plAudioInput"; plAudioInput.style.display = "none";
   document.body.appendChild(plAudioInput);
-  plAudioInput.addEventListener("change", () => { const f = plAudioInput.files[0]; plAudioInput.value = ""; if(f) addAudioClipFromFile(f, 0); });
+  plAudioInput.addEventListener("change", () => { const f = plAudioInput.files[0]; plAudioInput.value = ""; if(f) addAudioClipFromFile(f, 0, songLanes-1); });
   document.getElementById("plAddAudioBtn").addEventListener("click", () => plAudioInput.click());
 
   // Rack: the header column and the step grid are separate scroll
@@ -3765,24 +3828,10 @@
     e.preventDefault(); arrangeScrollDropEl.classList.remove("drop-hover");
     const files = [...((e.dataTransfer && e.dataTransfer.files) || [])].filter(f => (f.type && f.type.startsWith("audio")) || /\.(wav|mp3|ogg|m4a|aac|flac)$/i.test(f.name));
     if(!files.length) return;
-    const rect = arrangeInnerEl.getBoundingClientRect();
-    const bar = Math.max(0, Math.min(songBars-1, Math.floor((e.clientX - rect.left) / barWidth)));
-    for(const f of files) await addAudioClipFromFile(f, bar);
+    const bar = Math.max(0, Math.min(songBars-1, plBarAtX(e.clientX)));
+    const lane = plLaneAtY(e.clientY);
+    for(const f of files) await addAudioClipFromFile(f, bar, lane);
   });
-
-  let plPainting = false, plPaintValue = 0;
-  document.addEventListener("pointermove", (e) => {
-    if(!plPainting) return;
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const cell = el && el.closest(".patcell");
-    if(!cell) return;
-    const b = parseInt(cell.dataset.bar, 10);
-    if(isNaN(b) || songArrangement[b] === plPaintValue) return;
-    songArrangement[b] = plPaintValue;
-    renderArrangeLanes();
-  });
-  document.addEventListener("pointerup", () => { plPainting = false; });
-  document.addEventListener("pointercancel", () => { plPainting = false; });
 
   /* =========================================================
      PIANO ROLL OVERLAY

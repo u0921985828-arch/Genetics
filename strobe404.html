@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
+<script>try{var _t=localStorage.getItem('strobe404_theme');document.documentElement.setAttribute('data-theme',_t==='light'?'light':'dark');}catch(e){}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>STROBE // step engine</title>
 <style>
@@ -27,7 +28,36 @@
     --font:"Helvetica Neue", Helvetica, Arial, "Segoe UI", system-ui, sans-serif;
     --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --topbar-h:46px;
+    --accent-ink:#141414;   /* text/icon colour that sits on a bright accent fill */
   }
+  /* ===== dark flat theme (opt-in via <html data-theme="dark">) ===== */
+  :root[data-theme="dark"]{
+    --ink:#c9cbce; --line:#c9cbce;
+    --bg:#141619; --bg-soft:#1b1e22; --bg-soft2:#0e1013;
+    --panel:#1b1e22; --panel-soft:#16181c;
+    --text:#e8e9e6; --text-dim:#a6a8a3; --text-lo:#6b6d69;
+    --orange:#f07a2c; --amber:#f4be28; --grey:#7d7f7a; --grey-d:#c9cbce;
+    --c-cyan:#f07a2c; --c-orange:#f07a2c; --c-green:#f07a2c;
+    --c-yellow:#f4be28; --c-blue:#f4be28;
+    --c-red:#e2523a; --c-pink:#2a2d31;
+    --step-off:#1b1e22;
+    --hair:#33373d; --hair-2:#24272c;
+  }
+  /* on a bright accent fill, text keyed to --ink would vanish in dark mode —
+     force the dark accent-ink so labels stay legible on orange/amber/red. */
+  :root[data-theme="dark"] .win-btns button.active,
+  :root[data-theme="dark"] .seg button.active,
+  :root[data-theme="dark"] .icon-btn.active,
+  :root[data-theme="dark"] #browserTabs button.active,
+  :root[data-theme="dark"] .menu-btn.on,
+  :root[data-theme="dark"] .menu-btn.primary,
+  :root[data-theme="dark"] .mini-btn.mute.on,
+  :root[data-theme="dark"] .mini-btn.solo.on,
+  :root[data-theme="dark"] .mini-btn.fx.on,
+  :root[data-theme="dark"] .graph-tab.active,
+  :root[data-theme="dark"] .osc-btn.active,
+  :root[data-theme="dark"] .t-play,
+  :root[data-theme="dark"] #playBtn.active{ color:var(--accent-ink); }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none;}
   /* subtle scrollbars everywhere (the native WebView ones render as ugly
      black bars at every scroll-container edge -> the main source of "chaos") */
@@ -61,7 +91,7 @@
     background:var(--bg); color:var(--ink); border:1px solid var(--ink); border-radius:var(--r);
     padding:5px 9px; font-size:10px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; white-space:nowrap;
   }
-  .win-btns button:active{background:var(--ink); color:#fff;}
+  .win-btns button:active{background:var(--ink); color:var(--bg);}
   .win-btns button.active{background:var(--c-cyan); color:var(--ink);}
   .brand{font-weight:900; font-size:14px; letter-spacing:1px; color:var(--ink); white-space:nowrap; text-transform:uppercase;}
   #playBtn{
@@ -87,7 +117,7 @@
     background:var(--bg); color:var(--ink); border:var(--bw) solid var(--ink); border-radius:var(--r);
     width:22px; height:17px; font-size:12px; line-height:0; font-weight:800;
   }
-  .stepper button:active{background:var(--ink); color:#fff;}
+  .stepper button:active{background:var(--ink); color:var(--bg);}
   .seg{display:flex; border:var(--bw) solid var(--ink); border-radius:var(--r); overflow:hidden; flex:0 0 auto;}
   .seg button{
     -webkit-appearance:none; appearance:none; cursor:pointer;
@@ -101,7 +131,7 @@
     background:var(--bg); color:var(--ink); border:1px solid var(--ink); border-radius:var(--r);
     width:34px; height:34px; font-size:14px; display:flex; align-items:center; justify-content:center; flex:0 0 auto;
   }
-  .icon-btn:active{background:var(--ink); color:#fff;}
+  .icon-btn:active{background:var(--ink); color:var(--bg);}
   .icon-btn.active{background:var(--orange); color:var(--ink);}
   .icon-btn:disabled{opacity:.32; cursor:default;}
   .icon-btn:disabled:active{background:var(--bg); color:var(--ink);}
@@ -142,7 +172,7 @@
     background:var(--bg); color:var(--ink); border:var(--bw) solid var(--ink); border-radius:var(--r);
     padding:7px 13px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.4px;
   }
-  .menu-btn:active{background:var(--ink); color:#fff;}
+  .menu-btn:active{background:var(--ink); color:var(--bg);}
   .menu-btn.primary{background:var(--c-green);}
   .menu-btn.on{background:var(--c-cyan);}
 
@@ -171,7 +201,7 @@
   .br-item .br-load{margin-left:auto; font-size:9px; font-weight:800; color:var(--ink); cursor:pointer; border:var(--bw) solid var(--ink); border-radius:var(--r); padding:3px 6px; background:var(--bg); text-transform:uppercase;}
   .br-bpm{margin-left:auto; font-size:9px; font-weight:800; color:var(--text-lo); font-variant-numeric:tabular-nums;}
   .br-item .br-bpm + .br-load{margin-left:8px;}
-  .br-item .br-load:active{background:var(--ink); color:#fff;}
+  .br-item .br-load:active{background:var(--ink); color:var(--bg);}
   .br-actions{display:flex; gap:6px; padding:4px 2px 8px; border-bottom:var(--bw) solid var(--ink); margin-bottom:6px;}
   .br-actions .br-load{padding:6px 8px; font-size:10px;}
 
@@ -195,7 +225,7 @@
   .hold-hint{color:var(--text-lo); font-size:13px;}
   .track-controls{display:flex; gap:5px; align-items:center;}
   .mini-btn{width:24px; height:21px; cursor:pointer; background:var(--bg); color:var(--text-dim); font-size:9px; font-weight:800; border:1px solid var(--hair); border-radius:var(--r); display:flex; align-items:center; justify-content:center;}
-  .mini-btn:active{background:var(--ink); color:#fff;}
+  .mini-btn:active{background:var(--ink); color:var(--bg);}
   .mini-btn.mute.on{background:var(--c-red); color:var(--ink);}
   .mini-btn.solo.on{background:var(--c-yellow); color:var(--ink);}
   .mini-btn.fx.on{background:var(--c-cyan); color:var(--ink);}
@@ -248,7 +278,7 @@
   #wavePanel canvas, #envPanel canvas{width:100%; height:150px; background:var(--bg-soft); border:var(--bw) solid var(--ink); touch-action:none;}
   .wave-row{display:flex; gap:6px; flex-wrap:wrap;}
   .osc-btn{flex:1; min-width:56px; padding:8px 6px; cursor:pointer; font-size:11px; font-weight:800; color:var(--ink); background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); text-transform:uppercase; letter-spacing:.3px;}
-  .osc-btn:active{background:var(--ink); color:#fff;}
+  .osc-btn:active{background:var(--ink); color:var(--bg);}
   .osc-btn.active{background:var(--c-cyan); color:var(--ink);}
   #envPanel{width:240px;}
   .env-readout{display:flex; justify-content:space-between; font-size:10px; color:var(--text-dim); font-weight:700;}
@@ -359,7 +389,7 @@
   .eq-slider{flex:1; height:20px; touch-action:none;}
   .eq-val{flex:0 0 34px; font-size:10px; font-weight:800; text-align:right; font-variant-numeric:tabular-nums; color:var(--ink);}
   .eq-flat{width:100%; margin-top:3px; padding:6px; font-size:10px; font-weight:800; text-transform:uppercase; background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); cursor:pointer;}
-  .eq-flat:active{background:var(--ink); color:#fff;}
+  .eq-flat:active{background:var(--ink); color:var(--bg);}
   /* in-app dialog system (replaces native confirm/prompt/alert) */
   .modal-host{position:fixed; inset:0; z-index:120; display:none; align-items:center; justify-content:center; background:rgba(20,20,18,.44); padding:24px;}
   .modal-host.open{display:flex;}
@@ -370,7 +400,7 @@
   .modal-input:focus{outline:2px solid var(--orange); outline-offset:1px;}
   .modal-actions{display:flex; justify-content:flex-end; gap:8px; margin-top:3px;}
   .modal-btn{padding:8px 15px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; border:1px solid var(--ink); border-radius:4px; background:var(--bg); color:var(--ink); cursor:pointer;}
-  .modal-btn:active{background:var(--ink); color:#fff;}
+  .modal-btn:active{background:var(--ink); color:var(--bg);}
   .modal-btn.primary{background:var(--orange); color:#fff;}
   .modal-btn.danger{background:var(--c-red); color:#fff;}
 
@@ -391,7 +421,7 @@
   .pr-topbar b{color:var(--c-blue);}
   .pr-topbar > span:first-child{font-weight:800; font-size:13px; text-transform:uppercase;}
   .pr-close{margin-left:auto; cursor:pointer; color:var(--ink); width:34px; height:34px; font-size:14px; background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r);}
-  .pr-close:active{background:var(--ink); color:#fff;}
+  .pr-close:active{background:var(--ink); color:var(--bg);}
   #prBody{flex:1; display:flex; min-height:0;}
   #prKeys{flex:0 0 52px; background:var(--bg); border-right:var(--bw) solid var(--ink); overflow-y:auto; touch-action:pan-y;}
   .pr-key{height:22px; border-bottom:1px solid #ddd; font-size:8px; color:var(--text-lo); display:flex; align-items:center; justify-content:flex-end; padding-right:6px; font-weight:700;}
@@ -433,7 +463,7 @@
   .lib-tile.playing{background:var(--bg-soft); outline:var(--bw) solid var(--c-cyan);}
   .lib-tile-row{display:flex; gap:6px;}
   .lib-btn{flex:1; padding:8px 4px; cursor:pointer; font-size:11px; font-weight:800; color:var(--ink); background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); text-transform:uppercase;}
-  .lib-btn:active{background:var(--ink); color:#fff;}
+  .lib-btn:active{background:var(--ink); color:var(--bg);}
   .lib-btn.load{background:var(--c-cyan);}
   .lib-btn.del{flex:0 0 34px; color:var(--c-red);}
   .lib-empty{color:var(--text-lo); font-size:11px; padding:4px 0 12px; font-weight:700;}
@@ -442,7 +472,7 @@
   .fill-menu{position:fixed; z-index:50; background:var(--bg); border:var(--bw) solid var(--ink); display:flex; flex-direction:column; overflow:hidden;}
   .fill-menu button{background:var(--bg); border:none; color:var(--ink); padding:10px 16px; font-family:var(--font); font-size:12px; font-weight:700; text-align:left; border-bottom:1px solid var(--ink); white-space:nowrap; cursor:pointer;}
   .fill-menu button:last-child{border-bottom:none;}
-  .fill-menu button:active{background:var(--ink); color:#fff;}
+  .fill-menu button:active{background:var(--ink); color:var(--bg);}
 
   ::-webkit-scrollbar{height:10px; width:10px;}
   ::-webkit-scrollbar-track{background:var(--bg);}
@@ -507,6 +537,15 @@
     <div class="menu-sheet-head">
       <span class="menu-sheet-title">Menu</span>
       <button id="menuCloseBtn" class="pr-close" aria-label="close menu">&#10005;</button>
+    </div>
+    <div class="menu-row">
+      <label>Theme</label>
+      <div class="ctl">
+        <div class="seg" id="themeSeg">
+          <button data-theme-val="dark" class="active">Dark</button>
+          <button data-theme-val="light">Light</button>
+        </div>
+      </div>
     </div>
     <div class="menu-row">
       <label>Project</label>
@@ -816,6 +855,12 @@
 <script>
 (function(){
   "use strict";
+
+  // read a themeable CSS custom property (so canvas draws follow the theme).
+  function cssVar(name, fallback){
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback || "#000";
+  }
 
   /* =========================================================
      SUBDIVISION / BPM-SYNC MATH
@@ -2638,6 +2683,17 @@
   menuBackdropEl.addEventListener("click", () => toggleMenu(false));
   document.getElementById("menuCloseBtn").addEventListener("click", () => toggleMenu(false));
 
+  // theme toggle (dark base + light option). applied to <html data-theme>.
+  function applyTheme(t, rerender){
+    const val = t === "light" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", val);
+    try{ localStorage.setItem("strobe404_theme", val); }catch(e){}
+    document.querySelectorAll("#themeSeg button").forEach(b => b.classList.toggle("active", b.dataset.themeVal === val));
+    if(rerender && typeof refreshAllFromState === "function") refreshAllFromState();
+  }
+  document.querySelectorAll("#themeSeg button").forEach(b => b.addEventListener("click", () => applyTheme(b.dataset.themeVal, true)));
+  applyTheme(document.documentElement.getAttribute("data-theme"), false);
+
   // Master compressor is now toggled from the mixer master ("C"); the menu
   // control was removed. refreshCompMenuBtn is a no-op kept for old callers.
   const compMenuBtn = document.getElementById("compMenuBtn");
@@ -3579,16 +3635,18 @@
 
     // flat editorial knob: light track, cyan value arc, white cap with a
     // thick black ring and a bold black indicator -- high contrast, no depth.
+    const kInk = cssVar("--ink","#111"), kCap = cssVar("--panel","#fff"),
+          kTrack = cssVar("--hair","#d7d6cf"), kArc = cssVar("--orange","#ea6a1e");
     c.lineCap = "butt";
-    c.strokeStyle = "#d7d6cf"; c.lineWidth = 4;
+    c.strokeStyle = kTrack; c.lineWidth = 4;
     c.beginPath(); c.arc(cx,cy,r,startAngle,endAngle); c.stroke();
-    c.strokeStyle = "#ea6a1e"; c.lineWidth = 4;
+    c.strokeStyle = kArc; c.lineWidth = 4;
     c.beginPath(); c.arc(cx,cy,r,startAngle,angle); c.stroke();
     // cap
-    c.beginPath(); c.fillStyle = "#ffffff"; c.arc(cx,cy,capR,0,Math.PI*2); c.fill();
-    c.strokeStyle = "#111"; c.lineWidth = 2; c.beginPath(); c.arc(cx,cy,capR,0,Math.PI*2); c.stroke();
+    c.beginPath(); c.fillStyle = kCap; c.arc(cx,cy,capR,0,Math.PI*2); c.fill();
+    c.strokeStyle = kInk; c.lineWidth = 2; c.beginPath(); c.arc(cx,cy,capR,0,Math.PI*2); c.stroke();
     // indicator
-    c.strokeStyle = "#111"; c.lineWidth = 3; c.lineCap = "round";
+    c.strokeStyle = kInk; c.lineWidth = 3; c.lineCap = "round";
     c.beginPath();
     c.moveTo(cx, cy);
     c.lineTo(cx + Math.cos(angle)*capR*0.82, cy + Math.sin(angle)*capR*0.82);

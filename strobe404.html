@@ -298,6 +298,8 @@
   /* compact buttons inside the playlist toolbar (denser than the menu-sheet defaults) */
   #arrangeTools .menu-btn{padding:4px 8px; font-size:10px; letter-spacing:.3px; border:1px solid var(--ink);}
   #arrangeTools .seg{border:1px solid var(--ink);}
+  /* keep the tool selector pinned at the left even when the toolbar scrolls */
+  .pl-tool-pin{position:sticky; left:0; z-index:3; display:flex; align-items:center; gap:6px; padding-right:8px; margin-right:2px; background:var(--bg); box-shadow:8px 0 6px -6px rgba(0,0,0,.25);}
   .pl-lbl{font-size:8px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--text-lo); flex:0 0 auto;}
   .pl-pats{display:flex; gap:3px; flex:0 0 auto;}
   .pl-pats button{-webkit-appearance:none; appearance:none; cursor:pointer; width:26px; height:24px; font-size:10px; font-weight:800; color:var(--ink); background:var(--bg); border:1px solid var(--ink); border-radius:var(--r);}
@@ -746,12 +748,14 @@
 
     <div id="arrangeView" class="view active">
       <div id="arrangeTools">
-        <span class="pl-lbl">Tool</span>
-        <div class="seg" id="plToolSeg">
-          <button data-tool="select" class="active" title="Select: move clips and scroll without painting">Select</button>
-          <button data-tool="paint">Paint</button>
-          <button data-tool="cut">Cut</button>
-          <button data-tool="erase">Erase</button>
+        <div class="pl-tool-pin">
+          <span class="pl-lbl">Tool</span>
+          <div class="seg" id="plToolSeg">
+            <button data-tool="select" class="active" title="Select: move clips and scroll without painting">Select</button>
+            <button data-tool="paint">Paint</button>
+            <button data-tool="cut">Cut</button>
+            <button data-tool="erase">Erase</button>
+          </div>
         </div>
         <span class="pl-lbl" id="plPatLbl">Pat 1</span>
         <span class="pl-lbl">Snap</span>

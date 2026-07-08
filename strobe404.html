@@ -700,6 +700,13 @@
           <button data-tool="erase">Erase</button>
         </div>
         <span class="pl-lbl" id="plPatLbl">Pat 1</span>
+        <span class="pl-lbl">Snap</span>
+        <div class="seg" id="plSnapSeg">
+          <button data-snap="1" class="active" title="Snap clips to whole bars">Bar</button>
+          <button data-snap="0.5" title="Snap to half bars">&frac12;</button>
+          <button data-snap="0.25" title="Snap to quarter bars">&frac14;</button>
+          <button data-snap="0" title="Free placement (fine 1/16)">Off</button>
+        </div>
         <span class="pl-lbl">Zoom</span>
         <div class="seg" id="plZoomSeg">
           <button id="plZoomOut" title="Zoom out — more bars fit">&minus;</button>
@@ -2171,7 +2178,7 @@
   function triggerAudioClipsForBar(engine, bar, time){
     if(!engine) return;
     audioClips.forEach(c => {
-      if(c.bar !== bar || !c.buffer || c.mute) return;
+      if(Math.round(c.bar) !== bar || !c.buffer || c.mute) return;
       const src = engine.ctx.createBufferSource();
       src.buffer = c.buffer;
       const g = engine.ctx.createGain();
@@ -2200,7 +2207,7 @@
     playing = true;
     stepIndexForSchedule = 0;
     currentBar = 0;
-    songLoopBars = Math.max(1, contentEndBar()); // loop over the actual content
+    songLoopBars = Math.max(1, Math.ceil(contentEndBar())); // loop over the actual content
     let startAt = ctx.currentTime + 0.06;
     // count-in: one bar (4 beats) of clicks before the sequence starts
     if(metroOn && countInOn){
@@ -3709,7 +3716,7 @@
   // The playlist length is now automatic (endless): it always shows a few
   // empty bars past the last clip, growing as you paint further out.
   function autoGrowSongBars(){
-    const n = Math.max(16, contentEndBar() + 8);
+    const n = Math.max(16, Math.ceil(contentEndBar()) + 8);
     const changed = n !== songBars;
     songBars = n;
     if(songLenDisplayEl) songLenDisplayEl.textContent = songBars;
@@ -3856,6 +3863,20 @@
     const r = arrangeLanesEl.getBoundingClientRect();
     return Math.floor((clientX - r.left) / barWidth);
   }
+  // configurable playlist snap grid (bars). 1 = bar, .5 = half, .25 = quarter,
+  // 0 = free (fine 1/16 grid so clips still land cleanly).
+  let plSnap = 1;
+  try{ const s = localStorage.getItem("strobe404_plSnap"); if(s !== null) plSnap = parseFloat(s); }catch(e){}
+  function plSnapUnit(){ return plSnap > 0 ? plSnap : 1/16; }
+  const round4 = v => Math.round(v * 1e4) / 1e4;
+  function plFracAtX(clientX){
+    const r = arrangeLanesEl.getBoundingClientRect();
+    return (clientX - r.left) / barWidth;
+  }
+  // nearest grid point (for moving / resizing) and grid floor (for the origin
+  // of a freshly painted clip so it starts at the cell you tapped).
+  function plSnapVal(v){ const u = plSnapUnit(); return round4(Math.max(0, Math.round(v / u) * u)); }
+  function plSnapFloor(v){ const u = plSnapUnit(); return round4(Math.max(0, Math.floor(v / u) * u)); }
   function plLaneAtY(clientY){
     const r = arrangeLanesEl.getBoundingClientRect();
     return Math.max(0, Math.min(songLanes-1, Math.floor((clientY - r.top) / LANE_H)));
@@ -3865,7 +3886,7 @@
     if(pinching || plPointers.size >= 2) return; // two-finger pinch, not a paint
     if(plTool === "erase") return;
     e.preventDefault();
-    const bar = Math.max(0, Math.min(songBars-1, plBarAtX(e.clientX)));
+    const bar = Math.max(0, Math.min(songBars-1, plSnapFloor(plFracAtX(e.clientX))));
     ensureAudio(); pushUndo();
     const clip = { id: arrClipSeq++, lane: laneIdx, start: bar, len: 1, pat: plPaintPattern };
     arrClips.push(clip);
@@ -3881,7 +3902,7 @@
     if(plTool === "cut"){
       // split a pattern clip at the tapped bar into two independent clips
       if(clip.pat){
-        const cutBar = plBarAtX(e.clientX);
+        const cutBar = plSnapVal(plFracAtX(e.clientX));
         if(cutBar > clip.start && cutBar < clip.start + clip.len){
           pushUndo();
           const rightLen = clip.start + clip.len - cutBar;
@@ -3911,10 +3932,11 @@
     clearTimeout(plClipLpTimer);
     const c = plDrag.clip;
     if(plDrag.mode === "resize"){
-      const newLen = Math.max(1, Math.min(plBarAtX(e.clientX) - clipStart(c) + 1, songBars - clipStart(c)));
+      const end = plSnapVal(plFracAtX(e.clientX));
+      const newLen = round4(Math.max(plSnapUnit(), Math.min(end - clipStart(c), songBars - clipStart(c))));
       if(newLen !== clipLen(c)){ setClipLen(c, newLen); plDrag.moved = true; renderArrangeLanes(); }
     } else {
-      const bar = Math.max(0, Math.min(songBars - clipLen(c), plBarAtX(e.clientX)));
+      const bar = round4(Math.max(0, Math.min(songBars - clipLen(c), plSnapFloor(plFracAtX(e.clientX)))));
       const lane = plLaneAtY(e.clientY);
       if(bar !== clipStart(c) || lane !== c.lane){
         setClipStart(c, bar); c.lane = lane; plDrag.moved = true; renderArrangeLanes();
@@ -3974,6 +3996,15 @@
     renderPlPatPicker();
   }
   document.querySelectorAll("#plToolSeg button").forEach(x => x.addEventListener("click", () => { plTool = x.dataset.tool; syncPlToolUI(); }));
+  function syncPlSnapUI(){
+    document.querySelectorAll("#plSnapSeg button").forEach(x => x.classList.toggle("active", parseFloat(x.dataset.snap) === plSnap));
+  }
+  document.querySelectorAll("#plSnapSeg button").forEach(x => x.addEventListener("click", () => {
+    plSnap = parseFloat(x.dataset.snap);
+    try{ localStorage.setItem("strobe404_plSnap", String(plSnap)); }catch(e){}
+    syncPlSnapUI();
+  }));
+  syncPlSnapUI();
   document.getElementById("plClearBtn").addEventListener("click", async () => {
     if(!(await uiConfirm("Clear the whole playlist (pattern + audio clips)?", {okLabel:"Clear all", danger:true}))) return;
     pushUndo(); arrClips = []; audioClips = []; renderArrangeLanes(); persistAudioClips(); saveProject();
@@ -5120,7 +5151,7 @@
     const sr = ctx ? ctx.sampleRate : 44100;
     const dur = stepDuration();
     const barDur = dur * STEPS_PER_TRACK;
-    const totalBars = songMode ? Math.max(1, contentEndBar()) : 1;
+    const totalBars = songMode ? Math.max(1, Math.ceil(contentEndBar())) : 1;
     const tailSeconds = 2.0; // let release/delay/reverb tails ring out past the last step
     const totalSamples = Math.ceil((barDur * totalBars + tailSeconds) * sr);
 

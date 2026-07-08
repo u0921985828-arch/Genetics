@@ -2959,13 +2959,13 @@
       row.innerHTML = `
         <div class="track-name-row">
           <div class="track-name">${track.name}</div>
-          <div class="hold-hint" data-action="menu" title="Channel options">⋮</div>
+          <div class="hold-hint" data-action="menu" role="button" aria-label="${track.name} channel options" title="Channel options">⋮</div>
         </div>
         <div class="track-controls">
-          <div class="mini-btn mute ${track.mute?'on':''}" data-action="mute">M</div>
-          <div class="mini-btn solo ${track.solo?'on':''}" data-action="solo">S</div>
-          <div class="mini-btn" data-action="piano" title="Open piano roll">PR</div>
-          <div class="vol-track" data-action="vol"><div class="vol-fill" style="width:${track.vol*100}%"></div></div>
+          <div class="mini-btn mute ${track.mute?'on':''}" data-action="mute" role="button" aria-label="${track.name} mute" aria-pressed="${!!track.mute}">M</div>
+          <div class="mini-btn solo ${track.solo?'on':''}" data-action="solo" role="button" aria-label="${track.name} solo" aria-pressed="${!!track.solo}">S</div>
+          <div class="mini-btn" data-action="piano" role="button" aria-label="${track.name} piano roll" title="Open piano roll">PR</div>
+          <div class="vol-track" data-action="vol" role="slider" aria-label="${track.name} volume" aria-valuenow="${Math.round(track.vol*100)}"><div class="vol-fill" style="width:${track.vol*100}%"></div></div>
         </div>
       `;
       row.addEventListener("click", (e) => {
@@ -5349,7 +5349,7 @@
       strip.style.setProperty("--tc", track.color);
       const pan = track.pan || 0;
       strip.innerHTML = `
-        <div class="ch-name">${track.name}</div>
+        <div class="ch-name" role="button" aria-label="${track.name} channel FX" title="Open channel FX rack">${track.name}</div>
         <div class="ch-clip" data-key="t${tIdx}" title="Live signal level through this channel (peak dBFS) — tap to reset clip">−∞</div>
         <div class="ch-db" data-dbkey="t${tIdx}">${fmtDb(gainToDb(track.vol))}</div>
         <div class="ch-fader-row">
@@ -5570,6 +5570,7 @@
 
   // keep meters animating while the mixer tab is open, even if transport is stopped
   setInterval(() => {
+    if(document.hidden) return; // don't burn CPU metering a backgrounded tab
     if(document.getElementById("mixerView").classList.contains("active")) updateMixerMeters();
   }, 40);
 
@@ -5726,6 +5727,8 @@
         sliceRegionsFor(track).forEach((region, sIdx) => {
           const pad = document.createElement("div");
           pad.className = "pad";
+          pad.setAttribute("role", "button");
+          pad.setAttribute("aria-label", `${track.name} slice ${sIdx+1}`);
           pad.style.setProperty("--tc", track.color);
           pad.style.setProperty("--tci", track.ink);
           pad.innerHTML = `<div class="pad-name">${track.name} ${sIdx+1}</div><div class="pad-type">slice</div>`;
@@ -5735,6 +5738,8 @@
       } else {
         const pad = document.createElement("div");
         pad.className = "pad";
+        pad.setAttribute("role", "button");
+        pad.setAttribute("aria-label", `${track.name} pad`);
         pad.style.setProperty("--tc", track.color);
         pad.style.setProperty("--tci", track.ink);
         pad.innerHTML = `<div class="pad-name">${track.name}</div><div class="pad-type">${track.type}</div>`;

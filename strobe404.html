@@ -267,7 +267,7 @@
   .pl-pats button{-webkit-appearance:none; appearance:none; cursor:pointer; width:26px; height:24px; font-size:10px; font-weight:800; color:var(--ink); background:var(--bg); border:1px solid var(--ink); border-radius:var(--r);}
   .pl-pats button.active{color:var(--tci,var(--ink));}
   #plClearBtn, #plAddAudioBtn, #plRecBtn{padding:4px 8px;}
-  #plRecBtn.recording{background:var(--c-red); color:#fff; animation:recPulse .9s ease-in-out infinite;}
+  #plRecBtn.recording, #plMicBtn.recording{background:var(--c-red); color:#fff; animation:recPulse .9s ease-in-out infinite;}
   @keyframes recPulse{0%,100%{opacity:1}50%{opacity:.55}}
   .arrange-lane.audio-lane{position:relative; background:repeating-linear-gradient(90deg,var(--bg) 0 calc(var(--bar-w) - 1px), #d9d8d2 calc(var(--bar-w) - 1px) var(--bar-w));}
   .audio-clip{position:absolute; top:4px; bottom:4px; background:var(--c-yellow); border:var(--bw) solid var(--ink); display:flex; align-items:center; padding:0 6px; overflow:hidden; cursor:pointer;}
@@ -528,6 +528,15 @@
       <div class="ctl"><button id="countInBtn" class="menu-btn on">ON</button></div>
     </div>
     <div class="menu-row">
+      <label>Mic latency comp.</label>
+      <div class="ctl">
+        <button id="latMinus" class="menu-btn">&minus;</button>
+        <span id="latDisplay" style="min-width:56px; text-align:center; font-family:var(--font-mono); font-weight:800;">0 ms</span>
+        <button id="latPlus" class="menu-btn">+</button>
+        <button id="latCalibrateBtn" class="menu-btn primary">Calibrate</button>
+      </div>
+    </div>
+    <div class="menu-row">
       <label>Export mixdown</label>
       <div class="ctl"><button id="exportBtn" class="menu-btn primary">Export WAV</button></div>
     </div>
@@ -695,6 +704,7 @@
         <button id="plDelLaneBtn" class="menu-btn" title="Remove the last track (must be empty)">&minus; Trk</button>
         <button id="plAddLaneBtn" class="menu-btn" title="Add a playlist track">+ Trk</button>
         <button id="plAutoBtn" class="menu-btn" title="Draw automation curves over the song">Auto</button>
+        <button id="plMicBtn" class="menu-btn" title="Record the mic live onto the playlist (latency-compensated)">&#127908; Mic</button>
         <button id="plRecBtn" class="menu-btn" title="Resample the master output into an audio clip">&#9679; Rec</button>
         <button id="plAddAudioBtn" class="menu-btn">+ Audio</button>
         <button id="plClearBtn" class="menu-btn">Clear all</button>
@@ -4014,6 +4024,114 @@
   document.getElementById("plRecBtn").addEventListener("click", () => {
     if(isRecordingMaster()) stopMasterRecording(); else startMasterRecording();
   });
+
+  /* =========================================================
+     LIVE MIC RECORDING onto the playlist, with latency compensation.
+     Wired mic/headset ≈ no latency; Bluetooth adds 100-300ms. The
+     "Calibrate" routine plays a click and listens for it through the mic
+     (loopback) to measure the real round-trip delay, then every take is
+     trimmed by that amount so the recording lines up with the song.
+  ========================================================== */
+  let recLatencyMs = 0;
+  try{ const v = parseInt(localStorage.getItem("strobe404_recLatency"),10); if(!isNaN(v)) recLatencyMs = Math.max(0, Math.min(600, v)); }catch(e){}
+  let micRecorder = null, micChunks = [], micStream = null, micStartBar = 0;
+  function isRecordingMic(){ return micRecorder && micRecorder.state === "recording"; }
+  function refreshLatUI(){ const el = document.getElementById("latDisplay"); if(el) el.textContent = recLatencyMs + " ms"; }
+  function setRecLatency(ms){ recLatencyMs = Math.max(0, Math.min(600, Math.round(ms))); try{ localStorage.setItem("strobe404_recLatency", recLatencyMs); }catch(e){} refreshLatUI(); }
+
+  async function getMicStream(){
+    // low-latency, unprocessed capture (no AGC/echo/noise so the take is raw)
+    return navigator.mediaDevices.getUserMedia({ audio: {
+      echoCancellation:false, autoGainControl:false, noiseSuppression:false, latency:0
+    }});
+  }
+  // returns a new AudioBuffer with the first `seconds` removed (latency comp)
+  function trimBufferStart(buf, seconds){
+    const drop = Math.max(0, Math.floor(seconds * buf.sampleRate));
+    if(drop <= 0 || drop >= buf.length) return buf;
+    const out = ctx.createBuffer(buf.numberOfChannels, buf.length - drop, buf.sampleRate);
+    for(let ch=0; ch<buf.numberOfChannels; ch++) out.copyToChannel(buf.getChannelData(ch).slice(drop), ch);
+    return out;
+  }
+  async function startMicRecording(){
+    ensureAudio();
+    if(typeof MediaRecorder === "undefined"){ uiAlert("Recording isn't available in this browser."); return; }
+    try{ micStream = await getMicStream(); }
+    catch(err){ uiAlert("Mic unavailable: " + err.message + "\n(In a native WebView the host app must grant mic permission.)"); return; }
+    micChunks = [];
+    micStartBar = songMode ? currentBar : 0;
+    try{ micRecorder = new MediaRecorder(micStream); }catch(e){ uiAlert("Could not start mic recorder: " + e.message); return; }
+    micRecorder.ondataavailable = (e) => { if(e.data && e.data.size) micChunks.push(e.data); };
+    micRecorder.onstop = async () => {
+      if(micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+      const blob = new Blob(micChunks, {type: micRecorder.mimeType || "audio/webm"});
+      micChunks = [];
+      try{
+        let buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+        if(recLatencyMs > 0) buf = trimBufferStart(buf, recLatencyMs/1000); // align to the song
+        if(buf.duration > 0.05) addAudioClipFromBuffer(buf, "mic " + new Date().toLocaleTimeString().replace(/:\d\d /," "), micStartBar, songLanes-1);
+      }catch(e){ uiAlert("Recording failed to decode: " + e.message); }
+      refreshMicUI();
+    };
+    micRecorder.start();
+    if(!playing) play(); // roll the song so you can play along
+    refreshMicUI();
+  }
+  function stopMicRecording(){ if(isRecordingMic()) micRecorder.stop(); }
+  function refreshMicUI(){ const b = document.getElementById("plMicBtn"); if(b) b.classList.toggle("recording", isRecordingMic()); }
+  document.getElementById("plMicBtn").addEventListener("click", () => { if(isRecordingMic()) stopMicRecording(); else startMicRecording(); });
+
+  // Loopback latency calibration: emit a click, listen for it on the mic,
+  // measure the round-trip delay (covers Bluetooth output+input latency).
+  async function calibrateLatency(){
+    ensureAudio();
+    const btn = document.getElementById("latCalibrateBtn");
+    let stream;
+    try{ stream = await getMicStream(); }
+    catch(err){ uiAlert("Mic unavailable: " + err.message); return; }
+    if(ctx.state === "suspended") await ctx.resume();
+    if(btn){ btn.textContent = "Listening…"; btn.disabled = true; }
+    const src = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
+    src.connect(analyser);
+    const data = new Uint8Array(analyser.fftSize);
+    // baseline noise
+    await new Promise(r => setTimeout(r, 250));
+    analyser.getByteTimeDomainData(data);
+    let baseline = 0; for(let i=0;i<data.length;i++) baseline = Math.max(baseline, Math.abs(data[i]-128)/128);
+    // emit a sharp click at a known time
+    const clickAt = ctx.currentTime + 0.12;
+    const osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.frequency.value = 1600; g.gain.setValueAtTime(0.0001, clickAt);
+    g.gain.exponentialRampToValueAtTime(0.9, clickAt + 0.001);
+    g.gain.exponentialRampToValueAtTime(0.0001, clickAt + 0.03);
+    osc.connect(g); g.connect(liveEngine ? liveEngine.masterGain : ctx.destination);
+    osc.start(clickAt); osc.stop(clickAt + 0.05);
+    const startT = clickAt;
+    const thresh = Math.max(0.12, baseline * 3);
+    let detected = -1;
+    const t0 = performance.now();
+    await new Promise(resolve => {
+      function poll(){
+        analyser.getByteTimeDomainData(data);
+        let peak = 0; for(let i=0;i<data.length;i++) peak = Math.max(peak, Math.abs(data[i]-128)/128);
+        if(peak >= thresh && ctx.currentTime > startT){ detected = ctx.currentTime; resolve(); return; }
+        if(performance.now() - t0 > 900){ resolve(); return; } // timeout
+        requestAnimationFrame(poll);
+      }
+      requestAnimationFrame(poll);
+    });
+    stream.getTracks().forEach(t => t.stop());
+    if(btn){ btn.textContent = "Calibrate"; btn.disabled = false; }
+    if(detected < 0){ uiAlert("Couldn't hear the click. Raise the volume / bring the mic closer and try again."); return; }
+    const rtMs = Math.round((detected - startT) * 1000);
+    setRecLatency(rtMs);
+    uiAlert("Measured round-trip latency: " + rtMs + " ms.\nTakes will be shifted by this to line up with the song.", "Calibration done");
+  }
+  document.getElementById("latCalibrateBtn").addEventListener("click", calibrateLatency);
+  document.getElementById("latMinus").addEventListener("click", () => setRecLatency(recLatencyMs - 5));
+  document.getElementById("latPlus").addEventListener("click", () => setRecLatency(recLatencyMs + 5));
+  refreshLatUI();
 
   const plAudioInput = document.createElement("input");
   plAudioInput.type = "file"; plAudioInput.accept = "audio/*"; plAudioInput.id = "plAudioInput"; plAudioInput.style.display = "none";

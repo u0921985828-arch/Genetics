@@ -650,6 +650,8 @@
         <span class="pl-lbl">Pattern</span>
         <div class="pl-pats" id="plPatPicker"></div>
         <div class="t-spacer"></div>
+        <button id="plDelLaneBtn" class="menu-btn" title="Remove the last track (must be empty)">&minus; Trk</button>
+        <button id="plAddLaneBtn" class="menu-btn" title="Add a playlist track">+ Trk</button>
         <button id="plAutoBtn" class="menu-btn" title="Draw automation curves over the song">Auto</button>
         <button id="plRecBtn" class="menu-btn" title="Resample the master output into an audio clip">&#9679; Rec</button>
         <button id="plAddAudioBtn" class="menu-btn">+ Audio</button>
@@ -3766,6 +3768,18 @@
   document.getElementById("plClearBtn").addEventListener("click", () => {
     if(!confirm("Clear the whole playlist (pattern + audio clips)?")) return;
     pushUndo(); arrClips = []; audioClips = []; renderArrangeLanes(); persistAudioClips(); saveProject();
+  });
+  const PL_MAX_LANES = 16;
+  document.getElementById("plAddLaneBtn").addEventListener("click", () => {
+    if(songLanes >= PL_MAX_LANES) return;
+    pushUndo(); songLanes++; renderArrangeView(); saveProject();
+  });
+  document.getElementById("plDelLaneBtn").addEventListener("click", () => {
+    if(songLanes <= 1) return;
+    const last = songLanes - 1;
+    const used = arrClips.some(c => c.lane === last) || audioClips.some(c => (c.lane||0) === last);
+    if(used){ alert("The last track has clips — move or delete them first."); return; }
+    pushUndo(); songLanes--; renderArrangeView(); saveProject();
   });
 
   /* ---- audio clips: + Audio button + drag-and-drop of audio files ---- */

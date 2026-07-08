@@ -289,8 +289,13 @@
   .pl-playline{position:absolute; top:22px; bottom:0; width:2px; background:var(--orange); z-index:6; pointer-events:none; display:none;}
 
   /* ===================== MIXER ===================== */
-  #mixerView{overflow-x:auto; touch-action:pan-x; padding:10px 8px; gap:7px; align-items:stretch; background:var(--bg-soft);}
-  .chstrip{flex:0 0 86px; background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); display:flex; flex-direction:column; align-items:center; padding:0 5px 6px; gap:4px; position:relative; overflow:hidden;}
+  #mixerView{flex-direction:column; background:var(--bg-soft);}
+  .mixer-bar{flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:5px 10px; background:var(--bg); border-bottom:1px solid var(--ink);}
+  .mixer-bar-lbl{font-size:8px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:var(--text-lo);}
+  #meterModeSeg{border:1px solid var(--ink);}
+  #meterModeSeg button.active{background:var(--orange); color:#fff;}
+  .mixer-strips{flex:1; min-height:0; display:flex; overflow-x:auto; touch-action:pan-x; padding:10px 8px; gap:7px; align-items:stretch; background:var(--bg-soft);}
+  .chstrip{flex:0 0 88px; background:var(--bg); border:var(--bw) solid var(--ink); border-radius:3px; display:flex; flex-direction:column; align-items:center; padding:0 5px 6px; gap:4px; position:relative; overflow:hidden;}
   .chstrip::before{content:""; display:block; width:calc(100% + 10px); margin:0 -5px 4px; height:8px; background:var(--tc,#ccc); border-bottom:var(--bw) solid var(--ink);}
   .chstrip.master{border-color:var(--ink);}
   .chstrip.master::before{background:var(--orange);}
@@ -309,10 +314,16 @@
   .chstrip.master .ch-fader::-webkit-slider-thumb{background:var(--orange);}
   /* 0 dB unity tick behind the fader */
   .ch-fader-wrap::after{content:""; position:absolute; left:2px; right:2px; top:35.6%; height:2px; background:var(--ink); opacity:.35; pointer-events:none;}
-  .ch-meter{flex:0 0 auto; width:9px; height:100%; display:flex; gap:1px;}
-  .ch-meter-ch{position:relative; flex:1 1 auto; background:var(--bg-soft2); overflow:hidden; border:1px solid var(--hair);}
-  .ch-meter-fill{position:absolute; left:0; right:0; bottom:0; background:linear-gradient(to top, var(--c-green) 0%, var(--c-green) 60%, var(--amber) 80%, var(--c-red) 100%); height:0%;}
-  .ch-meter-peak{position:absolute; left:0; right:0; height:2px; background:var(--ink); bottom:0;}
+  /* visor: switches between the VU meter and a mini spectrum analyser */
+  .ch-visor{flex:0 0 18px; height:100%; position:relative;}
+  .chstrip.master .ch-visor{flex:0 0 24px;}
+  .ch-meter{width:100%; height:100%; display:flex; gap:1px;}
+  .ch-visor.spectrum .ch-meter{display:none;}
+  .ch-spectrum{width:100%; height:100%; display:none; border:1px solid var(--hair); background:#101216;}
+  .ch-visor.spectrum .ch-spectrum{display:block;}
+  .ch-meter-ch{position:relative; flex:1 1 auto; background:#101216; overflow:hidden; border:1px solid var(--hair);}
+  .ch-meter-fill{position:absolute; left:0; right:0; bottom:0; background:linear-gradient(to top, #22c063 0%, #22c063 52%, var(--amber) 78%, #e0431f 100%); height:0%;}
+  .ch-meter-peak{position:absolute; left:0; right:0; height:2px; background:#fff; bottom:0;}
   .ch-db{font-size:9px; font-weight:800; height:13px; line-height:13px; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.2px; width:100%; text-align:center; background:var(--bg-soft2); border:1px solid var(--hair);}
   .ch-pan-wrap{width:100%; display:flex; flex-direction:column; align-items:center; gap:1px;}
   .ch-pan{-webkit-appearance:none; appearance:none; width:100%; height:14px; background:transparent; touch-action:none;}
@@ -4227,6 +4238,28 @@
      colour-mapped green -> yellow -> red via the CSS gradient.
   ========================================================== */
   const mixerViewEl = document.getElementById("mixerView");
+  let meterMode = "vu"; try{ if(localStorage.getItem("strobe404_meterMode") === "spectrum") meterMode = "spectrum"; }catch(e){}
+  // draws a mini spectrum analyser into a channel's visor canvas
+  function drawSpectrum(canvas, analyser){
+    if(!canvas || !analyser) return;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if(!w || !h) return;
+    const dpr = window.devicePixelRatio || 1;
+    if(canvas.width !== Math.round(w*dpr)){ canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr); }
+    const g = canvas.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
+    const bins = analyser.frequencyBinCount;
+    const data = new Uint8Array(bins); analyser.getByteFrequencyData(data);
+    const N = Math.max(8, Math.min(20, Math.floor(w/3)));
+    const bw = w / N;
+    for(let i=0;i<N;i++){
+      const lo = Math.floor(Math.pow(i/N, 1.7) * bins);
+      const hi = Math.max(lo+1, Math.floor(Math.pow((i+1)/N, 1.7) * bins));
+      let m = 0; for(let j=lo;j<hi && j<bins;j++) if(data[j] > m) m = data[j];
+      const v = m/255, bh = v*h;
+      g.fillStyle = v > 0.85 ? "#e0431f" : v > 0.6 ? "#f2b705" : "#22c063";
+      g.fillRect(i*bw + 0.5, h-bh, Math.max(1, bw-1), bh);
+    }
+  }
   const meterPeaks = {}; // key -> held peak amp 0..1, for smooth decay
   const meterHold  = {}; // key -> peak-hold amp 0..1 (slow-falling marker)
   const meterHoldT = {}; // key -> frames since the hold marker was set
@@ -4441,6 +4474,18 @@
 
   function renderMixer(){
     mixerViewEl.innerHTML = "";
+    const bar = document.createElement("div"); bar.className = "mixer-bar";
+    bar.innerHTML = `<span class="mixer-bar-lbl">Meter</span>
+      <div class="seg" id="meterModeSeg">
+        <button data-mm="vu" class="${meterMode==='vu'?'active':''}">VU</button>
+        <button data-mm="spectrum" class="${meterMode==='spectrum'?'active':''}">Spectrum</button>
+      </div>`;
+    bar.querySelectorAll("#meterModeSeg button").forEach(b => b.addEventListener("click", () => {
+      meterMode = b.dataset.mm; try{ localStorage.setItem("strobe404_meterMode", meterMode); }catch(e){}
+      renderMixer();
+    }));
+    mixerViewEl.appendChild(bar);
+    const stripsWrap = document.createElement("div"); stripsWrap.className = "mixer-strips";
     TRACKS.forEach((track, tIdx) => {
       const strip = document.createElement("div");
       strip.className = "chstrip";
@@ -4452,7 +4497,10 @@
         <div class="ch-db" data-dbkey="t${tIdx}">${fmtDb(gainToDb(track.vol))}</div>
         <div class="ch-fader-row">
           <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1000" step="1" value="${Math.round(gainToFaderPos(track.vol)*1000)}"></div>
-          <div class="ch-meter"><div class="ch-meter-ch"><div class="ch-meter-fill" data-key="t${tIdx}"></div><div class="ch-meter-peak" data-peakkey="t${tIdx}"></div></div></div>
+          <div class="ch-visor ${meterMode}">
+            <div class="ch-meter"><div class="ch-meter-ch"><div class="ch-meter-fill" data-key="t${tIdx}"></div><div class="ch-meter-peak" data-peakkey="t${tIdx}"></div></div></div>
+            <canvas class="ch-spectrum" data-speckey="t${tIdx}"></canvas>
+          </div>
         </div>
         <div class="ch-pan-wrap">
           <input type="range" class="ch-pan" min="-1" max="1" step="0.02" value="${pan}">
@@ -4512,7 +4560,7 @@
       bindKnob(strip.querySelector(".ch-verb-knob"), () => track.reverbSend, (v) => {
         ensureAudio(); track.reverbSend = v; updateTrackInsertFX(liveEngine, track, tIdx);
       });
-      mixerViewEl.appendChild(strip);
+      stripsWrap.appendChild(strip);
     });
     const masterStrip = document.createElement("div");
     masterStrip.className = "chstrip master";
@@ -4522,9 +4570,12 @@
       <div class="ch-db" data-dbkey="master">${fmtDb(gainToDb(masterVol))}</div>
       <div class="ch-fader-row">
         <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1000" step="1" value="${Math.round(gainToFaderPos(masterVol)*1000)}"></div>
-        <div class="ch-meter">
-          <div class="ch-meter-ch"><div class="ch-meter-fill" data-key="masterL"></div><div class="ch-meter-peak" data-peakkey="masterL"></div></div>
-          <div class="ch-meter-ch"><div class="ch-meter-fill" data-key="masterR"></div><div class="ch-meter-peak" data-peakkey="masterR"></div></div>
+        <div class="ch-visor ${meterMode}">
+          <div class="ch-meter">
+            <div class="ch-meter-ch"><div class="ch-meter-fill" data-key="masterL"></div><div class="ch-meter-peak" data-peakkey="masterL"></div></div>
+            <div class="ch-meter-ch"><div class="ch-meter-fill" data-key="masterR"></div><div class="ch-meter-peak" data-peakkey="masterR"></div></div>
+          </div>
+          <canvas class="ch-spectrum" data-speckey="master"></canvas>
         </div>
       </div>
       <div class="ch-gr" data-grkey="master" title="Master compressor gain reduction">GR 0.0</div>
@@ -4552,7 +4603,8 @@
       ensureAudio();
       liveEngine.reverbWet.gain.setTargetAtTime(v, liveEngine.ctx.currentTime, 0.01);
     });
-    mixerViewEl.appendChild(masterStrip);
+    stripsWrap.appendChild(masterStrip);
+    mixerViewEl.appendChild(stripsWrap);
     updateMixerMeters();
     // the strips get their real height only after this freshly-shown view
     // lays out, so redraw the knobs once on the next frame (a 0-height
@@ -4630,6 +4682,11 @@
       const gr = liveEngine.compressor.reduction; // <= 0 dB
       grEl.textContent = "GR " + (gr < -0.05 ? gr.toFixed(1) : "0.0");
       grEl.classList.toggle("active", gr < -0.5);
+    }
+    // spectrum visor mode: draw per-channel + master mini analysers
+    if(meterMode === "spectrum"){
+      TRACKS.forEach((track, tIdx) => drawSpectrum(document.querySelector(`.ch-spectrum[data-speckey="t${tIdx}"]`), liveEngine.tracks[tIdx].analyser));
+      drawSpectrum(document.querySelector('.ch-spectrum[data-speckey="master"]'), liveEngine.masterAnalyser);
     }
   }
 

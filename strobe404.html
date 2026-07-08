@@ -205,6 +205,9 @@
   #gridScroll{flex:1; overflow-x:auto; overflow-y:auto; touch-action:pan-x pan-y; background:var(--bg-soft);}
   .grid-inner{display:flex; flex-direction:column; min-width:max-content;}
   .step-row{height:46px; display:flex; align-items:center; border-bottom:1px solid var(--hair); padding:0 8px; background:var(--bg);}
+  .step-row:nth-child(even){background:var(--panel-soft);}
+  .step-row.selected{background:color-mix(in srgb, var(--tc) 9%, var(--bg));}
+  .track-header.selected{background:color-mix(in srgb, var(--tc) 12%, var(--bg));}
   .beat-group{display:flex; gap:4px; margin-right:8px; padding-right:8px; border-right:1px solid var(--hair);}
   .beat-group:last-child{border-right:none;}
   /* empty cells recede to a faint outline; only hits carry weight */
@@ -2691,6 +2694,7 @@
         <div class="track-controls">
           <div class="mini-btn mute ${track.mute?'on':''}" data-action="mute">M</div>
           <div class="mini-btn solo ${track.solo?'on':''}" data-action="solo">S</div>
+          <div class="mini-btn" data-action="piano" title="Open piano roll">PR</div>
           <div class="vol-track" data-action="vol"><div class="vol-fill" style="width:${track.vol*100}%"></div></div>
         </div>
       `;
@@ -2698,6 +2702,7 @@
         const action = e.target.getAttribute("data-action");
         if(action === "mute"){ pushUndo(); track.mute = !track.mute; renderTrackHeaders(); }
         else if(action === "solo"){ pushUndo(); track.solo = !track.solo; renderTrackHeaders(); }
+        else if(action === "piano"){ selectedTrackIdx = idx; openPianoRoll(idx); }
         else if(action === "vol"){
           pushUndo();
           const rect = e.target.getBoundingClientRect();
@@ -2706,6 +2711,7 @@
         } else {
           selectedTrackIdx = idx;
           renderTrackHeaders();
+          renderGrid();
           renderGraphBars();
         }
       });
@@ -2830,7 +2836,7 @@
     gridInnerEl.innerHTML = "";
     TRACKS.forEach((track, tIdx) => {
       const row = document.createElement("div");
-      row.className = "step-row";
+      row.className = "step-row" + (tIdx === selectedTrackIdx ? " selected" : "");
       row.style.setProperty("--tc", track.color);
       for(let g=0; g<STEPS_PER_TRACK/STEPS_PER_BEAT; g++){
         const group = document.createElement("div");

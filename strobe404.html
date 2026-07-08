@@ -328,6 +328,19 @@
   .eq-val{flex:0 0 34px; font-size:10px; font-weight:800; text-align:right; font-variant-numeric:tabular-nums; color:var(--ink);}
   .eq-flat{width:100%; margin-top:3px; padding:6px; font-size:10px; font-weight:800; text-transform:uppercase; background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r); cursor:pointer;}
   .eq-flat:active{background:var(--ink); color:#fff;}
+  /* in-app dialog system (replaces native confirm/prompt/alert) */
+  .modal-host{position:fixed; inset:0; z-index:120; display:none; align-items:center; justify-content:center; background:rgba(20,20,18,.44); padding:24px;}
+  .modal-host.open{display:flex;}
+  .modal-card{background:var(--bg); border:var(--bw) solid var(--ink); border-radius:6px; box-shadow:0 14px 44px rgba(0,0,0,.30); width:min(400px,92vw); padding:17px 17px 13px; display:flex; flex-direction:column; gap:11px;}
+  .modal-title{font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:var(--text-lo);}
+  .modal-msg{font-size:14px; font-weight:600; color:var(--ink); line-height:1.45; white-space:pre-wrap;}
+  .modal-input{font-size:14px; font-weight:700; padding:9px 11px; border:1px solid var(--ink); border-radius:4px; background:var(--bg-soft); color:var(--ink); width:100%;}
+  .modal-input:focus{outline:2px solid var(--orange); outline-offset:1px;}
+  .modal-actions{display:flex; justify-content:flex-end; gap:8px; margin-top:3px;}
+  .modal-btn{padding:8px 15px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; border:1px solid var(--ink); border-radius:4px; background:var(--bg); color:var(--ink); cursor:pointer;}
+  .modal-btn:active{background:var(--ink); color:#fff;}
+  .modal-btn.primary{background:var(--orange); color:#fff;}
+  .modal-btn.danger{background:var(--c-red); color:#fff;}
 
   /* ===================== PADS ===================== */
   #padsView{padding:10px; overflow-y:auto; touch-action:pan-y; background:var(--bg-soft);}
@@ -681,6 +694,18 @@
     <div id="padsView" class="view"></div>
 
   </div>
+  </div>
+</div>
+
+<div id="modalHost" class="modal-host">
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <div class="modal-title" id="modalTitle"></div>
+    <div class="modal-msg" id="modalMsg"></div>
+    <input id="modalInput" class="modal-input" style="display:none" autocomplete="off">
+    <div class="modal-actions">
+      <button id="modalCancel" class="modal-btn">Cancel</button>
+      <button id="modalOk" class="modal-btn primary">OK</button>
+    </div>
   </div>
 </div>
 
@@ -2355,9 +2380,9 @@
       const it = document.createElement("div"); it.className = "br-item";
       it.innerHTML = `<span class="dot" style="background:var(--amber)"></span><span>${preset.name}</span><span class="br-bpm">${preset.bpm}</span>`;
       const load = document.createElement("button"); load.className = "br-load"; load.textContent = "NEW";
-      load.addEventListener("click", (e) => {
+      load.addEventListener("click", async (e) => {
         e.stopPropagation();
-        if(confirm('Start "' + preset.name + '"? This replaces the current project.')) loadProjectPreset(preset);
+        if(await uiConfirm("Start “" + preset.name + "”? This replaces the current project.", {okLabel:"New project"})) loadProjectPreset(preset);
       });
       it.appendChild(load);
       browserBodyEl.appendChild(it);
@@ -2408,15 +2433,15 @@
     fillMenuEl.addEventListener("click", async (e) => {
       const a = e.target.getAttribute("data-a"); if(!a) return; closeFillMenu();
       if(a === "rename"){
-        const n = prompt("New name:", en.name);
+        const n = await uiPrompt("New project name", en.name, {title:"Rename"});
         if(n && n.trim()){ await saveProjectEntry({key:en.key, name:n.trim(), path:en.path, data:en.data, samples:en.samples, updatedAt:Date.now()}); renderBrowser(); }
       } else if(a === "move"){
-        const pth = prompt("Move to folder path:", en.path);
+        const pth = await uiPrompt("Move to folder path (use / for subfolders)", en.path, {title:"Move"});
         if(pth != null){ await saveProjectEntry({key:en.key, name:en.name, path:pth.trim(), data:en.data, samples:en.samples, updatedAt:Date.now()}); renderBrowser(); }
       } else if(a === "export"){
         await exportProjectEntry(en);
       } else if(a === "delete"){
-        if(confirm("Delete project \"" + en.name + "\"?")){ await deleteProjectEntry(en.key); renderBrowser(); }
+        if(await uiConfirm("Delete project “" + en.name + "”? This can't be undone.", {okLabel:"Delete", danger:true})){ await deleteProjectEntry(en.key); renderBrowser(); }
       }
     });
     document.body.appendChild(fillMenuEl);
@@ -2449,21 +2474,21 @@
       for(const k of Object.keys(payload.audioClips || {})){ try{ audioClips[k] = await (await fetch(payload.audioClips[k])).blob(); }catch(e){} }
       await saveProjectEntry({ name:payload.name || "Imported", path:payload.path || "", data:payload.data, samples, audioClips, updatedAt:Date.now() });
       renderBrowser();
-    }catch(err){ alert("Import failed: " + err.message); }
+    }catch(err){ uiAlert("Import failed: " + err.message); }
   }
   const projImportInput = document.createElement("input");
   projImportInput.type = "file"; projImportInput.accept = ".json,application/json"; projImportInput.style.display = "none";
   projImportInput.addEventListener("change", () => { const f = projImportInput.files[0]; projImportInput.value = ""; if(f) importProjectFile(f); });
   document.body.appendChild(projImportInput);
   async function saveCurrentProjectPrompt(){
-    const name = prompt("Project name:", "My Project");
+    const name = await uiPrompt("Project name", "My Project", {title:"Save project", okLabel:"Save"});
     if(name == null || !name.trim()) return;
-    const path = prompt("Folder path (optional, use / for subfolders):", "") || "";
+    const path = (await uiPrompt("Folder path (optional, use / for subfolders)", "", {title:"Save project", okLabel:"Save"})) || "";
     await saveProjectEntry({ name:name.trim(), path:path.trim(), data:serializeProject(), samples:currentSampleBlobs(), audioClips:currentAudioClipBlobs(), updatedAt:Date.now() });
     renderBrowser();
   }
-  function openProjectEntry(en){
-    if(!confirm("Open \"" + en.name + "\"? This replaces the current project.")) return;
+  async function openProjectEntry(en){
+    if(!(await uiConfirm("Open “" + en.name + "”? This replaces the current project.", {okLabel:"Open"}))) return;
     ensureAudio();
     loadFullProject(en.data, en.samples, en.audioClips);
     renderBrowser();
@@ -2477,6 +2502,52 @@
   });
 
   /* ---- slide-up menu sheet (secondary transport controls) ---- */
+  /* =========================================================
+     IN-APP DIALOGS -- own modal system replacing native
+     confirm/prompt/alert (which break the "pro software" feel).
+     All three return Promises; Enter confirms, Esc / backdrop cancels.
+  ========================================================== */
+  const modalHostEl = document.getElementById("modalHost");
+  const modalTitleEl = document.getElementById("modalTitle");
+  const modalMsgEl = document.getElementById("modalMsg");
+  const modalInputEl = document.getElementById("modalInput");
+  const modalOkEl = document.getElementById("modalOk");
+  const modalCancelEl = document.getElementById("modalCancel");
+  let modalResolve = null;
+  function openModal(opts){
+    return new Promise(resolve => {
+      modalResolve = resolve;
+      modalTitleEl.textContent = opts.title || "";
+      modalMsgEl.textContent = opts.message || "";
+      modalMsgEl.style.display = opts.message ? "" : "none";
+      if(opts.input){ modalInputEl.style.display = ""; modalInputEl.value = opts.defaultValue != null ? opts.defaultValue : ""; }
+      else modalInputEl.style.display = "none";
+      modalOkEl.textContent = opts.okLabel || "OK";
+      modalOkEl.classList.toggle("danger", !!opts.danger);
+      modalCancelEl.style.display = (opts.cancelLabel === null) ? "none" : "";
+      modalCancelEl.textContent = opts.cancelLabel || "Cancel";
+      modalHostEl.classList.add("open");
+      if(opts.input) setTimeout(() => { modalInputEl.focus(); modalInputEl.select(); }, 30);
+      else setTimeout(() => modalOkEl.focus(), 30);
+    });
+  }
+  function closeModal(result){
+    modalHostEl.classList.remove("open");
+    const r = modalResolve; modalResolve = null;
+    if(r) r(result);
+  }
+  modalOkEl.addEventListener("click", () => closeModal(modalInputEl.style.display === "none" ? true : modalInputEl.value));
+  modalCancelEl.addEventListener("click", () => closeModal(null));
+  modalHostEl.addEventListener("click", (e) => { if(e.target === modalHostEl) closeModal(null); });
+  window.addEventListener("keydown", (e) => {
+    if(!modalHostEl.classList.contains("open")) return;
+    if(e.key === "Escape"){ e.preventDefault(); closeModal(null); }
+    else if(e.key === "Enter"){ e.preventDefault(); modalOkEl.click(); }
+  }, true);
+  function uiAlert(message, title){ return openModal({title: title || "Notice", message, cancelLabel: null, okLabel: "OK"}); }
+  function uiConfirm(message, o){ o = o || {}; return openModal({title: o.title || "Confirm", message, okLabel: o.okLabel || "OK", cancelLabel: o.cancelLabel || "Cancel", danger: o.danger}).then(r => r === true); }
+  function uiPrompt(message, defaultValue, o){ o = o || {}; return openModal({title: o.title || "Rename", message, input: true, defaultValue, okLabel: o.okLabel || "OK"}).then(r => r === null ? null : String(r)); }
+
   const menuSheetEl = document.getElementById("menuSheet");
   const menuBackdropEl = document.getElementById("menuBackdrop");
   function toggleMenu(open){
@@ -2498,12 +2569,12 @@
   refreshCompMenuBtn();
 
   /* ---- project templates: New (empty) / Default ---- */
-  document.getElementById("newEmptyBtn").addEventListener("click", () => {
-    if(!confirm("Start a new EMPTY project? This clears the current one (undo won't bring it back).")) return;
+  document.getElementById("newEmptyBtn").addEventListener("click", async () => {
+    if(!(await uiConfirm("Start a new empty project? This clears the current one (undo won't bring it back).", {okLabel:"New empty", danger:true}))) return;
     ensureAudio(); newProject(false); toggleMenu(false);
   });
-  document.getElementById("loadDefaultBtn").addEventListener("click", () => {
-    if(!confirm("Reset to the DEFAULT project? This replaces the current one.")) return;
+  document.getElementById("loadDefaultBtn").addEventListener("click", async () => {
+    if(!(await uiConfirm("Reset to the default project? This replaces the current one.", {okLabel:"Reset"}))) return;
     ensureAudio(); newProject(true); toggleMenu(false);
   });
 
@@ -2681,8 +2752,9 @@
       renderGrid(); renderGraphBars();
     } else if(a === "rename"){
       const cur = patternNames[currentPattern] || ("Pattern " + (currentPattern+1));
-      const name = prompt("Pattern name:", cur);
-      if(name != null){ pushUndo(); patternNames[currentPattern] = name.trim() || cur; renderBrowser(); }
+      uiPrompt("Pattern name", cur, {title:"Rename pattern"}).then(name => {
+        if(name != null){ pushUndo(); patternNames[currentPattern] = name.trim() || cur; renderBrowser(); }
+      });
     }
   }
 
@@ -3137,7 +3209,7 @@
     try{
       stream = await navigator.mediaDevices.getUserMedia({audio:true});
     }catch(err){
-      alert("Mic unavailable: " + err.message + "\n(In a native WebView the host app must grant mic permission.)");
+      uiAlert("Mic unavailable: " + err.message + "\n(In a native WebView the host app must grant mic permission.)");
       return;
     }
     recStream = stream;
@@ -3154,7 +3226,7 @@
         setTrackSample(track, buffer, "mic-recording");
         track.sampleLoopStart = 0; track.sampleLoopEnd = 1;
       }catch(err){
-        alert("Could not decode recording: " + err.message);
+        uiAlert("Could not decode recording: " + err.message);
       }
       mediaRecorder = null;
       if(selectedTrackIdx === recTrackIdx) renderEditView();
@@ -3777,8 +3849,8 @@
     renderPlPatPicker();
   }
   document.querySelectorAll("#plToolSeg button").forEach(x => x.addEventListener("click", () => { plTool = x.dataset.tool; syncPlToolUI(); }));
-  document.getElementById("plClearBtn").addEventListener("click", () => {
-    if(!confirm("Clear the whole playlist (pattern + audio clips)?")) return;
+  document.getElementById("plClearBtn").addEventListener("click", async () => {
+    if(!(await uiConfirm("Clear the whole playlist (pattern + audio clips)?", {okLabel:"Clear all", danger:true}))) return;
     pushUndo(); arrClips = []; audioClips = []; renderArrangeLanes(); persistAudioClips(); saveProject();
   });
   // playlist ruler zoom: cycles the per-bar width so more or fewer bars fit
@@ -4830,7 +4902,7 @@
       await shareOrDownloadWav(blob);
     }catch(err){
       console.error("WAV export failed", err);
-      alert("Export failed: " + err.message);
+      uiAlert("Export failed: " + err.message);
     }finally{
       exportBtnEl.disabled = false;
       exportBtnEl.textContent = prevLabel;

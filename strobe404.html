@@ -2224,8 +2224,9 @@
       if(songMode && stepIndexForSchedule === 0){
         triggerAudioClipsForBar(liveEngine, currentBar, nextStepTime);
       }
-      // song automation: ramp continuous params to this step's curve value
-      if(songMode) applySongAutomation(liveEngine, barForThisStep, stepIndexForSchedule, nextStepTime);
+      // automation: ramp continuous params to this step's curve value. In SONG
+      // it follows the arrangement bar; in PAT it loops over the pattern length.
+      applySongAutomation(liveEngine, barForThisStep, stepIndexForSchedule, nextStepTime);
       scheduleStep(liveEngine, stepIndexForSchedule, triggerTime, barForThisStep);
       stepQueue.push({step:stepIndexForSchedule, bar:barForThisStep, time:triggerTime});
       nextStepTime += stepDuration();
@@ -2276,10 +2277,18 @@
     else if(p === "pan" && chain.panner) chain.panner.pan.setTargetAtTime(v*2 - 1, time, tc);
     else if(p === "cutoff") chain.insertFilter.frequency.setTargetAtTime(200 + v*9000, time, tc);
     else if(p === "send") chain.reverbSendGain.gain.setTargetAtTime(v, time, tc);
+    else if(p === "eqlo" && chain.eqLo) chain.eqLo.gain.setTargetAtTime(v*30 - 15, time, tc);
+    else if(p === "eqmid" && chain.eqMid) chain.eqMid.gain.setTargetAtTime(v*30 - 15, time, tc);
+    else if(p === "eqhi" && chain.eqHi) chain.eqHi.gain.setTargetAtTime(v*30 - 15, time, tc);
+    else if(p === "drive" && chain.insertDrive) chain.insertDrive.curve = makeDriveCurve(v); // stepped (waveshaper curve)
   }
   // Apply every automated target for a given song position at `time`.
   function applySongAutomation(engine, bar, stepIdx, time){
-    const barPos = bar + stepIdx / STEPS_PER_TRACK;
+    // SONG: absolute arrangement bar. PAT: wrap over the pattern length so the
+    // automation curve loops with the looping pattern.
+    let b = bar;
+    if(!songMode){ const pl = Math.max(1, Math.round(patternBeats() / 4)); b = bar % pl; }
+    const barPos = b + stepIdx / STEPS_PER_TRACK;
     for(const id in automation){
       const v = songAutoValueAt(id, barPos);
       if(v != null) applyAutoParam(engine, id, v, time);
@@ -2304,7 +2313,11 @@
     TRACKS.forEach((t, i) => {
       list.push({id:`track.${i}.vol`,    label:`${t.name} · Volume`});
       list.push({id:`track.${i}.pan`,    label:`${t.name} · Pan`});
-      list.push({id:`track.${i}.cutoff`, label:`${t.name} · Cutoff`});
+      list.push({id:`track.${i}.cutoff`, label:`${t.name} · Filter Cutoff`});
+      list.push({id:`track.${i}.eqlo`,   label:`${t.name} · EQ Low`});
+      list.push({id:`track.${i}.eqmid`,  label:`${t.name} · EQ Mid`});
+      list.push({id:`track.${i}.eqhi`,   label:`${t.name} · EQ High`});
+      list.push({id:`track.${i}.drive`,  label:`${t.name} · Drive`});
       list.push({id:`track.${i}.send`,   label:`${t.name} · Reverb Send`});
     });
     return list;
@@ -4964,6 +4977,7 @@
     if(id === "master.reverb") return Math.round(v*100) + "%";
     if(/\.pan$/.test(id)) return panLabel(v*2 - 1);
     if(/\.cutoff$/.test(id)) return Math.round(200 + v*9000) + "Hz";
+    if(/\.eq(lo|mid|hi)$/.test(id)) return fmtDb(v*30 - 15);
     return Math.round(v*100) + "%";
   }
   function buildAutoTargetOptions(){
@@ -5039,12 +5053,12 @@
   // jump straight into the automation editor for a given target (used by the
   // mixer "A" button, so you can automate a channel param from its strip).
   function openAutomationFor(targetId){
-    autoTarget = targetId;
-    if(!songMode) setSongMode(true);   // automation only plays back in SONG mode
+    autoTarget = targetId;   // automation now plays in both PAT and SONG
     openAutomation();
   }
+  const CH_AUTO_PARAMS = ["vol","pan","cutoff","eqlo","eqmid","eqhi","drive","send"];
   function channelHasAutomation(tIdx){
-    return ["vol","pan","cutoff","send"].some(p => (automation[`track.${tIdx}.${p}`] || []).length);
+    return CH_AUTO_PARAMS.some(p => (automation[`track.${tIdx}.${p}`] || []).length);
   }
   // small chooser from a channel's "A" button: pick which param to automate
   function showAutomateMenu(anchorEl, tIdx){
@@ -5054,7 +5068,7 @@
     fillMenuEl.className = "fill-menu";
     fillMenuEl.style.top = rect.bottom + 6 + "px";
     fillMenuEl.style.left = rect.left + "px";
-    const params = [["vol","Volume"],["pan","Pan"],["cutoff","Cutoff"],["send","Reverb Send"]];
+    const params = [["vol","Volume"],["pan","Pan"],["cutoff","Filter Cutoff"],["eqlo","EQ Low"],["eqmid","EQ Mid"],["eqhi","EQ High"],["drive","Drive"],["send","Reverb Send"]];
     fillMenuEl.innerHTML = params.map(([p,lbl]) =>
       `<button data-p="${p}">${lbl}${(automation[`track.${tIdx}.${p}`]||[]).length ? "  •" : ""}</button>`).join("");
     fillMenuEl.addEventListener("click", (e) => {

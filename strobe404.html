@@ -938,7 +938,7 @@
   }
   function buildProjectData(withDemo){
     return {
-      v:1, bpm:120, songBars:8, songLanes:6,
+      v:1, bpm:120, songBars:8, songLanes:6, barWidth:64,
       arrClips: withDemo ? [{lane:0, start:0, len:8, pat:1}] : [],
       currentPattern:0, songMode:false, swingAmount:0, compressorOn:true, masterVol:0.9,
       patternNames:new Array(PATTERN_COUNT).fill(""), stepCount:16, beatRes:4, automation:{},
@@ -995,6 +995,7 @@
   // for `len` bars; audio clips live in audioClips (with a `lane`). Multiple
   // pattern clips overlapping a bar layer their patterns.
   let songLanes = 6;
+  let barWidth = 64; // playlist zoom: px per bar (persisted with the project)
   let arrClips = [{ id: 1, lane:0, start:0, len:8, pat:1 }]; // default: P1 across the song (overwritten on project load)
   let arrClipSeq = 2;
   function patternsAtBar(bar){
@@ -1032,7 +1033,7 @@
   function serializeProject(){
     return {
       v: 1,
-      bpm, songBars, songLanes, currentPattern, songMode, swingAmount, compressorOn, patternNames,
+      bpm, songBars, songLanes, barWidth, currentPattern, songMode, swingAmount, compressorOn, patternNames,
       stepCount: STEPS_PER_TRACK, beatRes: STEPS_PER_BEAT, masterVol,
       delaySync: document.getElementById("delaySync").value,
       lfoSync: document.getElementById("lfoSync").value,
@@ -1273,6 +1274,7 @@
     bpm = data.bpm || 120;
     songBars = data.songBars || 8;
     songLanes = (data.songLanes > 0 && data.songLanes <= 16) ? data.songLanes : 6;
+    barWidth = (data.barWidth >= 24 && data.barWidth <= 200) ? data.barWidth : 64;
     // arrangement clips: use new arrClips, else migrate legacy songArrangement
     if(Array.isArray(data.arrClips)){
       arrClips = data.arrClips.filter(c => c && c.pat).map(c => ({
@@ -3550,7 +3552,6 @@
   /* =========================================================
      ARRANGEMENT / PLAYLIST VIEW
   ========================================================== */
-  let barWidth = 64;
   const arrangeHeadersEl = document.getElementById("arrangeHeaders");
   const arrangeRulerEl = document.getElementById("arrangeRuler");
   const arrangeLanesEl = document.getElementById("arrangeLanes");
@@ -3698,6 +3699,8 @@
 
   /* ---- clip create / move / resize (document-level drag) ---- */
   let plDrag = null;
+  const plPointers = new Map();      // active touch points over the timeline
+  let pinching = false, pinchStartDist = 0, pinchStartW = 64;
   function plBarAtX(clientX){
     const r = arrangeLanesEl.getBoundingClientRect();
     return Math.floor((clientX - r.left) / barWidth);
@@ -3708,6 +3711,7 @@
   }
   function onLanePointerDown(e, laneIdx, laneEl){
     if(e.target.closest(".pl-clip")) return;   // clip handlers deal with clips
+    if(pinching || plPointers.size >= 2) return; // two-finger pinch, not a paint
     if(plTool === "erase") return;
     e.preventDefault();
     const bar = Math.max(0, Math.min(songBars-1, plBarAtX(e.clientX)));
@@ -3780,17 +3784,18 @@
   // playlist ruler zoom: cycles the per-bar width so more or fewer bars fit
   const PL_ZOOMS = [36, 48, 64, 88, 120, 160];
   function setBarWidth(w){
-    barWidth = Math.max(PL_ZOOMS[0], Math.min(w, PL_ZOOMS[PL_ZOOMS.length-1]));
+    barWidth = Math.max(PL_ZOOMS[0], Math.min(Math.round(w), PL_ZOOMS[PL_ZOOMS.length-1]));
     renderArrangeView();
   }
   document.getElementById("plZoomIn").addEventListener("click", () => {
-    const i = PL_ZOOMS.findIndex(z => z >= barWidth);
-    setBarWidth(PL_ZOOMS[Math.min((i<0?PL_ZOOMS.length-1:i)+1, PL_ZOOMS.length-1)]);
+    const i = PL_ZOOMS.findIndex(z => z > barWidth);
+    setBarWidth(PL_ZOOMS[i < 0 ? PL_ZOOMS.length-1 : i]);
+    saveProject();
   });
   document.getElementById("plZoomOut").addEventListener("click", () => {
-    const i = PL_ZOOMS.findIndex(z => z >= barWidth);
-    const cur = i < 0 ? PL_ZOOMS.length-1 : i;
-    setBarWidth(PL_ZOOMS[Math.max(cur-1, 0)]);
+    let i = PL_ZOOMS.length - 1; while(i > 0 && PL_ZOOMS[i] >= barWidth) i--;
+    setBarWidth(PL_ZOOMS[i]);
+    saveProject();
   });
 
   const PL_MAX_LANES = 16;
@@ -3899,6 +3904,37 @@
     const lane = plLaneAtY(e.clientY);
     for(const f of files) await addAudioClipFromFile(f, bar, lane);
   });
+
+  /* ---- pinch-to-zoom the playlist ruler (two-finger touch) ---- */
+  arrangeScrollDropEl.addEventListener("pointerdown", (e) => {
+    if(e.pointerType !== "touch") return;
+    plPointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    if(plPointers.size === 2){
+      // a paint may have started on the first finger -- cancel/undo it
+      if(plDrag){ if(plDrag.isNew) arrClips = arrClips.filter(c => c !== plDrag.clip); plDrag = null; window.removeEventListener("pointermove", onPlDragMove); renderArrangeLanes(); }
+      pinching = true;
+      const pts = [...plPointers.values()];
+      pinchStartDist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y) || 1;
+      pinchStartW = barWidth;
+    }
+  });
+  arrangeScrollDropEl.addEventListener("pointermove", (e) => {
+    if(!plPointers.has(e.pointerId)) return;
+    plPointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    if(pinching && plPointers.size >= 2){
+      e.preventDefault();
+      const pts = [...plPointers.values()];
+      const dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y) || 1;
+      setBarWidth(pinchStartW * dist / pinchStartDist);
+    }
+  }, {passive:false});
+  function plEndPointer(e){
+    if(!plPointers.has(e.pointerId)) return;
+    plPointers.delete(e.pointerId);
+    if(plPointers.size < 2 && pinching){ pinching = false; saveProject(); }
+  }
+  arrangeScrollDropEl.addEventListener("pointerup", plEndPointer);
+  arrangeScrollDropEl.addEventListener("pointercancel", plEndPointer);
 
   /* =========================================================
      PIANO ROLL OVERLAY

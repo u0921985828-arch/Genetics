@@ -476,6 +476,8 @@
   .fill-menu button{background:var(--bg); border:none; color:var(--ink); padding:10px 16px; font-family:var(--font); font-size:12px; font-weight:700; text-align:left; border-bottom:1px solid var(--ink); white-space:nowrap; cursor:pointer;}
   .fill-menu button:last-child{border-bottom:none;}
   .fill-menu button:active{background:var(--ink); color:var(--bg);}
+  .fill-menu button[disabled]{opacity:.4; pointer-events:none;}
+  .fill-menu-sep{height:var(--bw); background:var(--ink);}
 
   ::-webkit-scrollbar{height:10px; width:10px;}
   ::-webkit-scrollbar-track{background:var(--bg);}
@@ -609,6 +611,8 @@
         <button id="gridResBtn" class="menu-btn">Grid 1/16</button>
         <span class="pl-lbl">Swing</span>
         <input type="range" id="swingRange" class="swing-range" min="0" max="100" value="0">
+        <div class="t-spacer" style="flex:1"></div>
+        <button id="addTrackBtn" class="menu-btn" title="Add a channel to the rack">+ Ch</button>
       </div>
       <div class="seqTop">
         <div id="trackHeaders"></div>
@@ -1080,6 +1084,35 @@
     return (0.299*r+0.587*g+0.114*b)/255 < 0.52 ? "#ffffff" : "#141414";
   }
   TRACKS.forEach((track, i) => { track.color = TRACK_COLORS[i % TRACK_COLORS.length]; track.ink = inkFor(track.color); });
+  // keep per-channel colours spread across the palette after any add/remove/move
+  function recolorTracks(){ TRACKS.forEach((track, i) => { track.color = TRACK_COLORS[i % TRACK_COLORS.length]; track.ink = inkFor(track.color); }); }
+
+  // Build a fresh channel object with the full default field set (mirrors the
+  // literal table + the per-track defaults loop above). Used by "Add channel"
+  // and when a loaded project has more channels than the current rack.
+  function makeTrack(name, type, wave){
+    const t = {
+      name: name || "CHAN", type: type || "synth", patterns: makePatterns(),
+      vol:0.75, mute:false, solo:false, wave: wave || "saw",
+      adsr:{a:0.005,d:0.12,s:0.4,r:0.14}, cutoff:0.7, delaySend:0.0, cutGroup:null, hold:0.02, poly:true,
+      fxDrive:false, fxDriveAmt:0.4, fxFilterOn:false, fxFilterCutoff:0.7,
+      reverbSend:0.0, pan:0, eq:{lo:0,mid:0,hi:0},
+      arp:{on:false, dir:"up", octaves:1, rate:"1/16"},
+      sampleBuffer:null, samplePeaks:null, sampleName:"", sampleLoopStart:0, sampleLoopEnd:1,
+      sampleLoopOn:false, sampleSlices:[], duckSource:null, duckAmount:0.7
+    };
+    t.autoCutoff = t.patterns.map(() => new Array(STEPS_PER_TRACK).fill(null));
+    return t;
+  }
+  // grow / shrink TRACKS to exactly n channels (used when loading a project
+  // whose channel count differs from the current rack).
+  function resizeTracks(n){
+    n = Math.max(1, Math.min(32, n|0));
+    while(TRACKS.length < n) TRACKS.push(makeTrack("CHAN " + (TRACKS.length+1)));
+    while(TRACKS.length > n) TRACKS.pop();
+    recolorTracks();
+  }
+
   // pattern-clip colours for the playlist (one per pattern number)
   const PATTERN_COLORS = ["#141414","#ea6a1e","#b5731f","#4a4a46"];
   // optional per-pattern names (shown in the browser's Patterns list)
@@ -1171,6 +1204,7 @@
       arrClips: arrClips.map(c => ({ lane:c.lane, start:c.start, len:c.len, pat:c.pat, mute:c.mute?1:0 })),
       audioClips: audioClips.map(c => ({ name:c.name, bar:c.bar, lane:c.lane||0, gain:c.gain, durationBars:c.durationBars, mute:c.mute?1:0 })),
       tracks: TRACKS.map(t => ({
+        name:t.name, type:t.type,
         vol:t.vol, pan:t.pan, eq:t.eq, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
         delaySend:t.delaySend, cutGroup:t.cutGroup, hold:t.hold, poly:t.poly,
         fxDrive:t.fxDrive, fxDriveAmt:t.fxDriveAmt, fxFilterOn:t.fxFilterOn, fxFilterCutoff:t.fxFilterCutoff,
@@ -1400,7 +1434,10 @@
   // and re-apply this same shape). Does NOT re-render or touch audio --
   // callers do that via refreshAllFromState().
   function applyProjectData(data){
-    if(!data || data.v !== 1 || !Array.isArray(data.tracks) || data.tracks.length !== TRACKS.length) return false;
+    if(!data || data.v !== 1 || !Array.isArray(data.tracks) || !data.tracks.length) return false;
+    // channel count can differ from the current rack (dynamic channels) --
+    // grow/shrink TRACKS to match before restoring per-channel fields.
+    if(data.tracks.length !== TRACKS.length) resizeTracks(data.tracks.length);
     bpm = data.bpm || 120;
     songBars = data.songBars || 8;
     songLanes = (data.songLanes > 0 && data.songLanes <= 16) ? data.songLanes : 6;
@@ -1451,6 +1488,7 @@
       const s = data.tracks[i];
       if(!s) return;
       Object.assign(t, {
+        name:(s.name != null ? s.name : t.name), type:(s.type != null ? s.type : t.type),
         vol:s.vol, pan:(s.pan != null ? s.pan : 0), eq:(s.eq && typeof s.eq === "object" ? {lo:s.eq.lo||0, mid:s.eq.mid||0, hi:s.eq.hi||0} : {lo:0,mid:0,hi:0}), mute:s.mute, solo:s.solo, wave:s.wave, adsr:s.adsr, cutoff:s.cutoff,
         delaySend:s.delaySend, cutGroup:s.cutGroup, hold:s.hold, poly:s.poly,
         fxDrive:s.fxDrive, fxDriveAmt:s.fxDriveAmt, fxFilterOn:s.fxFilterOn, fxFilterCutoff:s.fxFilterCutoff,
@@ -1523,6 +1561,9 @@
   // Re-render every view and re-push audio-graph parameters from the
   // current state -- called after an undo/redo restore.
   function refreshAllFromState(){
+    // channel count may have changed (add/remove/move, undo, project load) --
+    // rebuild the audio graph so liveEngine.tracks lines up with TRACKS.
+    if(liveEngine && liveEngine.tracks.length !== TRACKS.length) rebuildAudioGraph();
     if(liveEngine){
       TRACKS.forEach((t, i) => updateTrackInsertFX(liveEngine, t, i));
       applyCompressorState(liveEngine);
@@ -2753,6 +2794,69 @@
   const trackHeadersEl = document.getElementById("trackHeaders");
   const gridInnerEl = document.getElementById("gridInner");
 
+  /* =========================================================
+     DYNAMIC RACK -- add / remove / reorder channels
+     The audio graph is rebuilt from the current TRACKS array whenever
+     the channel set changes; per-channel state (colour, side-chain
+     source indices, selection) is kept consistent across the change.
+  ========================================================== */
+  function rebuildAudioGraph(){
+    if(!ctx || !liveEngine) return;
+    const old = liveEngine;
+    try{ old.compressor && old.compressor.disconnect(); }catch(e){}
+    try{ old.masterGain && old.masterGain.disconnect(); }catch(e){}
+    try{ (old.tracks||[]).forEach(ch => { try{ ch.insertIn.disconnect(); }catch(e){} }); }catch(e){}
+    liveEngine = buildEngine(ctx);
+    updateDelayTime();
+    applySideChain(liveEngine);
+  }
+  function refreshRackViews(){
+    renderTrackHeaders(); renderGrid(); renderGraphBars(); renderEditView();
+    if(document.getElementById("mixerView").classList.contains("active")) renderMixer();
+    if(document.getElementById("padsView").classList.contains("active")) renderPads();
+  }
+  function addTrack(){
+    if(TRACKS.length >= 32) return;
+    pushUndo();
+    TRACKS.push(makeTrack("CHAN " + (TRACKS.length + 1)));
+    recolorTracks();
+    rebuildAudioGraph();
+    selectedTrackIdx = TRACKS.length - 1;
+    refreshRackViews();
+    saveProject();
+  }
+  async function removeTrack(idx){
+    if(TRACKS.length <= 1) return;
+    if(!(await uiConfirm("Delete channel “" + (TRACKS[idx] ? TRACKS[idx].name : "") + "”?", {okLabel:"Delete", danger:true}))) return;
+    pushUndo();
+    // remap side-chain source references around the removed index
+    TRACKS.forEach(t => {
+      if(t.duckSource == null) return;
+      if(t.duckSource === idx) t.duckSource = null;
+      else if(t.duckSource > idx) t.duckSource -= 1;
+    });
+    TRACKS.splice(idx, 1);
+    recolorTracks();
+    if(selectedTrackIdx >= TRACKS.length) selectedTrackIdx = TRACKS.length - 1;
+    rebuildAudioGraph();
+    refreshRackViews();
+    saveProject();
+  }
+  function moveTrack(idx, delta){
+    const j = idx + delta;
+    if(j < 0 || j >= TRACKS.length) return;
+    pushUndo();
+    const remap = i => i === idx ? j : (i === j ? idx : i);
+    TRACKS.forEach(t => { if(t.duckSource != null && t.duckSource >= 0) t.duckSource = remap(t.duckSource); });
+    const tmp = TRACKS[idx]; TRACKS[idx] = TRACKS[j]; TRACKS[j] = tmp;
+    recolorTracks();
+    if(selectedTrackIdx === idx) selectedTrackIdx = j;
+    else if(selectedTrackIdx === j) selectedTrackIdx = idx;
+    rebuildAudioGraph();
+    refreshRackViews();
+    saveProject();
+  }
+
   function renderTrackHeaders(){
     trackHeadersEl.innerHTML = "";
     TRACKS.forEach((track, idx) => {
@@ -2762,7 +2866,7 @@
       row.innerHTML = `
         <div class="track-name-row">
           <div class="track-name">${track.name}</div>
-          <div class="hold-hint">⋮</div>
+          <div class="hold-hint" data-action="menu" title="Channel options">⋮</div>
         </div>
         <div class="track-controls">
           <div class="mini-btn mute ${track.mute?'on':''}" data-action="mute">M</div>
@@ -2775,6 +2879,7 @@
         const action = e.target.getAttribute("data-action");
         if(action === "mute"){ pushUndo(); track.mute = !track.mute; renderTrackHeaders(); }
         else if(action === "solo"){ pushUndo(); track.solo = !track.solo; renderTrackHeaders(); }
+        else if(action === "menu"){ showFillMenu(idx, row); }
         else if(action === "piano"){ selectedTrackIdx = idx; openPianoRoll(idx); }
         else if(action === "vol"){
           pushUndo();
@@ -2836,16 +2941,31 @@
       <button data-m="clear">Clear</button>
       <button data-m="copy">Copy steps</button>
       <button data-m="paste">Paste steps${stepClipboard ? "" : " (empty)"}</button>
+      <div class="fill-menu-sep"></div>
+      <button data-m="rename">Rename channel</button>
+      <button data-m="up"${trackIdx === 0 ? " disabled" : ""}>Move up</button>
+      <button data-m="down"${trackIdx === TRACKS.length-1 ? " disabled" : ""}>Move down</button>
+      <button data-m="add">Add channel</button>
+      <button data-m="del"${TRACKS.length <= 1 ? " disabled" : ""}>Delete channel</button>
     `;
-    fillMenuEl.addEventListener("click", (e) => {
+    fillMenuEl.addEventListener("click", async (e) => {
       const m = e.target.getAttribute("data-m");
-      if(!m) return;
+      if(!m || e.target.hasAttribute("disabled")) return;
       if(m === "copy") copyTrackSteps(trackIdx);
       else if(m === "paste") pasteTrackSteps(trackIdx);
+      else if(m === "rename"){ closeFillMenu(); const nm = await uiPrompt("Channel name", TRACKS[trackIdx].name); if(nm){ pushUndo(); TRACKS[trackIdx].name = nm.toUpperCase().slice(0,12); refreshRackViews(); saveProject(); } return; }
+      else if(m === "up"){ closeFillMenu(); moveTrack(trackIdx, -1); return; }
+      else if(m === "down"){ closeFillMenu(); moveTrack(trackIdx, 1); return; }
+      else if(m === "add"){ closeFillMenu(); ensureAudio(); addTrack(); return; }
+      else if(m === "del"){ closeFillMenu(); removeTrack(trackIdx); return; }
       else fillSteps(trackIdx, m);
       closeFillMenu();
     });
     document.body.appendChild(fillMenuEl);
+    // clamp within the viewport so taller channel menus never fall off-screen
+    const mr = fillMenuEl.getBoundingClientRect();
+    if(mr.bottom > window.innerHeight - 8) fillMenuEl.style.top = Math.max(8, window.innerHeight - 8 - mr.height) + "px";
+    if(mr.right > window.innerWidth - 8) fillMenuEl.style.left = Math.max(8, rect.left - mr.width - 6) + "px";
     setTimeout(() => document.addEventListener("pointerdown", outsideFillMenuHandler, true), 0);
   }
 
@@ -3803,6 +3923,8 @@
     const next = GRID_RES[(idx + 1) % GRID_RES.length];
     resizePatterns(next.res, patternBeats());
   });
+  const addTrackBtn = document.getElementById("addTrackBtn");
+  if(addTrackBtn) addTrackBtn.addEventListener("click", () => { ensureAudio(); addTrack(); });
   refreshGridUI();
 
   const LANE_H = 44;

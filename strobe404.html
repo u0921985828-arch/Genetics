@@ -459,6 +459,7 @@
     </div>
 
     <div class="t-readout"><span class="val" id="posDisplay">1.1</span><span class="cap">bar</span></div>
+    <div class="t-readout" title="Elapsed / total time of the playlist"><span class="val" id="timeDisplay" style="font-size:12px;">0:00</span><span class="cap" id="timeTotal">/ 0:00</span></div>
 
     <div class="seg">
       <button id="btnPatMode" class="active">PAT</button>
@@ -680,10 +681,10 @@
         <span class="pl-lbl">Tool</span>
         <div class="seg" id="plToolSeg">
           <button data-tool="paint" class="active">Paint</button>
+          <button data-tool="cut">Cut</button>
           <button data-tool="erase">Erase</button>
         </div>
-        <span class="pl-lbl">Pattern</span>
-        <div class="pl-pats" id="plPatPicker"></div>
+        <span class="pl-lbl" id="plPatLbl">Pat 1</span>
         <span class="pl-lbl">Zoom</span>
         <div class="seg" id="plZoomSeg">
           <button id="plZoomOut" title="Zoom out — more bars fit">&minus;</button>
@@ -1047,6 +1048,15 @@
     for(const c of arrClips){ if(c.pat && bar >= c.start && bar < c.start + c.len && out.indexOf(c.pat-1) < 0) out.push(c.pat-1); }
     return out;
   }
+  // last bar that holds any content -- the song loops over this, and the
+  // timeline always renders a few empty bars past it so it feels endless.
+  function contentEndBar(){
+    let end = 0;
+    for(const c of arrClips) end = Math.max(end, c.start + c.len);
+    for(const c of audioClips) end = Math.max(end, (c.bar||0) + Math.max(1, c.durationBars||1));
+    return end;
+  }
+  let songLoopBars = 8; // playback loop length (= content end), set at play()
   // FL-style audio clips dropped onto the playlist. In-memory (buffers
   // aren't JSON); each {id,name,buffer,bar,gain}. Played in SONG mode at
   // the start of their bar.
@@ -2036,7 +2046,7 @@
         // one full 16-step loop = one bar in the arrangement timeline;
         // in PAT mode there's no "song" to advance through, so keep the
         // bar/position readout parked on bar 1 while it loops
-        currentBar = songMode ? (currentBar + 1) % songBars : 0;
+        currentBar = songMode ? (currentBar + 1) % Math.max(1, songLoopBars) : 0;
       }
     }
   }
@@ -2174,6 +2184,7 @@
     playing = true;
     stepIndexForSchedule = 0;
     currentBar = 0;
+    songLoopBars = Math.max(1, contentEndBar()); // loop over the actual content
     let startAt = ctx.currentTime + 0.06;
     // count-in: one bar (4 beats) of clicks before the sequence starts
     if(metroOn && countInOn){
@@ -2199,6 +2210,23 @@
     document.getElementById("playBtn").innerHTML = "&#9658;";
     currentStep = -1;
     renderPlayhead();
+    updateTimeReadout();
+  }
+
+  function fmtTime(s){ s = Math.max(0, s); const m = Math.floor(s/60), sec = Math.floor(s%60); return m + ":" + String(sec).padStart(2,"0"); }
+  // toolbar chronometer: elapsed vs total playlist duration
+  function updateTimeReadout(){
+    const td = document.getElementById("timeDisplay"), tt = document.getElementById("timeTotal");
+    if(!td) return;
+    const barSec = barSeconds();
+    const total = Math.max(1, contentEndBar()) * barSec;
+    let elapsed = 0;
+    if(playing){
+      const stepInBar = ((currentStep % STEPS_PER_TRACK) + STEPS_PER_TRACK) % STEPS_PER_TRACK;
+      elapsed = (songMode ? uiPlayingBar : 0) * barSec + stepInBar * stepDuration();
+    }
+    td.textContent = fmtTime(elapsed);
+    tt.textContent = "/ " + fmtTime(total);
   }
 
   let uiPlayingBar = 0;
@@ -2214,6 +2242,7 @@
       const beat = Math.floor((currentStep % STEPS_PER_TRACK) / STEPS_PER_BEAT) + 1;
       document.getElementById("posDisplay").textContent = (uiPlayingBar+1) + "." + beat;
     }
+    updateTimeReadout();
     if(barChanged && document.getElementById("arrangeView").classList.contains("active")) renderArrangePlayhead();
     if(document.getElementById("mixerView").classList.contains("active")) updateMixerMeters();
     requestAnimationFrame(uiLoop);
@@ -2268,21 +2297,28 @@
   const patDisplayEl = document.getElementById("patDisplay");
   function setPattern(p){
     currentPattern = ((p % PATTERN_COUNT) + PATTERN_COUNT) % PATTERN_COUNT;
+    // unified selector: the top PAT readout picks the pattern for BOTH the
+    // sequencer/piano-roll edit AND the one painted into the playlist.
+    if(typeof plPaintPattern !== "undefined") plPaintPattern = currentPattern + 1;
     patDisplayEl.textContent = currentPattern + 1;
+    const pc = PATTERN_COLORS[currentPattern % PATTERN_COLORS.length];
+    patDisplayEl.style.color = pc;
     renderGrid();
     renderGraphBars();
     if(document.getElementById("pianoRollOverlay").classList.contains("open")) renderPianoRoll();
+    if(document.getElementById("arrangeView").classList.contains("active") && typeof renderPlPatPicker === "function") renderPlPatPicker();
   }
   document.getElementById("patUp").addEventListener("click", () => setPattern(currentPattern+1));
   document.getElementById("patDown").addEventListener("click", () => setPattern(currentPattern-1));
   (function(){
     const patReadout = document.getElementById("patReadout");
-    let lpTimer = null, moved = false;
-    patReadout.addEventListener("pointerdown", () => { moved = false; lpTimer = setTimeout(() => showPatternMenu(patReadout), 420); });
+    let lpTimer = null, moved = false, lpFired = false;
+    // tap cycles to the next pattern (quick select for edit + playlist paint);
+    // long-press opens the pattern menu (duplicate / clear / rename)
+    patReadout.addEventListener("pointerdown", () => { moved = false; lpFired = false; lpTimer = setTimeout(() => { lpFired = true; showPatternMenu(patReadout); }, 420); });
     patReadout.addEventListener("pointermove", () => { moved = true; });
     ["pointerup","pointerleave","pointercancel"].forEach(evt => patReadout.addEventListener(evt, () => clearTimeout(lpTimer)));
-    // a plain tap also opens the menu (small target, hard to long-press)
-    patReadout.addEventListener("click", () => { if(!moved) showPatternMenu(patReadout); });
+    patReadout.addEventListener("click", () => { if(!moved && !lpFired) setPattern(currentPattern + 1); });
   })();
 
   function setSongMode(v){
@@ -3649,15 +3685,18 @@
   const arrangeInnerEl = document.getElementById("arrangeInner");
   const songLenDisplayEl = document.getElementById("songLenDisplay");
 
+  // The playlist length is now automatic (endless): it always shows a few
+  // empty bars past the last clip, growing as you paint further out.
+  function autoGrowSongBars(){
+    const n = Math.max(16, contentEndBar() + 8);
+    const changed = n !== songBars;
+    songBars = n;
+    if(songLenDisplayEl) songLenDisplayEl.textContent = songBars;
+    // keep the ruler in sync when the length grows mid-edit (paint/drag)
+    if(changed && arrangeRulerEl) renderArrangeRuler();
+  }
   document.getElementById("songLenField").addEventListener("click", () => {
-    // cycle common song lengths -- always a whole number of bars, never
-    // an arbitrary fraction, so the arrangement stays step-clock aligned
-    const options = [4,8,16,32,64];
-    const next = options[(options.indexOf(songBars)+1) % options.length];
-    songBars = next;
-    songLenDisplayEl.textContent = songBars;
-    renderArrangeView();
-    saveProject();
+    uiAlert("Playlist length is automatic — it grows endlessly as you add clips.", "Playlist");
   });
 
   const stepLenBtn = document.getElementById("stepLenBtn");
@@ -3756,6 +3795,7 @@
   }
 
   function renderArrangeLanes(){
+    if(typeof autoGrowSongBars === "function") autoGrowSongBars();
     arrangeLanesEl.innerHTML = "";
     arrangeLanesEl.style.setProperty("--bar-w", barWidth+"px");
     const laneW = songBars * barWidth;
@@ -3781,11 +3821,12 @@
   }
 
   function renderArrangeView(){
-    songLenDisplayEl.textContent = songBars;
+    autoGrowSongBars();
     renderPlPatPicker();
     renderArrangeHeaders();
     renderArrangeRuler();
     renderArrangeLanes();
+    if(typeof updateTimeReadout === "function") updateTimeReadout();
   }
 
   /* ---- clip create / move / resize (document-level drag) ---- */
@@ -3818,6 +3859,20 @@
     e.preventDefault(); e.stopPropagation();
     ensureAudio();
     if(plTool === "erase"){ pushUndo(); removeClip(clip); renderArrangeLanes(); saveProject(); return; }
+    if(plTool === "cut"){
+      // split a pattern clip at the tapped bar into two independent clips
+      if(clip.pat){
+        const cutBar = plBarAtX(e.clientX);
+        if(cutBar > clip.start && cutBar < clip.start + clip.len){
+          pushUndo();
+          const rightLen = clip.start + clip.len - cutBar;
+          clip.len = cutBar - clip.start;
+          arrClips.push({ id: arrClipSeq++, lane: clip.lane, start: cutBar, len: rightLen, pat: clip.pat });
+          renderArrangeLanes(); saveProject();
+        }
+      }
+      return;
+    }
     // audio clips can't be resized (length is tied to the buffer)
     if(mode === "resize" && !clip.pat) mode = "move";
     pushUndo();
@@ -3849,19 +3904,15 @@
     saveProject();
   }
 
-  /* ---- playlist tools: paint/erase + pattern picker + clear ---- */
+  /* ---- playlist tools: paint / cut / erase; pattern comes from the top selector ---- */
   let plTool = "paint", plPaintPattern = 1;
-  const plPatPickerEl = document.getElementById("plPatPicker");
+  // shows which pattern the Paint tool will stamp (driven by the top PAT
+  // selector -- one place selects both the edited and the painted pattern).
   function renderPlPatPicker(){
-    plPatPickerEl.innerHTML = "";
-    for(let p=1;p<=PATTERN_COUNT;p++){
-      const b = document.createElement("button");
-      b.textContent = "P" + p;
-      const pc = PATTERN_COLORS[(p-1) % PATTERN_COLORS.length];
-      if(p === plPaintPattern){ b.classList.add("active"); b.style.background = pc; b.style.setProperty("--tci", inkFor(pc)); b.style.borderColor = "var(--ink)"; }
-      b.addEventListener("click", () => { plPaintPattern = p; plTool = "paint"; syncPlToolUI(); });
-      plPatPickerEl.appendChild(b);
-    }
+    const lbl = document.getElementById("plPatLbl");
+    if(!lbl) return;
+    lbl.textContent = "Pat " + plPaintPattern;
+    lbl.style.color = PATTERN_COLORS[(plPaintPattern-1) % PATTERN_COLORS.length];
   }
   function syncPlToolUI(){
     document.querySelectorAll("#plToolSeg button").forEach(x => x.classList.toggle("active", x.dataset.tool === plTool));
@@ -4906,7 +4957,7 @@
     const sr = ctx ? ctx.sampleRate : 44100;
     const dur = stepDuration();
     const barDur = dur * STEPS_PER_TRACK;
-    const totalBars = songMode ? songBars : 1;
+    const totalBars = songMode ? Math.max(1, contentEndBar()) : 1;
     const tailSeconds = 2.0; // let release/delay/reverb tails ring out past the last step
     const totalSamples = Math.ceil((barDur * totalBars + tailSeconds) * sr);
 

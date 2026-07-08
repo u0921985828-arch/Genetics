@@ -383,6 +383,10 @@
   .ch-btn-row{display:flex; gap:4px;}
   .ch-fx-row{display:flex; gap:3px; width:100%;}
   .ch-fx-row .mini-btn{flex:1; width:auto; min-width:0;}
+  .ch-out-row{display:flex; width:100%;}
+  .ch-out{flex:1; width:auto; min-width:0; font-size:8px; letter-spacing:.2px;}
+  .chstrip.bus{border-color:var(--amber);}
+  .chstrip.bus .ch-name{color:var(--amber);}
   .ch-fx-label{font-size:8px; color:var(--text-dim); letter-spacing:.4px; text-align:center; width:100%; text-transform:uppercase; font-weight:800;}
   .ch-verb-knob, .master-verb-knob{width:100%; height:32px; flex:0 0 32px; touch-action:none;}
   .ch-gr{font-size:8px; font-weight:800; width:100%; text-align:center; color:var(--text-dim); letter-spacing:.3px; height:11px; line-height:11px;}
@@ -1002,6 +1006,7 @@
     track.fxDrive = false; track.fxDriveAmt = 0.4;
     track.fxFilterOn = false; track.fxFilterCutoff = 0.7;
     track.reverbSend = 0.0;
+    track.out = "master"; // mixer output routing: "master" | "A" | "B"
     track.pan = 0; // mixer channel pan, -1 (L) .. +1 (R)
     track.eq = {lo:0, mid:0, hi:0}; // 3-band channel EQ, dB (-15..+15)
     track.arp = {on:false, dir:"up", octaves:1, rate:"1/16"};
@@ -1099,7 +1104,7 @@
       vol:0.75, mute:false, solo:false, wave: wave || "saw",
       adsr:{a:0.005,d:0.12,s:0.4,r:0.14}, cutoff:0.7, delaySend:0.0, cutGroup:null, hold:0.02, poly:true,
       fxDrive:false, fxDriveAmt:0.4, fxFilterOn:false, fxFilterCutoff:0.7,
-      reverbSend:0.0, pan:0, eq:{lo:0,mid:0,hi:0},
+      reverbSend:0.0, pan:0, eq:{lo:0,mid:0,hi:0}, out:"master",
       arp:{on:false, dir:"up", octaves:1, rate:"1/16"},
       sampleBuffer:null, samplePeaks:null, sampleName:"", sampleLoopStart:0, sampleLoopEnd:1,
       sampleLoopOn:false, sampleSlices:[], duckSource:null, duckAmount:0.7
@@ -1182,6 +1187,10 @@
   let autoBaseReverb = 0.9;      // reverb-wet base captured at play() to restore on stop
   let masterVol = 0.9;     // master fader linear gain (0 dB = 1.0), persisted
   let compressorOn = true; // master-bus compressor toggle, shared by live + export
+  // mixer sub-mix buses: channels can route their output to Bus A / Bus B
+  // instead of straight to Master; each bus has its own fader into Master.
+  const BUS_NAMES = ["A","B"];
+  let busVol = {A:0.9, B:0.9};
   let metroOn = false;     // metronome click on each beat
   let countInOn = true;    // one-bar count-in before playback (when metro on)
   let metroLevel = 0.5;    // click volume
@@ -1200,7 +1209,7 @@
     return {
       v: 1,
       bpm, songBars, songLanes, barWidth, currentPattern, songMode, swingAmount, compressorOn, patternNames,
-      stepCount: STEPS_PER_TRACK, beatRes: STEPS_PER_BEAT, masterVol,
+      stepCount: STEPS_PER_TRACK, beatRes: STEPS_PER_BEAT, masterVol, busVol: {...busVol},
       delaySync: document.getElementById("delaySync").value,
       lfoSync: document.getElementById("lfoSync").value,
       automation,
@@ -1211,7 +1220,7 @@
         vol:t.vol, pan:t.pan, eq:t.eq, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
         delaySend:t.delaySend, cutGroup:t.cutGroup, hold:t.hold, poly:t.poly,
         fxDrive:t.fxDrive, fxDriveAmt:t.fxDriveAmt, fxFilterOn:t.fxFilterOn, fxFilterCutoff:t.fxFilterCutoff,
-        reverbSend:t.reverbSend, arp:t.arp, patterns:t.patterns, autoCutoff:t.autoCutoff,
+        reverbSend:t.reverbSend, out:t.out, arp:t.arp, patterns:t.patterns, autoCutoff:t.autoCutoff,
         sampleName:t.sampleName, sampleLoopStart:t.sampleLoopStart, sampleLoopEnd:t.sampleLoopEnd,
         sampleLoopOn:t.sampleLoopOn, sampleSlices:t.sampleSlices,
         duckSource:t.duckSource, duckAmount:t.duckAmount
@@ -1476,6 +1485,8 @@
     swingAmount = data.swingAmount || 0;
     compressorOn = data.compressorOn !== false;
     masterVol = data.masterVol != null ? data.masterVol : 0.9;
+    busVol = {A:0.9, B:0.9};
+    if(data.busVol && typeof data.busVol === "object") BUS_NAMES.forEach(n => { if(isFinite(data.busVol[n])) busVol[n] = Math.max(0, Math.min(2, +data.busVol[n])); });
     // song automation: sanitize into {targetId: [{b,v}...]} sorted by bar
     automation = {};
     if(data.automation && typeof data.automation === "object"){
@@ -1495,7 +1506,7 @@
         vol:s.vol, pan:(s.pan != null ? s.pan : 0), eq:(s.eq && typeof s.eq === "object" ? {lo:s.eq.lo||0, mid:s.eq.mid||0, hi:s.eq.hi||0} : {lo:0,mid:0,hi:0}), mute:s.mute, solo:s.solo, wave:s.wave, adsr:s.adsr, cutoff:s.cutoff,
         delaySend:s.delaySend, cutGroup:s.cutGroup, hold:s.hold, poly:s.poly,
         fxDrive:s.fxDrive, fxDriveAmt:s.fxDriveAmt, fxFilterOn:s.fxFilterOn, fxFilterCutoff:s.fxFilterCutoff,
-        reverbSend:s.reverbSend, arp:s.arp, patterns:s.patterns, autoCutoff:s.autoCutoff,
+        reverbSend:s.reverbSend, out:(s.out === "A" || s.out === "B" ? s.out : "master"), arp:s.arp, patterns:s.patterns, autoCutoff:s.autoCutoff,
         sampleName:s.sampleName || "", sampleLoopStart:s.sampleLoopStart != null ? s.sampleLoopStart : 0,
         sampleLoopEnd:s.sampleLoopEnd != null ? s.sampleLoopEnd : 1, sampleLoopOn:!!s.sampleLoopOn,
         sampleSlices:Array.isArray(s.sampleSlices) ? s.sampleSlices : [],
@@ -1568,7 +1579,8 @@
     // rebuild the audio graph so liveEngine.tracks lines up with TRACKS.
     if(liveEngine && liveEngine.tracks.length !== TRACKS.length) rebuildAudioGraph();
     if(liveEngine){
-      TRACKS.forEach((t, i) => updateTrackInsertFX(liveEngine, t, i));
+      TRACKS.forEach((t, i) => { updateTrackInsertFX(liveEngine, t, i); connectChannelOut(liveEngine, i); });
+      applyBusVols(liveEngine);
       applyCompressorState(liveEngine);
       applySideChain(liveEngine);
       updateDelayTime();
@@ -1726,6 +1738,17 @@
     if(!p || Math.abs(p) < 0.02) return "C";
     return (p < 0 ? "L" : "R") + Math.round(Math.abs(p)*100);
   }
+  // (re)route a channel's output to Master or its chosen sub-mix bus
+  function connectChannelOut(engine, i){
+    const chain = engine && engine.tracks[i]; if(!chain || !chain.outGain) return;
+    try{ chain.outGain.disconnect(); }catch(e){}
+    const outN = (TRACKS[i] && TRACKS[i].out) || "master";
+    chain.outGain.connect((outN !== "master" && engine.busGains && engine.busGains[outN]) ? engine.busGains[outN] : engine.masterGain);
+  }
+  function applyBusVols(engine){
+    if(!engine || !engine.busGains) return;
+    BUS_NAMES.forEach(n => engine.busGains[n].gain.setTargetAtTime(busVol[n], engine.ctx.currentTime, 0.01));
+  }
 
   // Master-bus compressor is always in the graph; "off" just relaxes it
   // to unity (threshold 0dB, ratio 1:1) instead of rewiring the graph.
@@ -1775,6 +1798,16 @@
     engine.reverbBus.connect(engine.reverbNode);
     engine.reverbNode.connect(engine.reverbWet);
     engine.reverbWet.connect(engine.masterGain);
+
+    // sub-mix buses: each has a fader gain into Master + its own analyser so
+    // the mixer can meter it. Channels routed here sum through the bus fader.
+    engine.busGains = {}; engine.busAnalysers = {};
+    BUS_NAMES.forEach(n => {
+      const g = actx.createGain(); g.gain.value = busVol[n];
+      const an = actx.createAnalyser(); an.fftSize = 256;
+      g.connect(engine.masterGain); g.connect(an);
+      engine.busGains[n] = g; engine.busAnalysers[n] = an;
+    });
 
     // master-bus compressor: cheap, always-on safety net that glues the
     // mix together and stops multi-voice peaks from clipping -- sits
@@ -1849,7 +1882,12 @@
       if(chain.panner){ tail.connect(chain.panner); tail = chain.panner; chain.panner.pan.value = track.pan || 0; }
       tail.connect(chain.channelGain);
       chain.channelGain.connect(chain.duckGain);
-      chain.duckGain.connect(engine.masterGain);
+      // duckGain -> outGain -> [Master or a sub-mix bus]; reverb send is a
+      // parallel global send to Master, independent of the output routing.
+      chain.outGain = actx.createGain(); chain.outGain.gain.value = 1;
+      chain.duckGain.connect(chain.outGain);
+      const outN = track.out || "master";
+      chain.outGain.connect((outN !== "master" && engine.busGains[outN]) ? engine.busGains[outN] : engine.masterGain);
       chain.duckGain.connect(chain.reverbSendGain);
       chain.reverbSendGain.connect(engine.reverbBus);
       chain.insertIn.connect(chain.analyser);
@@ -5049,6 +5087,37 @@
     setTimeout(() => document.addEventListener("pointerdown", eqOutsideHandler, true), 0);
   }
 
+  // a sub-mix bus strip: fader into Master + its own meter. Channels routed
+  // to this bus (via their OUT button) sum through this fader.
+  function makeBusStrip(n){
+    const strip = document.createElement("div");
+    strip.className = "chstrip bus";
+    const v = busVol[n];
+    strip.innerHTML = `
+      <div class="ch-name">BUS ${n}</div>
+      <div class="ch-clip" data-key="bus${n}" title="Bus ${n} output level (peak dBFS) — tap to reset clip">&minus;&infin;</div>
+      <div class="ch-db" data-dbkey="bus${n}">${fmtDb(gainToDb(v))}</div>
+      <div class="ch-fader-row">
+        <div class="ch-fader-wrap"><input type="range" class="ch-fader" min="0" max="1000" step="1" value="${Math.round(gainToFaderPos(v)*1000)}"></div>
+        <div class="ch-visor ${meterMode}">
+          <div class="ch-meter"><div class="ch-meter-ch"><div class="ch-meter-fill" data-key="bus${n}"></div><div class="ch-meter-peak" data-peakkey="bus${n}"></div></div></div>
+          <canvas class="ch-spectrum" data-speckey="bus${n}"></canvas>
+        </div>
+      </div>
+      <span class="ch-fx-label">&#9656; MASTER</span>
+    `;
+    const db = strip.querySelector(`[data-dbkey="bus${n}"]`);
+    strip.querySelector(".ch-fader").addEventListener("input", (e) => {
+      ensureAudio();
+      busVol[n] = dbToGain(faderPosToDb(parseInt(e.target.value,10)/1000));
+      db.textContent = fmtDb(gainToDb(busVol[n]));
+      if(liveEngine && liveEngine.busGains) liveEngine.busGains[n].gain.setTargetAtTime(busVol[n], liveEngine.ctx.currentTime, 0.01);
+    });
+    strip.querySelector(".ch-fader").addEventListener("change", () => { pushUndo(); saveProject(); });
+    strip.querySelector(`.ch-clip[data-key="bus${n}"]`).addEventListener("click", (e) => { meterClip["bus"+n] = false; e.target.classList.remove("lit"); });
+    return strip;
+  }
+
   function renderMixer(){
     mixerViewEl.innerHTML = "";
     const bar = document.createElement("div"); bar.className = "mixer-bar";
@@ -5093,6 +5162,7 @@
           <button class="mini-btn fx ${eqActive(track)?'on':''}" data-a="eq" title="3-band EQ">EQ</button>
           <button class="mini-btn ${channelHasAutomation(tIdx)?'on':''}" data-a="auto" title="Automate this channel">A</button>
         </div>
+        <div class="ch-out-row"><button class="mini-btn ch-out ${track.out&&track.out!=='master'?'on':''}" data-a="out" title="Output routing: Master / Bus A / Bus B">&#9656; ${track.out&&track.out!=='master'?('BUS '+track.out):'MST'}</button></div>
         <span class="ch-fx-label">VERB SEND</span>
         <canvas class="ch-verb-knob"></canvas>
       `;
@@ -5138,11 +5208,21 @@
       strip.querySelector('[data-a="auto"]').addEventListener("click", (e) => {
         showAutomateMenu(e.target, tIdx);
       });
+      strip.querySelector('[data-a="out"]').addEventListener("click", (e) => {
+        ensureAudio(); pushUndo();
+        const order = ["master","A","B"];
+        track.out = order[(order.indexOf(track.out || "master") + 1) % order.length];
+        connectChannelOut(liveEngine, tIdx);
+        e.target.innerHTML = "&#9656; " + (track.out === "master" ? "MST" : "BUS " + track.out);
+        e.target.classList.toggle("on", track.out !== "master");
+        saveProject();
+      });
       bindKnob(strip.querySelector(".ch-verb-knob"), () => track.reverbSend, (v) => {
         ensureAudio(); track.reverbSend = v; updateTrackInsertFX(liveEngine, track, tIdx);
       });
       stripsWrap.appendChild(strip);
     });
+    BUS_NAMES.forEach(n => stripsWrap.appendChild(makeBusStrip(n)));
     const masterStrip = document.createElement("div");
     masterStrip.className = "chstrip master";
     masterStrip.innerHTML = `
@@ -5249,6 +5329,11 @@
       driveMeter(key, readPeak(liveEngine.tracks[tIdx].analyser));
       showLevel(key, document.querySelector(`.ch-clip[data-key="${key}"]`));
     });
+    if(liveEngine.busAnalysers) BUS_NAMES.forEach(n => {
+      const key = "bus"+n;
+      driveMeter(key, readPeak(liveEngine.busAnalysers[n]));
+      showLevel(key, document.querySelector(`.ch-clip[data-key="${key}"]`));
+    });
     driveMeter("masterL", readPeak(liveEngine.masterAnalyserL || liveEngine.masterAnalyser));
     driveMeter("masterR", readPeak(liveEngine.masterAnalyserR || liveEngine.masterAnalyser));
     const clipM = document.querySelector('.ch-clip[data-key="master"]');
@@ -5267,6 +5352,7 @@
     // spectrum visor mode: draw per-channel + master mini analysers
     if(meterMode === "spectrum"){
       TRACKS.forEach((track, tIdx) => drawSpectrum(document.querySelector(`.ch-spectrum[data-speckey="t${tIdx}"]`), liveEngine.tracks[tIdx].analyser));
+      if(liveEngine.busAnalysers) BUS_NAMES.forEach(n => drawSpectrum(document.querySelector(`.ch-spectrum[data-speckey="bus${n}"]`), liveEngine.busAnalysers[n]));
       drawSpectrum(document.querySelector('.ch-spectrum[data-speckey="master"]'), liveEngine.masterAnalyser);
     }
   }

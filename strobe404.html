@@ -118,6 +118,12 @@
   #menuSheet.open{transform:translateY(0);}
   .menu-sheet-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:2px;}
   .menu-sheet-title{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:var(--text-lo);}
+  .menu-sheet-note{font-size:10px; color:var(--text-lo); font-weight:700; line-height:1.4; padding:0 2px 4px;}
+  /* Rack context toolbar (pattern length / grid / swing live here now) */
+  #rackTools{flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:4px 8px; background:var(--bg); border-bottom:1px solid var(--ink); overflow-x:auto;}
+  #rackTools::-webkit-scrollbar{display:none;}
+  #rackTools .menu-btn{padding:4px 8px; font-size:10px; letter-spacing:.3px; border:1px solid var(--ink);}
+  #rackTools .swing-range{width:96px; height:18px; flex:0 0 auto;}
   #menuBackdrop{position:fixed; inset:0; z-index:39; background:rgba(0,0,0,.35); opacity:0; pointer-events:none; transition:opacity .2s ease;}
   #menuBackdrop.open{opacity:1; pointer-events:auto;}
   .menu-row{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 10px; border:var(--bw) solid var(--ink);}
@@ -504,10 +510,7 @@
         <button id="loadDefaultBtn" class="menu-btn primary">Default</button>
       </div>
     </div>
-    <div class="menu-row">
-      <label>Swing</label>
-      <div class="ctl"><input type="range" id="swingRange" class="swing-range" min="0" max="100" value="0"></div>
-    </div>
+    <div class="menu-sheet-note">Pattern length, grid &amp; swing live in the Rack toolbar · the master compressor is the “C” on the mixer master.</div>
     <div class="menu-row">
       <label>Delay Sync</label>
       <div class="ctl"><select class="sync-select" id="delaySync"></select></div>
@@ -515,18 +518,6 @@
     <div class="menu-row">
       <label>LFO Sync</label>
       <div class="ctl"><select class="sync-select" id="lfoSync"></select></div>
-    </div>
-    <div class="menu-row">
-      <label>Song Length (bars)</label>
-      <div class="ctl"><button id="songLenField" class="menu-btn"><span id="songLenDisplay">8</span> bars</button></div>
-    </div>
-    <div class="menu-row">
-      <label>Pattern Length</label>
-      <div class="ctl"><button id="stepLenBtn" class="menu-btn">1 bar</button></div>
-    </div>
-    <div class="menu-row">
-      <label>Grid (beat division)</label>
-      <div class="ctl"><button id="gridResBtn" class="menu-btn">Grid 1/16</button></div>
     </div>
     <div class="menu-row">
       <label>Metronome</label>
@@ -537,11 +528,7 @@
       <div class="ctl"><button id="countInBtn" class="menu-btn on">ON</button></div>
     </div>
     <div class="menu-row">
-      <label>Master Compressor</label>
-      <div class="ctl"><button id="compMenuBtn" class="menu-btn on">ON</button></div>
-    </div>
-    <div class="menu-row">
-      <label>Export</label>
+      <label>Export mixdown</label>
       <div class="ctl"><button id="exportBtn" class="menu-btn primary">Export WAV</button></div>
     </div>
   </div>
@@ -559,6 +546,14 @@
   <div id="main">
 
     <div id="seqView" class="view">
+      <div id="rackTools">
+        <span class="pl-lbl">Pattern</span>
+        <button id="stepLenBtn" class="menu-btn">1 bar</button>
+        <span class="pl-lbl">Grid</span>
+        <button id="gridResBtn" class="menu-btn">Grid 1/16</button>
+        <span class="pl-lbl">Swing</span>
+        <input type="range" id="swingRange" class="swing-range" min="0" max="100" value="0">
+      </div>
       <div class="seqTop">
         <div id="trackHeaders"></div>
         <div id="gridScroll">
@@ -2620,14 +2615,15 @@
   menuBackdropEl.addEventListener("click", () => toggleMenu(false));
   document.getElementById("menuCloseBtn").addEventListener("click", () => toggleMenu(false));
 
+  // Master compressor is now toggled from the mixer master ("C"); the menu
+  // control was removed. refreshCompMenuBtn is a no-op kept for old callers.
   const compMenuBtn = document.getElementById("compMenuBtn");
-  function refreshCompMenuBtn(){ compMenuBtn.classList.toggle("on", compressorOn); compMenuBtn.textContent = compressorOn ? "ON" : "OFF"; }
-  compMenuBtn.addEventListener("click", () => {
-    ensureAudio();
-    compressorOn = !compressorOn;
-    applyCompressorState(liveEngine);
-    refreshCompMenuBtn();
-  });
+  function refreshCompMenuBtn(){ if(compMenuBtn){ compMenuBtn.classList.toggle("on", compressorOn); compMenuBtn.textContent = compressorOn ? "ON" : "OFF"; } }
+  if(compMenuBtn){
+    compMenuBtn.addEventListener("click", () => {
+      ensureAudio(); compressorOn = !compressorOn; applyCompressorState(liveEngine); refreshCompMenuBtn();
+    });
+  }
   refreshCompMenuBtn();
 
   /* ---- project templates: New (empty) / Default ---- */
@@ -3702,9 +3698,7 @@
     // keep the ruler in sync when the length grows mid-edit (paint/drag)
     if(changed && arrangeRulerEl) renderArrangeRuler();
   }
-  document.getElementById("songLenField").addEventListener("click", () => {
-    uiAlert("Playlist length is automatic — it grows endlessly as you add clips.", "Playlist");
-  });
+  // (Song Length control removed — the playlist length is automatic now.)
 
   const stepLenBtn = document.getElementById("stepLenBtn");
   const gridResBtn = document.getElementById("gridResBtn");
@@ -5054,7 +5048,7 @@
   // in the transport controls that aren't touched by the renders above
   setPattern(currentPattern);
   setSongMode(songMode);
-  songLenDisplayEl.textContent = songBars;
+  if(songLenDisplayEl) songLenDisplayEl.textContent = songBars;
 
   // autosave: periodic + on backgrounding/close, since there's no
   // filesystem "save" step in a mobile WebView/PWA to hang this on

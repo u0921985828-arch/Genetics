@@ -1,0 +1,266 @@
+#include "TemporalEngine.h"
+
+namespace chrona::dsp
+{
+    TemporalEngine::TemporalEngine()
+    {
+        using M = params::Mode;
+        modes[(size_t) M::Half]      = std::make_unique<SpeedMode> (SpeedMode::Half);
+        modes[(size_t) M::Double]    = std::make_unique<SpeedMode> (SpeedMode::Double);
+        modes[(size_t) M::Reverse]   = std::make_unique<SpeedMode> (SpeedMode::Reverse);
+        modes[(size_t) M::TapeStop]  = std::make_unique<TapeStopMode>();
+        modes[(size_t) M::Stutter]   = std::make_unique<SliceMode> (SliceMode::Stutter);
+        modes[(size_t) M::BeatRepeat]= std::make_unique<SliceMode> (SliceMode::BeatRepeat);
+        modes[(size_t) M::Vinyl]     = std::make_unique<VinylMode>();
+        modes[(size_t) M::Glitch]    = std::make_unique<GlitchMode>();
+        modes[(size_t) M::Custom]    = std::make_unique<CustomMode>();
+    }
+
+    void TemporalEngine::prepare (double sr, int numChannels, int /*maxBlock*/)
+    {
+        sampleRate = sr;
+        channels   = juce::jlimit (1, 2, numChannels);
+
+        // 2 bars at the slowest tempo we care about (down to 40 BPM in 4/4).
+        const double maxBarSeconds = (60.0 / 40.0) * 4.0;
+        buffer.prepare (sr, channels, maxBarSeconds);
+
+        for (auto& m : modes)
+            if (m) m->prepare (sr, channels);
+
+        for (auto& d : declick) { d.prepare (sr); d.setTimeMs (level2.antiClickMs); }
+        for (auto& t : tilt)    t.prepare (sr);
+        for (auto& e : scEnv)   e.prepare (sr);
+        space.prepare (sr, channels);
+
+        engageSmoother.prepare (sr, 6.0);
+        for (auto& s : macroSmooth) s.prepare (sr, 25.0);
+
+        crackleRng.seed (0x1234567u);
+        humanRng.seed (0xC0FFEEu);
+
+        reset();
+    }
+
+    void TemporalEngine::reset()
+    {
+        buffer.reset();
+        for (auto& m : modes) if (m) m->reset();
+        for (auto& d : declick) d.arm (0.0f);
+        for (auto& t : tilt) t.reset();
+        for (auto& e : scEnv) e.reset();
+        space.reset();
+        loopPos = 0.0; loopIndex = 0; anchorAbs = 0; currentLoopLen = 0.0;
+        wasPlaying = false; humanizeGain = 1.0f;
+        lastWet = { { 0.0f, 0.0f } };
+        engageSmoother.reset (0.0f);
+    }
+
+    IMode* TemporalEngine::activeMode()
+    {
+        auto idx = (size_t) requestedMode;
+        if (idx >= modes.size() || modes[idx] == nullptr)
+            idx = 0;
+        return modes[idx].get();
+    }
+
+    void TemporalEngine::updateLoopClock (bool playing, double ppqSamples)
+    {
+        // Base division length, bounded so speed modes (needing up to 2×) and
+        // reverse never read past the recorded window.
+        const double spb = automation->getSamplesPerBeat();
+        const double divBeats = params::syncDivisionBeats (level2.syncIndex);
+        double L = divBeats * spb;
+        L = juce::jlimit (256.0, juce::jmin (barSamples, windowSamples * 0.5), L);
+
+        // swing skews alternate loops; humanize adds subtle length jitter.
+        const double swingSkew = (loopIndex % 2 == 0) ? (1.0 + level2.swing * 0.66)
+                                                      : (1.0 - level2.swing * 0.66);
+        double target = L * swingSkew;
+        if (level2.humanize > 0.0f)
+            target *= 1.0 + (humanRng.unipolar() - 0.5f) * 0.08f * level2.humanize;
+
+        currentLoopLen = juce::jmax (256.0, target);
+
+        // Hard resync on transport (re)start or a locate jump.
+        if (playing && ! wasPlaying)
+        {
+            loopPos   = std::fmod (ppqSamples, currentLoopLen);
+            loopIndex = (long long) std::floor (ppqSamples / juce::jmax (1.0, currentLoopLen));
+            anchorAbs = buffer.getTotalWritten() - 1;
+        }
+        wasPlaying = playing;
+    }
+
+    void TemporalEngine::process (juce::AudioBuffer<float>& audio, bool engaged)
+    {
+        jassert (automation != nullptr);
+        const int numSamples = audio.getNumSamples();
+        const int nch = juce::jmin (channels, audio.getNumChannels());
+
+        const auto& t = automation->getTransport();
+        barSamples = automation->getPatternBeats() > 0.0
+                       ? (automation->getPatternBeats() / (double) level2.bufferBars) * automation->getSamplesPerBeat()
+                       : 4.0 * automation->getSamplesPerBeat();
+
+        windowSamples = juce::jmin ((double) buffer.getCapacity() - 32.0,
+                                    (double) level2.bufferBars * barSamples);
+
+        for (auto& d : declick) d.setTimeMs (level2.antiClickMs);
+
+        const double ppqSamples = t.ppqPosition * automation->getSamplesPerBeat();
+        updateLoopClock (t.isPlaying, ppqSamples);
+
+        auto* customMode = dynamic_cast<CustomMode*> (modes[(size_t) params::Mode::Custom].get());
+        if (customMode != nullptr)
+        {
+            customTimeSnapshot = automation->liveTimeCurve();
+            customVolSnapshot  = automation->liveVolumeCurve();
+            customMode->setCurves (&customTimeSnapshot, &customVolSnapshot);
+        }
+
+        IMode* mode = activeMode();
+        const bool isCustom = (requestedMode == params::Mode::Custom);
+
+        // channel pointers
+        float* ch[2] = { nch > 0 ? audio.getWritePointer (0) : nullptr,
+                         nch > 1 ? audio.getWritePointer (1) : nullptr };
+
+        float frameIn[2]  = { 0.0f, 0.0f };
+        float frameWet[2] = { 0.0f, 0.0f };
+
+        const float gateDiv = juce::jmax (256.0f, (float) (currentLoopLen / 4.0));
+
+        for (int n = 0; n < numSamples; ++n)
+        {
+            // --- smoothed macros ---
+            const float mTime    = macroSmooth[0].process (macros.time);
+            const float mDepth   = macroSmooth[1].process (macros.depth);
+            const float mMix     = macroSmooth[2].process (macros.mix);
+            const float mTexture = macroSmooth[3].process (macros.texture);
+            const float mSpace   = macroSmooth[4].process (macros.space);
+            const float mWidth   = macroSmooth[5].process (macros.width);
+
+            // --- read + record input ---
+            for (int c = 0; c < nch; ++c) frameIn[c] = ch[c] ? ch[c][n] : 0.0f;
+            if (nch == 1) frameIn[1] = frameIn[0];
+            buffer.write (frameIn);
+
+            // --- loop clock advance / boundary ---
+            bool loopReset = false;
+            loopPos += 1.0;
+            if (! isCustom && loopPos >= currentLoopLen)
+            {
+                loopPos -= currentLoopLen;
+                ++loopIndex;
+                anchorAbs = buffer.getTotalWritten() - 1;
+                loopReset = true;
+                if (level2.humanize > 0.0f)
+                    humanizeGain = 1.0f - (humanRng.unipolar()) * 0.12f * level2.humanize;
+                // recompute next loop length (swing alternation)
+                updateLoopClock (t.isPlaying, ppqSamples); // refresh swing skew
+                for (int c = 0; c < nch; ++c) declick[(size_t) c].arm (lastWet[(size_t) c]);
+            }
+
+            // --- pattern phase for custom + visualiser ---
+            const double phase = isCustom ? std::fmod (automation->blockStartPhase()
+                                                       + (double) n * automation->phaseIncrementPerSample(), 1.0)
+                                          : (loopPos / juce::jmax (1.0, currentLoopLen));
+
+            // --- run mode ---
+            ModeContext mc;
+            mc.buffer = &buffer;
+            mc.totalWritten = buffer.getTotalWritten();
+            mc.anchorAbs = anchorAbs;
+            mc.localSamples = loopPos;
+            mc.loopLenSamples = currentLoopLen;
+            mc.loopReset = loopReset;
+            mc.phase = phase;
+            mc.time = mTime; mc.depth = mDepth;
+            mc.sampleRate = sampleRate;
+            mc.samplesPerBeat = automation->getSamplesPerBeat();
+            mc.windowSamples = windowSamples;
+            mc.quality = level2.quality;
+
+            mode->process (mc, frameWet);
+
+            // --- anti-click on loop boundaries ---
+            for (int c = 0; c < nch; ++c)
+                frameWet[c] = declick[(size_t) c].process (frameWet[c]);
+
+            // --- humanize gain ---
+            if (level2.humanize > 0.0f)
+                for (int c = 0; c < nch; ++c) frameWet[c] *= humanizeGain;
+
+            // --- texture: saturation + tilt (+ vinyl crackle) ---
+            if (mTexture > 0.0001f)
+            {
+                for (int c = 0; c < nch; ++c)
+                {
+                    float s = saturate (frameWet[c], mTexture * 0.8f);
+                    s = tilt[(size_t) c].process (s, (mTexture - 0.5f) * 0.6f);
+                    frameWet[c] = s;
+                }
+                if (requestedMode == params::Mode::Vinyl)
+                {
+                    const float crackle = (crackleRng.unipolar() < 0.002f * mTexture)
+                                            ? (crackleRng.unipolar() - 0.5f) * mTexture * 0.5f : 0.0f;
+                    for (int c = 0; c < nch; ++c) frameWet[c] += crackle;
+                }
+            }
+
+            // --- synced gate (volume gating) ---
+            if (level2.gate > 0.0001f)
+            {
+                const float gp = std::fmod ((float) loopPos, gateDiv) / gateDiv;
+                const float g = gp < 0.5f ? 1.0f : (1.0f - level2.gate);
+                for (int c = 0; c < nch; ++c) frameWet[c] *= g;
+            }
+
+            // --- stereo width (mid/side) ---
+            if (nch == 2)
+            {
+                const float mid  = 0.5f * (frameWet[0] + frameWet[1]);
+                const float side = 0.5f * (frameWet[0] - frameWet[1]) * (mWidth * 2.0f);
+                frameWet[0] = mid + side;
+                frameWet[1] = mid - side;
+            }
+
+            // --- space / ambience ---
+            if (mSpace > 0.0001f)
+                space.process (frameWet, mSpace);
+
+            lastWet[0] = frameWet[0]; lastWet[1] = frameWet[1];
+
+            // --- internal sidechain duck ---
+            float duckGain = 1.0f;
+            if (level2.scSource != 0 && level2.duck > 0.0001f)
+            {
+                scEnv[0].setTimes (level2.duckAtkMs, level2.duckRelMs);
+                const float src = (level2.scSource == 1) ? frameWet[0] : frameIn[0];
+                const float e = scEnv[0].process (src);
+                duckGain = 1.0f - level2.duck * juce::jmin (1.0f, e * 4.0f);
+            }
+
+            // --- engage crossfade (MIDI trigger) ---
+            const float eg = engageSmoother.process (engaged ? 1.0f : 0.0f);
+            const float wetMix = mMix * eg;
+
+            // --- final dry/wet ---
+            for (int c = 0; c < nch; ++c)
+            {
+                const float dry = frameIn[c];
+                const float wet = frameWet[c] * duckGain;
+                ch[c][n] = dry * (1.0f - wetMix) + wet * wetMix;
+            }
+
+            if (isCustom && ! t.isPlaying) automation->advanceFreePhase();
+        }
+
+        visPhase.store (isCustom ? automation->blockStartPhase()
+                                 : (loopPos / juce::jmax (1.0, currentLoopLen)),
+                        std::memory_order_relaxed);
+        visDelay.store (windowSamples > 0.0 ? (buffer.getTotalWritten() - 1 - anchorAbs) / windowSamples : 0.0,
+                        std::memory_order_relaxed);
+    }
+}

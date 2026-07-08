@@ -102,6 +102,9 @@
   }
   #playBtn.active{background:var(--c-red);}
   #playBtn:active{opacity:.85;}
+  /* inline-SVG icons inherit currentColor so they follow the theme */
+  .icon-btn svg, #playBtn svg{width:17px; height:17px; display:block; pointer-events:none;}
+  .menu-btn svg{width:13px; height:13px; vertical-align:-2px; margin-right:4px; pointer-events:none;}
   .t-group{display:flex; align-items:center; gap:4px;}
   .t-readout{
     display:flex; flex-direction:column; align-items:center; line-height:1;
@@ -483,9 +486,9 @@
 <div id="app">
 
   <div id="toolbar">
-    <button id="menuBtn" class="icon-btn" aria-label="menu">&#9776;</button>
-    <button id="playBtn" aria-label="play">&#9658;</button>
-    <button id="metroBtn" class="icon-btn" aria-label="metronome" title="Metronome / count-in">&#9201;</button>
+    <button id="menuBtn" class="icon-btn" aria-label="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <button id="playBtn" aria-label="play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg></button>
+    <button id="metroBtn" class="icon-btn" aria-label="metronome" title="Metronome / count-in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M8.5 21h7l-2.2-15a1.4 1.4 0 0 0-2.6 0z"/><path d="M12 13l4.2-3.5"/></svg></button>
 
     <div class="tb-div"></div>
     <div class="undo-group">
@@ -529,7 +532,7 @@
 
     <div class="t-spacer"></div>
 
-    <button id="fsBtn" class="icon-btn" aria-label="fullscreen">&#9974;</button>
+    <button id="fsBtn" class="icon-btn" aria-label="fullscreen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
   </div>
 
   <div id="menuBackdrop"></div>
@@ -756,8 +759,8 @@
         <button id="plDelLaneBtn" class="menu-btn" title="Remove the last track (must be empty)">&minus; Trk</button>
         <button id="plAddLaneBtn" class="menu-btn" title="Add a playlist track">+ Trk</button>
         <button id="plAutoBtn" class="menu-btn" title="Draw automation curves over the song">Auto</button>
-        <button id="plMicBtn" class="menu-btn" title="Record the mic live onto the playlist (latency-compensated)">&#127908; Mic</button>
-        <button id="plRecBtn" class="menu-btn" title="Resample the master output into an audio clip">&#9679; Rec</button>
+        <button id="plMicBtn" class="menu-btn" title="Record the mic live onto the playlist (latency-compensated)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg>Mic</button>
+        <button id="plRecBtn" class="menu-btn" title="Resample the master output into an audio clip"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>Rec</button>
         <button id="plAddAudioBtn" class="menu-btn">+ Audio</button>
         <button id="plClearBtn" class="menu-btn">Clear all</button>
       </div>
@@ -855,6 +858,10 @@
 <script>
 (function(){
   "use strict";
+
+  // transport icons (inline SVG, inherit currentColor)
+  const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg>';
+  const ICON_STOP = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
 
   // read a themeable CSS custom property (so canvas draws follow the theme).
   function cssVar(name, fallback){
@@ -2266,7 +2273,7 @@
     // snapshot the reverb-wet base so automation can be undone on stop
     if(liveEngine) autoBaseReverb = liveEngine.reverbWet.gain.value;
     document.getElementById("playBtn").classList.add("active");
-    document.getElementById("playBtn").innerHTML = "&#9632;";
+    document.getElementById("playBtn").innerHTML = ICON_STOP;
     schedulerTimer = setInterval(scheduler, LOOKAHEAD_MS);
     requestAnimationFrame(uiLoop);
   }
@@ -2276,7 +2283,7 @@
     clearInterval(schedulerTimer);
     if(Object.keys(automation).length) resetAutomatedParams();
     document.getElementById("playBtn").classList.remove("active");
-    document.getElementById("playBtn").innerHTML = "&#9658;";
+    document.getElementById("playBtn").innerHTML = ICON_PLAY;
     currentStep = -1;
     renderPlayhead();
     updateTimeReadout();
@@ -3860,7 +3867,9 @@
     wave.className = "pl-clip-wave";
     el.appendChild(wave);
     const label = document.createElement("span");
-    label.className = "pl-clip-name"; label.textContent = "🔊 " + c.name;
+    label.className = "pl-clip-name";
+    label.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="width:11px;height:11px;vertical-align:-1px;margin-right:3px"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9a4 4 0 0 1 0 6"/></svg>';
+    label.appendChild(document.createTextNode(c.name));
     el.appendChild(label);
     // draw peaks next frame (needs layout for pixel width)
     requestAnimationFrame(() => drawClipWave(wave, c.buffer, w));

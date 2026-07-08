@@ -153,6 +153,8 @@
   .br-item.sel{border-color:var(--ink); background:var(--bg-soft);}
   .br-item .dot{width:11px; height:11px; border:var(--bw) solid var(--ink); background:var(--tc,#ccc); flex:0 0 auto;}
   .br-item .br-load{margin-left:auto; font-size:9px; font-weight:800; color:var(--ink); cursor:pointer; border:var(--bw) solid var(--ink); border-radius:var(--r); padding:3px 6px; background:var(--bg); text-transform:uppercase;}
+  .br-bpm{margin-left:auto; font-size:9px; font-weight:800; color:var(--text-lo); font-variant-numeric:tabular-nums;}
+  .br-item .br-bpm + .br-load{margin-left:8px;}
   .br-item .br-load:active{background:var(--ink); color:#fff;}
   .br-actions{display:flex; gap:6px; padding:4px 2px 8px; border-bottom:var(--bw) solid var(--ink); margin-bottom:6px;}
   .br-actions .br-load{padding:6px 8px; font-size:10px;}
@@ -507,8 +509,7 @@
   <aside id="browser">
     <div id="browserTabs">
       <button data-btab="sounds" class="active">Sounds</button>
-      <button data-btab="patterns">Patterns</button>
-      <button data-btab="projects">Files</button>
+      <button data-btab="projects">Projects</button>
     </div>
     <div id="browserBody"></div>
   </aside>
@@ -2300,20 +2301,30 @@
           async () => { try{ previewBuffer(await decodeBlobToBuffer(item.blob), null); }catch(e){} },
           async () => { try{ loadBufferToSelectedTrack(await decodeBlobToBuffer(item.blob), item.name); }catch(e){} }));
       });
-    } else if(browserTab === "patterns"){
-      const g = document.createElement("div"); g.className = "br-group"; g.textContent = "Patterns";
-      browserBodyEl.appendChild(g);
-      for(let p=0;p<PATTERN_COUNT;p++){
-        const label = patternNames[p] ? patternNames[p] : ("Pattern " + (p+1));
-        browserBodyEl.appendChild(brItem(label, PATTERN_COLORS[p % PATTERN_COLORS.length],
-          () => { setPattern(p); renderBrowser(); }, null, p === currentPattern));
-      }
     } else {
       await renderProjectsBrowser();
     }
   }
 
-  /* ---- Projects "Files" tab: a folder tree of saved projects ---- */
+  /* ---- Factory project presets: one-tap starting points ---- */
+  const PROJECT_PRESETS = [
+    {name:"Default beat", bpm:120, demo:true,  res:4},
+    {name:"Empty project", bpm:120, demo:false, res:4},
+    {name:"House 124", bpm:124, demo:true,  res:4},
+    {name:"Techno 130", bpm:130, demo:true,  res:4},
+    {name:"Trap 140", bpm:140, demo:true,  res:6},
+    {name:"Lofi 84", bpm:84,  demo:true,  res:4}
+  ];
+  function loadProjectPreset(preset){
+    ensureAudio();
+    const data = buildProjectData(preset.demo);
+    data.bpm = preset.bpm;
+    data.beatRes = preset.res || 4;
+    data.stepCount = (preset.res || 4) * 4; // one bar at the preset's resolution
+    loadFullProject(data);
+  }
+
+  /* ---- Projects tab: factory presets + saved projects (folder tree) ---- */
   function projPathParts(path){ return (path || "").split("/").map(s => s.trim()).filter(Boolean); }
   async function renderProjectsBrowser(){
     // top actions: save current + import
@@ -2324,6 +2335,24 @@
     impBtn.addEventListener("click", () => projImportInput.click());
     actions.appendChild(saveBtn); actions.appendChild(impBtn);
     browserBodyEl.appendChild(actions);
+
+    // factory presets
+    const pg = document.createElement("div"); pg.className = "br-group"; pg.textContent = "Presets";
+    browserBodyEl.appendChild(pg);
+    PROJECT_PRESETS.forEach(preset => {
+      const it = document.createElement("div"); it.className = "br-item";
+      it.innerHTML = `<span class="dot" style="background:var(--amber)"></span><span>${preset.name}</span><span class="br-bpm">${preset.bpm}</span>`;
+      const load = document.createElement("button"); load.className = "br-load"; load.textContent = "NEW";
+      load.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if(confirm('Start "' + preset.name + '"? This replaces the current project.')) loadProjectPreset(preset);
+      });
+      it.appendChild(load);
+      browserBodyEl.appendChild(it);
+    });
+
+    const sg = document.createElement("div"); sg.className = "br-group"; sg.textContent = "My Projects";
+    browserBodyEl.appendChild(sg);
 
     const entries = await listProjectEntries();
     if(!entries.length){

@@ -3863,10 +3863,22 @@
     canvas.onmouseup = canvas.ontouchend = canvas.onmouseleave = () => { dragging = false; };
   }
 
+  // 0..1 knob with window-level drag (keeps tracking past the small canvas)
+  // and persistence on release; pushUndo on drag start.
   function bindKnob(canvas, getValue, setValue){
-    drawKnob(canvas, getValue(), (delta) => {
-      setValue(Math.min(Math.max(getValue() + delta, 0), 1));
-      drawKnob(canvas, getValue(), () => {});
+    const render = () => drawKnob(canvas, getValue(), () => {});
+    render();
+    let startY = 0, startVal = 0;
+    function onMove(e){
+      const v = Math.min(Math.max(startVal + (startY - e.clientY) / 160, 0), 1);
+      setValue(v); render();
+    }
+    function onUp(){ window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); saveProject(); }
+    canvas.addEventListener("pointerdown", (e) => {
+      e.preventDefault(); pushUndo();
+      startY = e.clientY; startVal = getValue();
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp, { once:true });
     });
   }
   // pan knob: -1..+1 with a centre detent. Uses window-level drag so it keeps

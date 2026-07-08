@@ -26,7 +26,7 @@
     --r:0px;             /* sharp corners */
     --font:"Helvetica Neue", Helvetica, Arial, "Segoe UI", system-ui, sans-serif;
     --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    --topbar-h:56px;
+    --topbar-h:46px;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none;}
   html,body{
@@ -47,30 +47,30 @@
   }
   #toolbar::-webkit-scrollbar{display:none;}
   .tb-div{width:var(--bw); align-self:stretch; margin:8px 3px; background:var(--ink); flex:0 0 auto;}
-  .win-btns{display:flex; gap:5px; flex:0 0 auto;}
+  .win-btns{display:flex; gap:4px; flex:0 0 auto;}
   .win-btns button{
     -webkit-appearance:none; appearance:none; cursor:pointer;
-    background:var(--bg); color:var(--ink); border:var(--bw) solid var(--ink); border-radius:var(--r);
-    padding:7px 12px; font-size:11px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; white-space:nowrap;
+    background:var(--bg); color:var(--ink); border:1px solid var(--ink); border-radius:var(--r);
+    padding:5px 9px; font-size:10px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; white-space:nowrap;
   }
   .win-btns button:active{background:var(--ink); color:#fff;}
   .win-btns button.active{background:var(--c-cyan); color:var(--ink);}
   .brand{font-weight:900; font-size:14px; letter-spacing:1px; color:var(--ink); white-space:nowrap; text-transform:uppercase;}
   #playBtn{
     -webkit-appearance:none; appearance:none; cursor:pointer;
-    width:40px; height:40px; border-radius:var(--r); flex:0 0 auto;
+    width:34px; height:34px; border-radius:var(--r); flex:0 0 auto;
     background:var(--c-green); color:var(--ink); border:var(--bw) solid var(--ink);
-    font-size:14px; display:flex; align-items:center; justify-content:center;
+    font-size:13px; display:flex; align-items:center; justify-content:center;
   }
   #playBtn.active{background:var(--c-red);}
   #playBtn:active{opacity:.85;}
   .t-group{display:flex; align-items:center; gap:4px;}
   .t-readout{
     display:flex; flex-direction:column; align-items:center; line-height:1;
-    background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r);
-    padding:5px 7px; min-width:42px;
+    background:var(--bg); border:1px solid var(--ink); border-radius:var(--r);
+    padding:4px 6px; min-width:38px;
   }
-  .t-readout .val{font-family:var(--font-mono); font-weight:800; font-size:15px; color:var(--ink);}
+  .t-readout .val{font-family:var(--font-mono); font-weight:800; font-size:13px; color:var(--ink);}
   .t-readout .cap{font-size:7px; letter-spacing:1px; color:var(--text-lo); text-transform:uppercase; margin-top:2px; font-weight:800;}
   .t-readout .val.accent{color:var(--c-blue);}
   .stepper{display:flex; flex-direction:column; gap:3px;}
@@ -83,15 +83,15 @@
   .seg{display:flex; border:var(--bw) solid var(--ink); border-radius:var(--r); overflow:hidden; flex:0 0 auto;}
   .seg button{
     -webkit-appearance:none; appearance:none; cursor:pointer;
-    background:var(--bg); color:var(--ink); padding:7px 10px; border:none; border-right:var(--bw) solid var(--ink);
-    font-size:11px; font-weight:800; letter-spacing:.5px; text-transform:uppercase;
+    background:var(--bg); color:var(--ink); padding:5px 9px; border:none; border-right:1px solid var(--ink);
+    font-size:10px; font-weight:800; letter-spacing:.4px; text-transform:uppercase;
   }
   .seg button:last-child{border-right:none;}
   .seg button.active{background:var(--c-cyan); color:var(--ink);}
   .icon-btn{
     -webkit-appearance:none; appearance:none; cursor:pointer;
-    background:var(--bg); color:var(--ink); border:var(--bw) solid var(--ink); border-radius:var(--r);
-    width:40px; height:40px; font-size:16px; display:flex; align-items:center; justify-content:center; flex:0 0 auto;
+    background:var(--bg); color:var(--ink); border:1px solid var(--ink); border-radius:var(--r);
+    width:34px; height:34px; font-size:14px; display:flex; align-items:center; justify-content:center; flex:0 0 auto;
   }
   .icon-btn:active{background:var(--ink); color:#fff;}
   .icon-btn.active{background:var(--orange); color:var(--ink);}
@@ -171,14 +171,14 @@
   #seqView{flex-direction:column;}
   .seqTop{flex:1; min-height:0; display:flex;}
   #trackHeaders{flex:0 0 130px; background:var(--bg); border-right:var(--bw) solid var(--ink); overflow-y:auto; touch-action:pan-y;}
-  .track-header{height:58px; border-bottom:1px solid var(--hair); display:flex; flex-direction:column; justify-content:center; gap:5px; padding:5px 7px 5px 14px; position:relative;}
+  .track-header{height:46px; border-bottom:1px solid var(--hair); display:flex; flex-direction:column; justify-content:center; gap:4px; padding:4px 7px 4px 13px; position:relative;}
   .track-header::before{content:""; position:absolute; left:0; top:0; bottom:0; width:8px; background:var(--tc,#ccc); border-right:var(--bw) solid var(--ink);}
   .track-header.selected{background:var(--bg-soft);}
   .track-name-row{display:flex; justify-content:space-between; align-items:center;}
   .track-name{font-weight:800; font-size:12px; color:var(--ink); text-transform:uppercase; letter-spacing:.3px;}
   .hold-hint{color:var(--text-lo); font-size:13px;}
   .track-controls{display:flex; gap:5px; align-items:center;}
-  .mini-btn{width:27px; height:24px; cursor:pointer; background:var(--bg); color:var(--text-dim); font-size:10px; font-weight:800; border:1px solid var(--hair); border-radius:var(--r); display:flex; align-items:center; justify-content:center;}
+  .mini-btn{width:24px; height:21px; cursor:pointer; background:var(--bg); color:var(--text-dim); font-size:9px; font-weight:800; border:1px solid var(--hair); border-radius:var(--r); display:flex; align-items:center; justify-content:center;}
   .mini-btn:active{background:var(--ink); color:#fff;}
   .mini-btn.mute.on{background:var(--c-red); color:var(--ink);}
   .mini-btn.solo.on{background:var(--c-yellow); color:var(--ink);}
@@ -188,11 +188,11 @@
 
   #gridScroll{flex:1; overflow-x:auto; overflow-y:auto; touch-action:pan-x pan-y; background:var(--bg-soft);}
   .grid-inner{display:flex; flex-direction:column; min-width:max-content;}
-  .step-row{height:58px; display:flex; align-items:center; border-bottom:1px solid var(--hair); padding:0 8px; background:var(--bg);}
-  .beat-group{display:flex; gap:5px; margin-right:9px; padding-right:9px; border-right:1px solid var(--hair);}
+  .step-row{height:46px; display:flex; align-items:center; border-bottom:1px solid var(--hair); padding:0 8px; background:var(--bg);}
+  .beat-group{display:flex; gap:4px; margin-right:8px; padding-right:8px; border-right:1px solid var(--hair);}
   .beat-group:last-child{border-right:none;}
   /* empty cells recede to a faint outline; only hits carry weight */
-  .step-cell{width:38px; height:38px; cursor:pointer; position:relative; background:var(--bg); border:1px solid var(--hair); border-radius:var(--r); display:flex; align-items:center; justify-content:center;}
+  .step-cell{width:31px; height:31px; cursor:pointer; position:relative; background:var(--bg); border:1px solid var(--hair); border-radius:var(--r); display:flex; align-items:center; justify-content:center;}
   .step-cell.beat-lead{border-left:2px solid var(--grey);}
   .step-cell.on{background:var(--tc,var(--c-orange)); border-color:var(--ink);}
   .step-cell.on.accent{}
@@ -241,13 +241,16 @@
 
   /* ===================== PLAYLIST ===================== */
   #arrangeView{flex-direction:column; background:var(--bg-soft);}
-  #arrangeTools{flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg); border-bottom:var(--bw) solid var(--ink); overflow-x:auto;}
+  #arrangeTools{flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:4px 8px; background:var(--bg); border-bottom:1px solid var(--ink); overflow-x:auto;}
   #arrangeTools::-webkit-scrollbar{display:none;}
-  .pl-lbl{font-size:9px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; color:var(--text-lo); flex:0 0 auto;}
-  .pl-pats{display:flex; gap:4px; flex:0 0 auto;}
-  .pl-pats button{-webkit-appearance:none; appearance:none; cursor:pointer; width:30px; height:28px; font-size:11px; font-weight:800; color:var(--ink); background:var(--bg); border:var(--bw) solid var(--ink); border-radius:var(--r);}
+  /* compact buttons inside the playlist toolbar (denser than the menu-sheet defaults) */
+  #arrangeTools .menu-btn{padding:4px 8px; font-size:10px; letter-spacing:.3px; border:1px solid var(--ink);}
+  #arrangeTools .seg{border:1px solid var(--ink);}
+  .pl-lbl{font-size:8px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--text-lo); flex:0 0 auto;}
+  .pl-pats{display:flex; gap:3px; flex:0 0 auto;}
+  .pl-pats button{-webkit-appearance:none; appearance:none; cursor:pointer; width:26px; height:24px; font-size:10px; font-weight:800; color:var(--ink); background:var(--bg); border:1px solid var(--ink); border-radius:var(--r);}
   .pl-pats button.active{color:var(--tci,var(--ink));}
-  #plClearBtn, #plAddAudioBtn, #plRecBtn{padding:6px 10px;}
+  #plClearBtn, #plAddAudioBtn, #plRecBtn{padding:4px 8px;}
   #plRecBtn.recording{background:var(--c-red); color:#fff; animation:recPulse .9s ease-in-out infinite;}
   @keyframes recPulse{0%,100%{opacity:1}50%{opacity:.55}}
   .arrange-lane.audio-lane{position:relative; background:repeating-linear-gradient(90deg,var(--bg) 0 calc(var(--bar-w) - 1px), #d9d8d2 calc(var(--bar-w) - 1px) var(--bar-w));}
@@ -255,17 +258,17 @@
   .audio-clip-name{font-size:10px; font-weight:800; color:var(--ink); white-space:nowrap; text-overflow:ellipsis; overflow:hidden; text-transform:uppercase;}
   #arrangeScroll.drop-hover{outline:3px dashed var(--orange); outline-offset:-3px;}
   .arrangeTop{flex:1; min-height:0; display:flex;}
-  #arrangeHeaders{flex:0 0 130px; background:var(--bg); border-right:var(--bw) solid var(--ink); overflow-y:auto; touch-action:pan-y;}
-  .arrange-header{height:52px; border-bottom:1px solid var(--hair); display:flex; flex-direction:column; justify-content:center; gap:2px; padding:5px 7px 5px 14px; position:relative;}
+  #arrangeHeaders{flex:0 0 112px; background:var(--bg); border-right:1px solid var(--ink); overflow-y:auto; touch-action:pan-y;}
+  .arrange-header{height:44px; border-bottom:1px solid var(--hair); display:flex; flex-direction:column; justify-content:center; gap:2px; padding:4px 7px 4px 13px; position:relative;}
   .arrange-header::before{content:""; position:absolute; left:0; top:0; bottom:0; width:8px; background:var(--tc,#ccc); border-right:var(--bw) solid var(--ink);}
   .arrange-header .track-name{font-size:11px;}
   .arrange-header .track-type{font-size:9px; color:var(--text-lo); text-transform:uppercase; letter-spacing:.5px; font-weight:800;}
   #arrangeScroll{flex:1; overflow:auto; touch-action:pan-x pan-y; position:relative;}
   .arrange-inner{position:relative; min-width:max-content;}
   .arrange-ruler{height:22px; display:flex; border-bottom:var(--bw) solid var(--ink); position:sticky; top:0; background:var(--bg); z-index:2;}
-  .ruler-bar{flex:0 0 var(--bar-w); border-right:1px solid var(--ink); font-size:9px; color:var(--ink); padding-left:5px; display:flex; align-items:center; font-weight:800; text-transform:uppercase;}
+  .ruler-bar{flex:0 0 var(--bar-w); border-right:1px solid var(--hair); font-size:9px; color:var(--text-lo); padding-left:5px; display:flex; align-items:center; font-weight:800; text-transform:uppercase;}
   /* FL-style playlist: generic lanes with freely-placed absolute clips */
-  .arrange-lane{height:52px; border-bottom:1px solid var(--hair); position:relative; box-sizing:border-box;}
+  .arrange-lane{height:44px; border-bottom:1px solid var(--hair); position:relative; box-sizing:border-box;}
   .pl-lane{background-image:repeating-linear-gradient(90deg, transparent 0 calc(var(--bar-w) - 1px), var(--hair-2) calc(var(--bar-w) - 1px) var(--bar-w));}
   .pl-clip{position:absolute; top:3px; bottom:3px; box-sizing:border-box; border:1px solid var(--ink); display:flex; align-items:center; padding:0 7px; overflow:hidden; cursor:grab; touch-action:none;}
   .pl-clip:active{cursor:grabbing;}
@@ -649,6 +652,11 @@
         </div>
         <span class="pl-lbl">Pattern</span>
         <div class="pl-pats" id="plPatPicker"></div>
+        <span class="pl-lbl">Zoom</span>
+        <div class="seg" id="plZoomSeg">
+          <button id="plZoomOut" title="Zoom out — more bars fit">&minus;</button>
+          <button id="plZoomIn" title="Zoom in — wider bars">+</button>
+        </div>
         <div class="t-spacer"></div>
         <button id="plDelLaneBtn" class="menu-btn" title="Remove the last track (must be empty)">&minus; Trk</button>
         <button id="plAddLaneBtn" class="menu-btn" title="Add a playlist track">+ Trk</button>
@@ -3574,7 +3582,7 @@
   });
   refreshGridUI();
 
-  const LANE_H = 52;
+  const LANE_H = 44;
   // clip position/length accessors that work for both pattern clips
   // ({start,len}) and audio clips ({bar,durationBars}).
   function clipStart(c){ return c.start != null ? c.start : (c.bar || 0); }
@@ -3769,6 +3777,22 @@
     if(!confirm("Clear the whole playlist (pattern + audio clips)?")) return;
     pushUndo(); arrClips = []; audioClips = []; renderArrangeLanes(); persistAudioClips(); saveProject();
   });
+  // playlist ruler zoom: cycles the per-bar width so more or fewer bars fit
+  const PL_ZOOMS = [36, 48, 64, 88, 120, 160];
+  function setBarWidth(w){
+    barWidth = Math.max(PL_ZOOMS[0], Math.min(w, PL_ZOOMS[PL_ZOOMS.length-1]));
+    renderArrangeView();
+  }
+  document.getElementById("plZoomIn").addEventListener("click", () => {
+    const i = PL_ZOOMS.findIndex(z => z >= barWidth);
+    setBarWidth(PL_ZOOMS[Math.min((i<0?PL_ZOOMS.length-1:i)+1, PL_ZOOMS.length-1)]);
+  });
+  document.getElementById("plZoomOut").addEventListener("click", () => {
+    const i = PL_ZOOMS.findIndex(z => z >= barWidth);
+    const cur = i < 0 ? PL_ZOOMS.length-1 : i;
+    setBarWidth(PL_ZOOMS[Math.max(cur-1, 0)]);
+  });
+
   const PL_MAX_LANES = 16;
   document.getElementById("plAddLaneBtn").addEventListener("click", () => {
     if(songLanes >= PL_MAX_LANES) return;

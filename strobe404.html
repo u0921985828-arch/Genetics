@@ -377,11 +377,7 @@
   .ch-meter-peak{position:absolute; left:0; right:0; height:2px; background:#fff; bottom:0;}
   .ch-db{font-size:9px; font-weight:800; height:13px; line-height:13px; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.2px; width:100%; text-align:center; background:var(--bg-soft2); border:1px solid var(--hair);}
   .ch-pan-wrap{width:100%; display:flex; flex-direction:column; align-items:center; gap:1px;}
-  .ch-pan{-webkit-appearance:none; appearance:none; width:100%; height:14px; background:transparent; touch-action:none;}
-  .ch-pan::-webkit-slider-runnable-track{background:var(--bg); height:4px; border:var(--bw) solid var(--ink);}
-  .ch-pan::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; background:var(--tc,var(--ink)); border:var(--bw) solid var(--ink); margin-top:-5px;}
-  .ch-pan::-moz-range-track{background:var(--bg); height:4px; border:var(--bw) solid var(--ink);}
-  .ch-pan::-moz-range-thumb{width:12px; height:12px; background:var(--tc,var(--ink)); border:var(--bw) solid var(--ink); border-radius:0;}
+  .ch-pan-knob{width:30px; height:30px; flex:0 0 30px; touch-action:none; cursor:ns-resize;}
   .ch-pan-lbl{font-size:8px; font-weight:800; color:var(--text-dim); letter-spacing:.4px;}
   .ch-btn-row{display:flex; gap:4px;}
   .ch-fx-row{display:flex; gap:3px; width:100%;}
@@ -3873,6 +3869,32 @@
       drawKnob(canvas, getValue(), () => {});
     });
   }
+  // pan knob: -1..+1 with a centre detent. Uses window-level drag so it keeps
+  // tracking after the pointer leaves the small canvas, and persists on release.
+  function bindPanKnob(canvas, track, tIdx, lblEl){
+    const toV = () => (track.pan + 1) / 2;
+    const render = () => { drawKnob(canvas, toV(), () => {}); if(lblEl) lblEl.textContent = panLabel(track.pan); };
+    render();
+    let startY = 0, startPan = 0;
+    function onMove(e){
+      const y = e.touches ? e.touches[0].clientY : e.clientY;
+      let p = startPan + (startY - y) / 120 * 2;
+      if(Math.abs(p) < 0.05) p = 0;            // centre detent
+      track.pan = Math.min(Math.max(p, -1), 1);
+      render(); ensureAudio(); applyChannelPan(liveEngine, track, tIdx);
+    }
+    function onUp(){ window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); saveProject(); }
+    canvas.addEventListener("pointerdown", (e) => {
+      e.preventDefault(); pushUndo();
+      startY = e.clientY; startPan = track.pan;
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp, { once:true });
+    });
+    canvas.addEventListener("dblclick", () => {   // double-tap resets to centre
+      pushUndo(); track.pan = 0; render();
+      ensureAudio(); applyChannelPan(liveEngine, track, tIdx); saveProject();
+    });
+  }
 
   function renderCutGroupRow(track){
     cutGroupRowEl.innerHTML = "";
@@ -5302,7 +5324,7 @@
           </div>
         </div>
         <div class="ch-pan-wrap">
-          <input type="range" class="ch-pan" min="-1" max="1" step="0.02" value="${pan}">
+          <canvas class="ch-pan-knob" title="Pan"></canvas>
           <span class="ch-pan-lbl" data-pankey="t${tIdx}">${panLabel(pan)}</span>
         </div>
         <div class="ch-btn-row">
@@ -5327,13 +5349,8 @@
       });
       strip.querySelector(".ch-fader").addEventListener("change", () => pushUndo());
       const panLbl = strip.querySelector(`[data-pankey="t${tIdx}"]`);
-      strip.querySelector(".ch-pan").addEventListener("input", (e) => {
-        ensureAudio();
-        track.pan = parseFloat(e.target.value);
-        panLbl.textContent = panLabel(track.pan);
-        applyChannelPan(liveEngine, track, tIdx);
-      });
-      strip.querySelector(".ch-pan").addEventListener("change", () => pushUndo());
+      const panCanvas = strip.querySelector(".ch-pan-knob");
+      bindPanKnob(panCanvas, track, tIdx, panLbl);
       strip.querySelector(`.ch-clip[data-key="t${tIdx}"]`).addEventListener("click", (e) => {
         meterClip["t"+tIdx] = false; e.target.classList.remove("lit");
       });
@@ -5429,6 +5446,8 @@
       TRACKS.forEach((track, tIdx) => {
         const k = mixerViewEl.querySelectorAll(".ch-verb-knob")[tIdx];
         if(k) drawKnob(k, track.reverbSend, () => {});
+        const pk = mixerViewEl.querySelectorAll(".ch-pan-knob")[tIdx];
+        if(pk) drawKnob(pk, (track.pan + 1) / 2, () => {});
       });
       const mk = mixerViewEl.querySelector(".master-verb-knob");
       if(mk) drawKnob(mk, liveEngine ? liveEngine.reverbWet.gain.value : 0.9, () => {});

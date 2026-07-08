@@ -259,9 +259,9 @@
   #arrangeScroll.drop-hover{outline:3px dashed var(--orange); outline-offset:-3px;}
   .arrangeTop{flex:1; min-height:0; display:flex;}
   #arrangeHeaders{flex:0 0 112px; background:var(--bg); border-right:1px solid var(--ink); overflow-y:auto; touch-action:pan-y;}
-  .arrange-header{height:44px; border-bottom:1px solid var(--hair); display:flex; flex-direction:column; justify-content:center; gap:2px; padding:4px 7px 4px 13px; position:relative;}
-  .arrange-header::before{content:""; position:absolute; left:0; top:0; bottom:0; width:8px; background:var(--tc,#ccc); border-right:var(--bw) solid var(--ink);}
-  .arrange-header .track-name{font-size:11px;}
+  /* generic playlist tracks have no per-instrument colour, so no accent strip */
+  .arrange-header{height:44px; border-bottom:1px solid var(--hair); display:flex; flex-direction:column; justify-content:center; gap:2px; padding:4px 10px; position:relative;}
+  .arrange-header .track-name{font-size:11px; color:var(--text-dim);}
   .arrange-header .track-type{font-size:9px; color:var(--text-lo); text-transform:uppercase; letter-spacing:.5px; font-weight:800;}
   #arrangeScroll{flex:1; overflow:auto; touch-action:pan-x pan-y; position:relative;}
   .arrange-inner{position:relative; min-width:max-content;}

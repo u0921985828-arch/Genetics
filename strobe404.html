@@ -344,7 +344,8 @@
   .mixer-bar-lbl{font-size:8px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:var(--text-lo);}
   #meterModeSeg{border:1px solid var(--ink);}
   #meterModeSeg button.active{background:var(--orange); color:#fff;}
-  .mixer-strips{flex:1; min-height:0; display:flex; overflow-x:auto; touch-action:pan-x; padding:10px 8px; gap:7px; align-items:stretch; background:var(--bg-soft);}
+  .mixer-strips{flex:1; min-height:0; display:flex; overflow-x:auto; touch-action:pan-x; padding:10px 8px; gap:7px; align-items:stretch; background:var(--bg-soft); position:relative;}
+  .routing-svg{position:absolute; left:0; top:0; pointer-events:none; z-index:4; overflow:visible;}
   .chstrip{flex:0 0 88px; background:var(--bg); border:var(--bw) solid var(--ink); border-radius:3px; display:flex; flex-direction:column; align-items:center; padding:0 5px 6px; gap:4px; position:relative; overflow:hidden;}
   .chstrip::before{content:""; display:block; width:calc(100% + 10px); margin:0 -5px 4px; height:8px; background:var(--tc,#ccc); border-bottom:var(--bw) solid var(--ink);}
   .chstrip.master{border-color:var(--ink);}
@@ -5195,7 +5196,7 @@
       b.addEventListener("click", () => {
         track.out = b.dataset.out;
         chFxEl.querySelectorAll(".chfx-outseg button").forEach(x => x.classList.toggle("active", x === b));
-        connectChannelOut(liveEngine, tIdx); saveProject();
+        connectChannelOut(liveEngine, tIdx); drawRoutingLines(); saveProject();
       });
     });
     chFxEl.querySelector(".chfx-close").addEventListener("click", closeChannelFx);
@@ -5230,6 +5231,44 @@
     strip.querySelector(".ch-fader").addEventListener("change", () => { pushUndo(); saveProject(); });
     strip.querySelector(`.ch-clip[data-key="bus${n}"]`).addEventListener("click", (e) => { meterClip["bus"+n] = false; e.target.classList.remove("lit"); });
     return strip;
+  }
+
+  // FL-style routing lines: a curve from each channel routed to a bus down to
+  // that bus strip. Only drawn for channels NOT on Master, so the default
+  // (everything to Master) shows nothing — no clutter until you use buses.
+  function drawRoutingLines(){
+    const wrap = document.querySelector(".mixer-strips");
+    if(!wrap) return;
+    const old = wrap.querySelector(".routing-svg"); if(old) old.remove();
+    const kids = [...wrap.children].filter(k => k.classList && k.classList.contains("chstrip"));
+    const busEl = {};
+    kids.forEach(k => { if(k.classList.contains("bus")){ const nm = (k.querySelector(".ch-name")||{}).textContent||""; busEl[nm.replace("BUS ","").trim()] = k; } });
+    const routed = TRACKS.map((t,i) => ({t,i})).filter(o => (o.t.out === "A" || o.t.out === "B") && busEl[o.t.out]);
+    if(!routed.length) return;
+    const H = wrap.clientHeight, W = wrap.scrollWidth;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+    svg.setAttribute("class","routing-svg");
+    svg.setAttribute("width", W); svg.setAttribute("height", H);
+    const band = 66; // bottom band the curves live in
+    routed.forEach(({t,i}) => {
+      const ch = kids[i], bus = busEl[t.out];
+      if(!ch || !bus) return;
+      const cx = ch.offsetLeft + ch.offsetWidth/2;
+      const bx = bus.offsetLeft + bus.offsetWidth/2;
+      const yTop = H - band, yBot = H - 4;
+      const p = document.createElementNS("http://www.w3.org/2000/svg","path");
+      p.setAttribute("d", `M ${cx} ${yTop} C ${cx} ${yBot}, ${bx} ${yBot}, ${bx} ${yTop}`);
+      p.setAttribute("fill","none");
+      p.setAttribute("stroke", t.color);
+      p.setAttribute("stroke-width","2");
+      p.setAttribute("stroke-linecap","round");
+      p.setAttribute("opacity","0.85");
+      svg.appendChild(p);
+      const dot = document.createElementNS("http://www.w3.org/2000/svg","circle");
+      dot.setAttribute("cx", bx); dot.setAttribute("cy", yTop); dot.setAttribute("r","3.2"); dot.setAttribute("fill", t.color);
+      svg.appendChild(dot);
+    });
+    wrap.appendChild(svg);
   }
 
   function renderMixer(){
@@ -5330,6 +5369,7 @@
         connectChannelOut(liveEngine, tIdx);
         e.target.innerHTML = "&#9656; " + (track.out === "master" ? "MST" : "BUS " + track.out);
         e.target.classList.toggle("on", track.out !== "master");
+        drawRoutingLines();
         saveProject();
       });
       bindKnob(strip.querySelector(".ch-verb-knob"), () => track.reverbSend, (v) => {
@@ -5392,6 +5432,7 @@
       });
       const mk = mixerViewEl.querySelector(".master-verb-knob");
       if(mk) drawKnob(mk, liveEngine ? liveEngine.reverbWet.gain.value : 0.9, () => {});
+      drawRoutingLines();
     });
   }
 

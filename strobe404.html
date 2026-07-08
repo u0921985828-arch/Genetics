@@ -695,7 +695,8 @@
       <div id="arrangeTools">
         <span class="pl-lbl">Tool</span>
         <div class="seg" id="plToolSeg">
-          <button data-tool="paint" class="active">Paint</button>
+          <button data-tool="select" class="active" title="Select: move clips and scroll without painting">Select</button>
+          <button data-tool="paint">Paint</button>
           <button data-tool="cut">Cut</button>
           <button data-tool="erase">Erase</button>
         </div>
@@ -3884,7 +3885,7 @@
   function onLanePointerDown(e, laneIdx, laneEl){
     if(e.target.closest(".pl-clip")) return;   // clip handlers deal with clips
     if(pinching || plPointers.size >= 2) return; // two-finger pinch, not a paint
-    if(plTool === "erase") return;
+    if(plTool !== "paint") return;             // Select/Cut/Erase never stamp on empty lane
     e.preventDefault();
     const bar = Math.max(0, Math.min(songBars-1, plSnapFloor(plFracAtX(e.clientX))));
     ensureAudio(); pushUndo();
@@ -3982,7 +3983,7 @@
   }
 
   /* ---- playlist tools: paint / cut / erase; pattern comes from the top selector ---- */
-  let plTool = "paint", plPaintPattern = 1;
+  let plTool = "select", plPaintPattern = 1;
   // shows which pattern the Paint tool will stamp (driven by the top PAT
   // selector -- one place selects both the edited and the painted pattern).
   function renderPlPatPicker(){

@@ -1011,6 +1011,9 @@
     for(let p=0;p<PATTERN_COUNT;p++) arr.push(makeSteps());
     return arr;
   }
+  // stable per-channel id, so persisted samples stay tied to their channel
+  // even after channels are reordered/removed (IndexedDB is keyed by this).
+  function newUid(){ return "t" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,8); }
 
   const TRACKS = [
     {name:"KICK",  type:"kick",  patterns:makePatterns(), vol:0.9, mute:false, solo:false, wave:"sine",     adsr:{a:0.001,d:0.15,s:0.0,r:0.05}, cutoff:1.0, delaySend:0.0,  cutGroup:null, hold:0,    poly:true},
@@ -1028,6 +1031,7 @@
     track.fxFilterOn = false; track.fxFilterCutoff = 0.7;
     track.reverbSend = 0.0;
     track.out = "master"; // mixer output routing: "master" | "A" | "B"
+    track.uid = newUid();
     track.pan = 0; // mixer channel pan, -1 (L) .. +1 (R)
     track.eq = {lo:0, mid:0, hi:0}; // 3-band channel EQ, dB (-15..+15)
     track.arp = {on:false, dir:"up", octaves:1, rate:"1/16"};
@@ -1121,6 +1125,7 @@
   // and when a loaded project has more channels than the current rack.
   function makeTrack(name, type, wave){
     const t = {
+      uid: newUid(),
       name: name || "CHAN", type: type || "synth", patterns: makePatterns(),
       vol:0.75, mute:false, solo:false, wave: wave || "saw",
       adsr:{a:0.005,d:0.12,s:0.4,r:0.14}, cutoff:0.7, delaySend:0.0, cutGroup:null, hold:0.02, poly:true,
@@ -1237,7 +1242,7 @@
       arrClips: arrClips.map(c => ({ lane:c.lane, start:c.start, len:c.len, pat:c.pat, mute:c.mute?1:0 })),
       audioClips: audioClips.map(c => ({ name:c.name, bar:c.bar, lane:c.lane||0, gain:c.gain, durationBars:c.durationBars, mute:c.mute?1:0 })),
       tracks: TRACKS.map(t => ({
-        name:t.name, type:t.type,
+        uid:t.uid, name:t.name, type:t.type,
         vol:t.vol, pan:t.pan, eq:t.eq, mute:t.mute, solo:t.solo, wave:t.wave, adsr:t.adsr, cutoff:t.cutoff,
         delaySend:t.delaySend, cutGroup:t.cutGroup, hold:t.hold, poly:t.poly,
         fxDrive:t.fxDrive, fxDriveAmt:t.fxDriveAmt, fxFilterOn:t.fxFilterOn, fxFilterCutoff:t.fxFilterCutoff,
@@ -1415,9 +1420,8 @@
   // in IndexedDB (fire-and-forget). Called wherever a new buffer is
   // created: file import, mic capture, destructive edit.
   function persistSample(track){
-    const idx = TRACKS.indexOf(track);
-    if(idx < 0 || !track.sampleBuffer) return;
-    try{ saveSampleBlob(idx, audioBufferToWav(track.sampleBuffer)); }catch(e){}
+    if(!track.sampleBuffer || !track.uid) return;
+    try{ saveSampleBlob(track.uid, audioBufferToWav(track.sampleBuffer)); }catch(e){}
   }
 
   // Reloads persisted sample buffers from IndexedDB and reattaches them
@@ -1428,7 +1432,12 @@
     if(!loadedProjectData) return;
     let restoredAny = false;
     for(let i=0;i<TRACKS.length;i++){
-      const blob = await loadSampleBlob(i);
+      let blob = await loadSampleBlob(TRACKS[i].uid);
+      // legacy fallback: pre-uid stores were keyed by track index; migrate it
+      if(!blob){
+        const legacy = await loadSampleBlob(i);
+        if(legacy){ blob = legacy; saveSampleBlob(TRACKS[i].uid, legacy); deleteSampleBlob(i); }
+      }
       if(!blob) continue;
       ensureAudio(); // only spin up a (suspended) context if there's audio to decode
       try{
@@ -1523,7 +1532,7 @@
       const s = data.tracks[i];
       if(!s) return;
       Object.assign(t, {
-        name:(s.name != null ? s.name : t.name), type:(s.type != null ? s.type : t.type),
+        uid:(s.uid || t.uid || newUid()), name:(s.name != null ? s.name : t.name), type:(s.type != null ? s.type : t.type),
         vol:s.vol, pan:(s.pan != null ? s.pan : 0), eq:(s.eq && typeof s.eq === "object" ? {lo:s.eq.lo||0, mid:s.eq.mid||0, hi:s.eq.hi||0} : {lo:0,mid:0,hi:0}), mute:s.mute, solo:s.solo, wave:s.wave, adsr:s.adsr, cutoff:s.cutoff,
         delaySend:s.delaySend, cutGroup:s.cutGroup, hold:s.hold, poly:s.poly,
         fxDrive:s.fxDrive, fxDriveAmt:s.fxDriveAmt, fxFilterOn:s.fxFilterOn, fxFilterCutoff:s.fxFilterCutoff,
@@ -1634,7 +1643,7 @@
       const keep = samples && samples[i];
       if(!keep){
         t.sampleBuffer = null; t.samplePeaks = null; t.sampleName = "";
-        deleteSampleBlob(i);
+        deleteSampleBlob(t.uid);
       }
     });
     if(samples){
@@ -1648,7 +1657,7 @@
           TRACKS[i].samplePeaks = computeSamplePeaks(buf, 400);
           TRACKS[i].sampleName = (data.tracks[i] && data.tracks[i].sampleName) || "sample";
           if(data.tracks[i] && data.tracks[i].wave === "sample") TRACKS[i].wave = "sample";
-          saveSampleBlob(i, blob); // keep it in the live per-track store for the session
+          saveSampleBlob(TRACKS[i].uid, blob); // keep it in the live per-track store (uid-keyed)
         }catch(e){}
       }
     }
@@ -2905,6 +2914,7 @@
       if(t.duckSource === idx) t.duckSource = null;
       else if(t.duckSource > idx) t.duckSource -= 1;
     });
+    if(TRACKS[idx] && TRACKS[idx].uid) deleteSampleBlob(TRACKS[idx].uid); // drop its orphaned sample
     TRACKS.splice(idx, 1);
     recolorTracks();
     if(selectedTrackIdx >= TRACKS.length) selectedTrackIdx = TRACKS.length - 1;

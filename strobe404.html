@@ -379,7 +379,8 @@
   .ch-pan::-moz-range-thumb{width:12px; height:12px; background:var(--tc,var(--ink)); border:var(--bw) solid var(--ink); border-radius:0;}
   .ch-pan-lbl{font-size:8px; font-weight:800; color:var(--text-dim); letter-spacing:.4px;}
   .ch-btn-row{display:flex; gap:4px;}
-  .ch-fx-row{display:flex; gap:4px;}
+  .ch-fx-row{display:flex; gap:3px; width:100%;}
+  .ch-fx-row .mini-btn{flex:1; width:auto; min-width:0;}
   .ch-fx-label{font-size:8px; color:var(--text-dim); letter-spacing:.4px; text-align:center; width:100%; text-transform:uppercase; font-weight:800;}
   .ch-verb-knob, .master-verb-knob{width:100%; height:32px; flex:0 0 32px; touch-action:none;}
   .ch-gr{font-size:8px; font-weight:800; width:100%; text-align:center; color:var(--text-dim); letter-spacing:.3px; height:11px; line-height:11px;}
@@ -4785,20 +4786,21 @@
     const g = autoCanvas.getContext("2d");
     g.setTransform(dpr,0,0,dpr,0,0);
     g.clearRect(0,0,w,h);
+    const cHair = cssVar("--hair","#e2e2dc"), cHair2 = cssVar("--hair-2","#cfcfc8"), cLo = cssVar("--text-lo","#8a8a82"), cInk = cssVar("--ink","#141414");
     // horizontal reference lines (mid emphasized)
-    [0,0.25,0.5,0.75,1].forEach(v => { const y=(1-v)*h; g.strokeStyle = v===0.5 ? "#b3b3ac" : "#e2e2dc"; g.lineWidth=1; g.beginPath(); g.moveTo(0,y+0.5); g.lineTo(w,y+0.5); g.stroke(); });
+    [0,0.25,0.5,0.75,1].forEach(v => { const y=(1-v)*h; g.strokeStyle = v===0.5 ? cHair : cHair2; g.lineWidth=1; g.beginPath(); g.moveTo(0,y+0.5); g.lineTo(w,y+0.5); g.stroke(); });
     // bar grid
-    for(let b=0;b<=songBars;b++){ const x=b*AUTO_BAR_W; g.strokeStyle = "#cfcfc8"; g.lineWidth = 1; g.beginPath(); g.moveTo(x+0.5,0); g.lineTo(x+0.5,h); g.stroke();
-      if(b < songBars){ g.fillStyle = "#8a8a82"; g.font = "700 9px system-ui,sans-serif"; g.fillText("BAR "+(b+1), x+5, 12); } }
+    for(let b=0;b<=songBars;b++){ const x=b*AUTO_BAR_W; g.strokeStyle = cHair2; g.lineWidth = 1; g.beginPath(); g.moveTo(x+0.5,0); g.lineTo(x+0.5,h); g.stroke();
+      if(b < songBars){ g.fillStyle = cLo; g.font = "700 9px system-ui,sans-serif"; g.fillText("BAR "+(b+1), x+5, 12); } }
     const pts = automation[autoTarget] || [];
-    const orange = "#ea6a1e";
+    const orange = cssVar("--orange","#ea6a1e");
     if(pts.length){
       g.strokeStyle = orange; g.lineWidth = 2.5; g.beginPath();
       g.moveTo(0, (1-pts[0].v)*h);
       pts.forEach(p => g.lineTo(p.b*AUTO_BAR_W, (1-p.v)*h));
       g.lineTo(w, (1-pts[pts.length-1].v)*h);
       g.stroke();
-      pts.forEach(p => { g.beginPath(); g.fillStyle = "#141414"; g.arc(p.b*AUTO_BAR_W, (1-p.v)*h, 6, 0, Math.PI*2); g.fill();
+      pts.forEach(p => { g.beginPath(); g.fillStyle = cInk; g.arc(p.b*AUTO_BAR_W, (1-p.v)*h, 6, 0, Math.PI*2); g.fill();
         g.beginPath(); g.fillStyle = orange; g.arc(p.b*AUTO_BAR_W, (1-p.v)*h, 3, 0, Math.PI*2); g.fill(); });
     }
   }
@@ -4823,8 +4825,45 @@
     buildAutoTargetOptions();
     renderAutoLane();
   }
+  // jump straight into the automation editor for a given target (used by the
+  // mixer "A" button, so you can automate a channel param from its strip).
+  function openAutomationFor(targetId){
+    autoTarget = targetId;
+    if(!songMode) setSongMode(true);   // automation only plays back in SONG mode
+    openAutomation();
+  }
+  function channelHasAutomation(tIdx){
+    return ["vol","pan","cutoff","send"].some(p => (automation[`track.${tIdx}.${p}`] || []).length);
+  }
+  // small chooser from a channel's "A" button: pick which param to automate
+  function showAutomateMenu(anchorEl, tIdx){
+    closeFillMenu();
+    const rect = anchorEl.getBoundingClientRect();
+    fillMenuEl = document.createElement("div");
+    fillMenuEl.className = "fill-menu";
+    fillMenuEl.style.top = rect.bottom + 6 + "px";
+    fillMenuEl.style.left = rect.left + "px";
+    const params = [["vol","Volume"],["pan","Pan"],["cutoff","Cutoff"],["send","Reverb Send"]];
+    fillMenuEl.innerHTML = params.map(([p,lbl]) =>
+      `<button data-p="${p}">${lbl}${(automation[`track.${tIdx}.${p}`]||[]).length ? "  •" : ""}</button>`).join("");
+    fillMenuEl.addEventListener("click", (e) => {
+      const p = e.target.getAttribute("data-p");
+      if(!p) return;
+      closeFillMenu();
+      openAutomationFor(`track.${tIdx}.${p}`);
+    });
+    document.body.appendChild(fillMenuEl);
+    const mr = fillMenuEl.getBoundingClientRect();
+    if(mr.bottom > window.innerHeight - 8) fillMenuEl.style.top = Math.max(8, window.innerHeight - 8 - mr.height) + "px";
+    if(mr.right > window.innerWidth - 8) fillMenuEl.style.left = Math.max(8, rect.right - mr.width) + "px";
+    setTimeout(() => document.addEventListener("pointerdown", outsideFillMenuHandler, true), 0);
+  }
   document.getElementById("plAutoBtn").addEventListener("click", openAutomation);
-  document.getElementById("autoCloseBtn").addEventListener("click", () => autoOverlayEl.classList.remove("open"));
+  document.getElementById("autoCloseBtn").addEventListener("click", () => {
+    autoOverlayEl.classList.remove("open");
+    // refresh the mixer so the channel "A" lights reflect new automation
+    if(document.getElementById("mixerView").classList.contains("active")) renderMixer();
+  });
   document.getElementById("autoClearBtn").addEventListener("click", () => {
     if(!automation[autoTarget]) return;
     pushUndo(); delete automation[autoTarget]; buildAutoTargetOptions(); renderAutoLane(); saveProject();
@@ -4949,6 +4988,7 @@
           <button class="mini-btn fx ${track.fxDrive?'on':''}" data-a="drive" title="Drive insert">D</button>
           <button class="mini-btn fx ${track.fxFilterOn?'on':''}" data-a="filt" title="Filter insert">F</button>
           <button class="mini-btn fx ${eqActive(track)?'on':''}" data-a="eq" title="3-band EQ">EQ</button>
+          <button class="mini-btn ${channelHasAutomation(tIdx)?'on':''}" data-a="auto" title="Automate this channel">A</button>
         </div>
         <span class="ch-fx-label">VERB SEND</span>
         <canvas class="ch-verb-knob"></canvas>
@@ -4991,6 +5031,9 @@
       });
       strip.querySelector('[data-a="eq"]').addEventListener("click", (e) => {
         ensureAudio(); showChannelEQ(e.target, track, tIdx);
+      });
+      strip.querySelector('[data-a="auto"]').addEventListener("click", (e) => {
+        showAutomateMenu(e.target, tIdx);
       });
       bindKnob(strip.querySelector(".ch-verb-knob"), () => track.reverbSend, (v) => {
         ensureAudio(); track.reverbSend = v; updateTrackInsertFX(liveEngine, track, tIdx);

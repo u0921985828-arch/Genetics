@@ -116,6 +116,8 @@
     padding:calc(var(--topbar-h) + 12px) 14px 16px; display:flex; flex-direction:column; gap:8px;
   }
   #menuSheet.open{transform:translateY(0);}
+  .menu-sheet-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:2px;}
+  .menu-sheet-title{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:var(--text-lo);}
   #menuBackdrop{position:fixed; inset:0; z-index:39; background:rgba(0,0,0,.35); opacity:0; pointer-events:none; transition:opacity .2s ease;}
   #menuBackdrop.open{opacity:1; pointer-events:auto;}
   .menu-row{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 10px; border:var(--bw) solid var(--ink);}
@@ -491,6 +493,10 @@
 
   <div id="menuBackdrop"></div>
   <div id="menuSheet">
+    <div class="menu-sheet-head">
+      <span class="menu-sheet-title">Menu</span>
+      <button id="menuCloseBtn" class="pr-close" aria-label="close menu">&#10005;</button>
+    </div>
     <div class="menu-row">
       <label>Project</label>
       <div class="ctl">
@@ -2612,6 +2618,7 @@
   }
   document.getElementById("menuBtn").addEventListener("click", () => toggleMenu());
   menuBackdropEl.addEventListener("click", () => toggleMenu(false));
+  document.getElementById("menuCloseBtn").addEventListener("click", () => toggleMenu(false));
 
   const compMenuBtn = document.getElementById("compMenuBtn");
   function refreshCompMenuBtn(){ compMenuBtn.classList.toggle("on", compressorOn); compMenuBtn.textContent = compressorOn ? "ON" : "OFF"; }

@@ -171,7 +171,8 @@ namespace chrona::ui
 
         void parameterChanged (const juce::String&, float) override
         {
-            juce::MessageManager::callAsync ([this] { updateGrid(); });
+            juce::Component::SafePointer<Level2Panel> safe (this);
+            juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->updateGrid(); });
         }
 
         void updateGrid()

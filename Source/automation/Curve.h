@@ -48,6 +48,7 @@ namespace chrona::automation
         {
             p.x = juce::jlimit (0.0f, 1.0f, p.x);
             p.y = juce::jlimit (0.0f, 1.0f, p.y);
+            p.curve = juce::jlimit (-1.0f, 1.0f, p.curve);
             points.push_back (p);
             sort();
         }
@@ -117,9 +118,9 @@ namespace chrona::automation
             for (int i = 0; i < vt.getNumChildren(); ++i)
             {
                 const auto pt = vt.getChild (i);
-                points.push_back ({ (float) pt.getProperty ("x"),
-                                    (float) pt.getProperty ("y"),
-                                    (float) pt.getProperty ("c") });
+                points.push_back ({ juce::jlimit (0.0f, 1.0f, (float) pt.getProperty ("x")),
+                                    juce::jlimit (0.0f, 1.0f, (float) pt.getProperty ("y")),
+                                    juce::jlimit (-1.0f, 1.0f, (float) pt.getProperty ("c")) });
             }
             sort();
             if (points.empty()) setFlat (0.0f);

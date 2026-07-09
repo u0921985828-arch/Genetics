@@ -59,7 +59,10 @@ namespace chrona::ui
 
         void parameterChanged (const juce::String&, float) override
         {
-            juce::MessageManager::callAsync ([this] { syncFromParam(); });
+            // SafePointer so a queued callback can't run on a destroyed editor
+            // (removeParameterListener stops new events but can't unqueue this).
+            juce::Component::SafePointer<ModeSelector> safe (this);
+            juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->syncFromParam(); });
         }
 
         void syncFromParam()

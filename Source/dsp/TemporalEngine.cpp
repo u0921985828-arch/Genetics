@@ -83,7 +83,10 @@ namespace chrona::dsp
         const double spb = automation->getSamplesPerBeat();
         const double divBeats = params::syncDivisionBeats (level2.syncIndex);
         double L = divBeats * spb;
-        L = juce::jlimit (256.0, juce::jmin (barSamples, windowSamples * 0.5), L);
+        // Upper bound can dip below 256 at pathological tempo/SR — keep it >= the
+        // lower bound so jlimit never asserts (lower > upper).
+        const double hiBound = juce::jmax (256.0, juce::jmin (barSamples, windowSamples * 0.5));
+        L = juce::jlimit (256.0, hiBound, L);
 
         // swing skews alternate loops; humanize adds subtle length jitter.
         const double swingSkew = (loopIndex % 2 == 0) ? (1.0 + level2.swing * 0.66)
@@ -172,8 +175,6 @@ namespace chrona::dsp
         float frameIn[2]  = { 0.0f, 0.0f };
         float frameWet[2] = { 0.0f, 0.0f };
 
-        const float gateDiv = juce::jmax (256.0f, (float) (currentLoopLen / 4.0));
-
         for (int n = 0; n < numSamples; ++n)
         {
             // --- smoothed macros ---
@@ -256,6 +257,9 @@ namespace chrona::dsp
             // --- synced gate (volume gating) ---
             if (level2.gate > 0.0001f)
             {
+                // recomputed per-sample so a mid-block loop boundary (which can
+                // change currentLoopLen via swing) keeps the gate grid aligned.
+                const float gateDiv = juce::jmax (256.0f, (float) (currentLoopLen / 4.0));
                 const float gp = std::fmod ((float) loopPos, gateDiv) / gateDiv;
                 const float gTarget = gp < 0.5f ? 1.0f : (1.0f - level2.gate);
                 const float g = gateSmooth.process (gTarget); // de-zippered

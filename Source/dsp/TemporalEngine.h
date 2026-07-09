@@ -70,7 +70,7 @@ namespace chrona::dsp
 
     private:
         IMode* activeMode();
-        void   updateLoopClock (bool playing, double ppqSamples);
+        void   updateLoopClock (bool playing, double ppqSamples, bool forceResync);
 
         CircularBuffer buffer;
         automation::AutomationEngine* automation = nullptr;
@@ -91,6 +91,12 @@ namespace chrona::dsp
         double barSamples = 0.0;
         float  humanizeGain = 1.0f;
         Lcg    humanRng;
+
+        // locate/loop-jump detection + live mode-switch declick
+        double lastPpqSamples = 0.0;
+        int    lastBlockSamples = 0;
+        bool   havePrevPpq = false;
+        params::Mode lastProcessedMode = params::Mode::Half;
 
         // post chain
         std::array<DeclickRamp, 2> declick;

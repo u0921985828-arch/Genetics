@@ -68,6 +68,7 @@ namespace chrona::ui
             knobs.add (new BigKnob (s, P::gateAmount, "GATE"));
             knobs.add (new BigKnob (s, P::duckAmount, "DUCK"));
             knobs.add (new BigKnob (s, P::antiClick,  "ANTI-CLICK"));
+            knobs.getLast()->setValueSuffix (" ms");
             for (auto* k : knobs) addAndMakeVisible (k);
 
             // preset browser

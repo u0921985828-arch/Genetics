@@ -64,13 +64,13 @@ namespace chrona::dsp
     public:
         void prepare (double sampleRate) { sr = sampleRate; reset(); }
         void reset() { lp = 0.0f; }
-        // tilt in [-1,1]: negative darkens, positive brightens.
+        // tilt in [-1,1]: negative darkens (boosts lows), positive brightens.
         inline float process (float x, float tilt)
         {
             const float cutoff = 0.15f; // fixed pivot, cheap
             lp += cutoff * (x - lp);
             const float hp = x - lp;
-            return lp * (1.0f - tilt) + hp * (1.0f + tilt) + lp * tilt;
+            return lp * (1.0f - tilt) + hp * (1.0f + tilt);
         }
     private:
         double sr = 44100.0;

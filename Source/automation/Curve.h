@@ -30,6 +30,10 @@ namespace chrona::automation
 
         void clear() { points.clear(); }
 
+        // Pre-grow storage so audio-thread copy-assignment of a snapshot never
+        // reallocates (std::vector::operator= reuses capacity when sufficient).
+        void reserve (int n) { points.reserve ((size_t) juce::jmax (0, n)); }
+
         void setLinearRamp (float y0, float y1)
         {
             points = { { 0.0f, y0, 0.0f }, { 1.0f, y1, 0.0f } };

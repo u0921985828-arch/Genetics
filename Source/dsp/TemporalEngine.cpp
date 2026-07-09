@@ -39,6 +39,11 @@ namespace chrona::dsp
         crackleRng.seed (0x1234567u);
         humanRng.seed (0xC0FFEEu);
 
+        // Pre-grow the Custom-mode snapshot storage so copying the live curve
+        // on the audio thread never allocates.
+        customTimeSnapshot.reserve (automation::AutomationEngine::kMaxPoints);
+        customVolSnapshot .reserve (automation::AutomationEngine::kMaxPoints);
+
         reset();
     }
 
@@ -54,6 +59,8 @@ namespace chrona::dsp
         wasPlaying = false; humanizeGain = 1.0f;
         lastWet = { { 0.0f, 0.0f } };
         engageSmoother.reset (0.0f);
+        lastPpqSamples = 0.0; lastBlockSamples = 0; havePrevPpq = false;
+        lastProcessedMode = requestedMode;
     }
 
     IMode* TemporalEngine::activeMode()
@@ -64,7 +71,7 @@ namespace chrona::dsp
         return modes[idx].get();
     }
 
-    void TemporalEngine::updateLoopClock (bool playing, double ppqSamples)
+    void TemporalEngine::updateLoopClock (bool playing, double ppqSamples, bool forceResync)
     {
         // Base division length, bounded so speed modes (needing up to 2×) and
         // reverse never read past the recorded window.
@@ -82,8 +89,9 @@ namespace chrona::dsp
 
         currentLoopLen = juce::jmax (256.0, target);
 
-        // Hard resync on transport (re)start or a locate jump.
-        if (playing && ! wasPlaying)
+        // Hard resync on transport (re)start OR a host locate / loop jump so
+        // the pattern grid stays locked to the timeline instead of drifting.
+        if (playing && (! wasPlaying || forceResync))
         {
             loopPos   = std::fmod (ppqSamples, currentLoopLen);
             loopIndex = (long long) std::floor (ppqSamples / juce::jmax (1.0, currentLoopLen));
@@ -108,8 +116,27 @@ namespace chrona::dsp
 
         for (auto& d : declick) d.setTimeMs (level2.antiClickMs);
 
+        // Detect a host locate / loop jump: while playing, ppq should advance
+        // by exactly one block worth of samples. A larger delta means the
+        // playhead moved — resync the loop clock so we stay on the grid.
         const double ppqSamples = t.ppqPosition * automation->getSamplesPerBeat();
-        updateLoopClock (t.isPlaying, ppqSamples);
+        bool forceResync = false;
+        if (t.isPlaying && havePrevPpq)
+        {
+            const double expected = lastPpqSamples + (double) lastBlockSamples;
+            if (std::abs (ppqSamples - expected) > 64.0)
+                forceResync = true;
+        }
+        updateLoopClock (t.isPlaying, ppqSamples, forceResync);
+
+        // Live mode switch: reset the incoming mode's state (clears stale
+        // accumulators) and crossfade so the change never clicks.
+        if (requestedMode != lastProcessedMode)
+        {
+            if (auto* m = activeMode()) m->reset();
+            for (int c = 0; c < 2; ++c) declick[(size_t) c].arm (lastWet[(size_t) c]);
+            lastProcessedMode = requestedMode;
+        }
 
         auto* customMode = dynamic_cast<CustomMode*> (modes[(size_t) params::Mode::Custom].get());
         if (customMode != nullptr)
@@ -121,6 +148,10 @@ namespace chrona::dsp
 
         IMode* mode = activeMode();
         const bool isCustom = (requestedMode == params::Mode::Custom);
+
+        // ducker coefficients depend only on block params — compute once here
+        if (level2.scSource != 0 && level2.duck > 0.0001f)
+            scEnv[0].setTimes (level2.duckAtkMs, level2.duckRelMs);
 
         // channel pointers
         float* ch[2] = { nch > 0 ? audio.getWritePointer (0) : nullptr,
@@ -157,8 +188,9 @@ namespace chrona::dsp
                 loopReset = true;
                 if (level2.humanize > 0.0f)
                     humanizeGain = 1.0f - (humanRng.unipolar()) * 0.12f * level2.humanize;
-                // recompute next loop length (swing alternation)
-                updateLoopClock (t.isPlaying, ppqSamples); // refresh swing skew
+                // recompute next loop length (swing alternation); never resync
+                // mid-block on a boundary — that is handled once at block start.
+                updateLoopClock (t.isPlaying, ppqSamples, false);
                 for (int c = 0; c < nch; ++c) declick[(size_t) c].arm (lastWet[(size_t) c]);
             }
 
@@ -236,7 +268,6 @@ namespace chrona::dsp
             float duckGain = 1.0f;
             if (level2.scSource != 0 && level2.duck > 0.0001f)
             {
-                scEnv[0].setTimes (level2.duckAtkMs, level2.duckRelMs);
                 const float src = (level2.scSource == 1) ? frameWet[0] : frameIn[0];
                 const float e = scEnv[0].process (src);
                 duckGain = 1.0f - level2.duck * juce::jmin (1.0f, e * 4.0f);
@@ -262,5 +293,10 @@ namespace chrona::dsp
                         std::memory_order_relaxed);
         visDelay.store (windowSamples > 0.0 ? (buffer.getTotalWritten() - 1 - anchorAbs) / windowSamples : 0.0,
                         std::memory_order_relaxed);
+
+        // remember where the playhead was so we can spot a locate next block
+        lastPpqSamples = ppqSamples;
+        lastBlockSamples = numSamples;
+        havePrevPpq = t.isPlaying;
     }
 }

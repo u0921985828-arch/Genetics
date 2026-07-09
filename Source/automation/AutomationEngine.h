@@ -37,10 +37,13 @@ namespace chrona::automation
     public:
         AutomationEngine()
         {
-            // sensible defaults
-            for (auto& c : timeSlots)   c.setLinearRamp (0.0f, 0.0f); // no delay = live
-            for (auto& c : volSlots)    c.setFlat (1.0f);
+            // sensible defaults + pre-grown storage (audio thread copies these
+            // out without reallocating — see TemporalEngine snapshots).
+            for (auto& c : timeSlots) { c.reserve (kMaxPoints); c.setLinearRamp (0.0f, 0.0f); }
+            for (auto& c : volSlots)  { c.reserve (kMaxPoints); c.setFlat (1.0f); }
         }
+
+        static constexpr int kMaxPoints = 512;
 
         void prepare (double sr)
         {

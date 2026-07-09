@@ -173,16 +173,23 @@
     <div class="mini center" style="margin-top:8px">Toca una maceta para seleccionarla · las plantas crecen en tiempo real</div>
   </div>
 
-  <!-- BREED -->
+  <!-- BREED / LAB -->
   <div class="panel hide" id="tab-breed">
     <h2>LABORATORIO DE GENÉTICA</h2>
-    <div class="mini" style="margin-bottom:8px">Cruza dos cepas para crear híbridos. Los genes se heredan y mutan. ¡Cumple condiciones para desbloquear cepas ÉLITE del códex!</div>
-    <div class="grid2" style="margin-bottom:8px">
-      <div class="card center" id="parentA"></div>
-      <div class="card center" id="parentB"></div>
+    <div class="tabs" style="grid-template-columns:1fr 1fr;margin-bottom:8px">
+      <div class="tab active" data-gsub="breed" style="font-size:10px"><span class="em" style="font-size:14px">🧬</span>CRUZAR</div>
+      <div class="tab" data-gsub="lab" style="font-size:10px"><span class="em" style="font-size:14px">🔬</span>I+D · PLOIDÍA</div>
     </div>
-    <button class="btn gold wide" id="breedBtn" onclick="doBreed()">🧬 CRUZAR ($<span id="breedCost">200</span>)</button>
-    <div id="breedResult" style="margin-top:10px"></div>
+    <div id="gsub-breed">
+      <div class="mini" style="margin-bottom:8px">Cruza dos cepas para crear híbridos. Los genes se heredan y mutan. Cruza 4n × 2n (con I+D) para lograr triploides. ¡Desbloquea cepas ÉLITE del códex!</div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div class="card center" id="parentA"></div>
+        <div class="card center" id="parentB"></div>
+      </div>
+      <button class="btn gold wide" id="breedBtn" onclick="doBreed()">🧬 CRUZAR ($<span id="breedCost">200</span>)</button>
+      <div id="breedResult" style="margin-top:10px"></div>
+    </div>
+    <div id="gsub-lab" class="hide"></div>
   </div>
 
   <!-- SHOP -->
@@ -269,10 +276,19 @@ function makeStrain(o={}){
     thc:o.thc??rnd(.35,.6), yield:o.yield??rnd(.35,.6),
     speed:o.speed??rnd(.35,.6), resist:o.resist??rnd(.35,.6),
     color:o.color??Math.random(), gen:o.gen||1, seeds:o.seeds??0};
+  g.ploidy=o.ploidy||2;
   if(o.elite)g.elite=o.elite;
+  if(o.sterile)g.sterile=true;
   g.rarity=calcRarity(g);
   return g;
 }
+const PLOIDY_NAME={2:'Diploide (2n)',3:'Triploide (3n)',4:'Tetraploide (4n)'};
+function ploidyBadge(s){
+  const p=(s&&s.ploidy)||2; if(p===2)return'';
+  const c=p===3?'#ff6ec7':'#5bc8ff', lbl=p===3?'3n♦':'4n✦';
+  return ` <span class="type" style="background:${c}2a;color:${c}">${lbl}</span>`;
+}
+const baseName=n=>n.replace(/ (4N|Triploide)$/,'');
 function calcRarity(g){
   const avg=(g.thc+g.yield+g.speed+g.resist)/4;
   if(avg>=.88)return'mitica'; if(avg>=.78)return'legend';
@@ -322,6 +338,58 @@ const ELITES=[
     stats:{thc:.9,yield:.9,speed:.85,resist:.9,color:.88}},
 ];
 
+/* ---------- Investigación (I+D) + poliploidía ---------- */
+const RESEARCH=[
+  {id:'lab',name:'Montar laboratorio',emoji:'🔬',rp:0,cash:300,days:1,req:[],
+    desc:'Habilita el árbol de investigación y los datos.'},
+  {id:'potency',name:'Ingeniería de tricomas',emoji:'❄️',rp:60,cash:1200,days:3,req:['lab'],
+    desc:'+10% THC en todas tus cosechas.'},
+  {id:'vigor',name:'Vigor híbrido',emoji:'💪',rp:60,cash:1200,days:3,req:['lab'],
+    desc:'+10% rendimiento en todas tus cosechas.'},
+  {id:'ploidy1',name:'Poliploidía I — Colquicina',emoji:'🧪',rp:80,cash:900,days:3,req:['lab'],
+    desc:'Permite inducir cepas TETRAPLOIDES (4n): +potencia/rend/resist, más lentas.'},
+  {id:'ploidy2',name:'Poliploidía II — Estabilización',emoji:'⚗️',rp:120,cash:1800,days:4,req:['ploidy1'],
+    desc:'Sube el éxito de inducción del 40% al 75%.'},
+  {id:'triploid',name:'Cruce Triploide',emoji:'🌟',rp:180,cash:3000,days:5,req:['ploidy2'],
+    desc:'Cruza 4n × 2n para lograr TRIPLOIDES (3n): sin semilla, +rendimiento y precio PREMIUM.'},
+];
+const res=id=>!!(G.research&&G.research.done&&G.research.done[id]);
+const reqMet=n=>n.req.every(r=>res(r));
+function startResearch(id){
+  if(G.research.active){sfx('error');toast('Ya hay una investigación en curso','bad');return}
+  const n=RESEARCH.find(x=>x.id===id); if(!n||res(id))return;
+  if(!reqMet(n)){sfx('error');toast('Requiere completar la investigación previa','bad');return}
+  if(G.research.rp<n.rp){sfx('error');toast('Faltan datos 🔬 ('+G.research.rp+'/'+n.rp+')','bad');return}
+  if(G.cash<n.cash){sfx('error');toast('Faltan fondos ('+money(n.cash)+')','bad');return}
+  G.research.rp-=n.rp; G.cash-=n.cash; G.research.active={id,doneDay:G.day+n.days};
+  sfx('feed'); toast('🔬 Investigación iniciada: '+n.name+' ('+n.days+' días)'); renderAll(); save();
+}
+function checkResearch(){
+  const a=G.research&&G.research.active;
+  if(a&&G.day>=a.doneDay){ G.research.done[a.id]=true; const n=RESEARCH.find(x=>x.id===a.id);
+    G.research.active=null; sfx('level'); toast('✅ I+D completada: '+(n?n.name:''),'gold'); }
+}
+function induceTetraploid(strainId){
+  const base=G.strains.find(s=>s.id===strainId); if(!base)return;
+  if((base.ploidy||2)!==2){sfx('error');toast('Solo se inducen cepas diploides (2n)','bad');return}
+  const cost=500; if(G.cash<cost){sfx('error');toast('Cuesta '+money(cost),'bad');return}
+  G.cash-=cost;
+  const chance=res('ploidy2')?0.75:0.40;
+  if(Math.random()<chance){
+    const t=makeStrain({name:baseName(base.name)+' 4N',type:base.type,ploidy:4,
+      thc:clamp(base.thc*1.15,0,1),yield:clamp(base.yield*1.20,0,1),
+      speed:clamp(base.speed*0.82,0,1),resist:clamp(base.resist*1.10,0,1),
+      color:base.color,gen:base.gen,seeds:2});
+    G.strains.push(t); addXP(25); sfx('elite');
+    modal('✦ ¡TETRAPLOIDE OBTENIDO!',`<div class="center"><div style="font-size:40px">✦</div>
+      <div class="sub" style="color:var(--blue);font-size:16px">${t.name}</div>
+      <div class="mini">Versión 4n de ${base.name}. Más potente y productiva, pero crece más lenta.</div>
+      <div class="mini" style="margin-top:6px">Añadida con 2 semillas 🌰 · úsala en un cruce 4n × 2n para lograr triploides.</div></div>`);
+    toast('✦ ¡Tetraploide! '+t.name,'gold');
+  }else{ sfx('error'); toast('La colquicina no prendió esta vez… (−'+money(cost)+')','bad'); }
+  renderAll(); save();
+}
+
 /* ---------- Clima ---------- */
 const WEATHERS=[
   {id:'sol',name:'Soleado',emoji:'☀️',grow:1.15,mold:0.5,water:1.25,desc:'crecimiento rápido'},
@@ -352,6 +420,7 @@ const DEFAULT=()=>({
     makeStrain({name:'Neon Haze',type:'sativa',thc:.52,yield:.42,speed:.6,resist:.4,seeds:2,color:.25}),
   ],
   buds:[], jars:[], contracts:[], elites:{},
+  research:{done:{},active:null,rp:0},
   gear:{lamp:0,fan:0,nutrients:2,water:5,pesticide:1},
   upg:{dryer:0,mktBoost:0,jarCap:0},
   weather:null, wDay:0, market:{}, mktDay:0, cDay:0, tick:0,
@@ -570,7 +639,10 @@ function renderPlots(){
       pb.style.width=(st>=4?100:Math.floor(p.plant.grow*100))+'%';
       pb.style.background=st>=4?'var(--gold)':'var(--green)'; el.appendChild(pb);
       const bd=document.createElement('div'); bd.className='badge';
-      bd.innerHTML='<span>'+STAGE_EMOJI[STAGES[st]]+' '+STAGES[st]+'</span>'; el.appendChild(bd);
+      const bs=strainByName(p.plant.strainName), bplo=(bs&&bs.ploidy)||2;
+      bd.innerHTML='<span>'+STAGE_EMOJI[STAGES[st]]+' '+STAGES[st]+'</span>'+
+        (bplo!==2?'<span style="background:'+(bplo===3?'#ff6ec7':'#5bc8ff')+';color:#0d0b1a">'+(bplo===3?'3n':'4n')+'</span>':'');
+      el.appendChild(bd);
       const nd=document.createElement('div'); nd.className='needs'; let ni='';
       if(p.plant.pest) ni+='<span title="'+PESTS[p.plant.pest.tipo].name+'">'+PESTS[p.plant.pest.tipo].emoji+'</span>';
       if(p.plant.water<35) ni+='<span title="sed">💧</span>';
@@ -623,7 +695,7 @@ function strainRow(s,onclick){
   window['__pick_'+s.id]=onclick;
   return `<div class="selstrain" onclick="window.__pick_${s.id}()">
     <canvas data-strain="${s.name}"></canvas>
-    <div style="flex:1"><div class="name">${s.name} <span class="type t-${s.type}">${s.type}</span></div>
+    <div style="flex:1"><div class="name">${s.name} <span class="type t-${s.type}">${s.type}</span>${ploidyBadge(s)}</div>
     <div class="mini">🌰 ${s.seeds} semillas · <span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span></div>
     <div class="dna">${dnaBars(s)}</div></div></div>`;
 }
@@ -660,29 +732,33 @@ function treatPlant(i){
 }
 function harvest(i){
   const p=G.plots[i].plant, s=strainByName(p.strainName);
-  const yieldBase=6+s.yield*22, qualF=p.quality/100, healthF=p.health/100;
+  const potF=res('potency')?1.10:1, vigF=res('vigor')?1.10:1, plo=s.ploidy||2;
+  const yieldBase=(6+s.yield*22)*vigF, qualF=p.quality/100, healthF=p.health/100;
   const qty=Math.max(1,Math.round(yieldBase*(0.5+qualF*0.5)*(0.6+healthF*0.4)));
   const quality=Math.round(clamp(p.quality*(0.7+healthF*0.3),5,100));
+  const effThc=clamp(s.thc*potF,0,1);
   addXP(Math.round(qty*0.8+s.thc*10)); G.rep+=Math.round(s.thc*3);
-  if(Math.random()<0.5+qualF*0.3) s.seeds+=irnd(1,3);
+  G.research.rp+=Math.max(1,Math.round(quality/10+s.thc*5)); // datos de I+D
+  if(plo!==3 && Math.random()<0.5+qualF*0.3) s.seeds+=irnd(1,3); // triploides estériles: sin semilla
+  const bud={strainName:s.name,type:s.type,rarity:s.rarity,thc:effThc,ploidy:plo};
   // → curado si hay frasco libre, si no directo al alijo
   if(G.jars.length<jarCap()){
-    G.jars.push({strainName:s.name,type:s.type,rarity:s.rarity,thc:s.thc,qty,
-      quality,baseQ:quality,cureDay:G.day,ready:false});
+    G.jars.push({...bud,qty,quality,baseQ:quality,cureDay:G.day,ready:false});
     toast('✂️ +'+qty+'g de '+s.name+' → curado 🫙','gold');
   }else{
-    addBuds(s,qty,quality);
+    addBuds({...bud,name:s.name},qty,quality);
     toast('✂️ +'+qty+'g de '+s.name+' (frascos llenos → alijo)','gold');
   }
   const c=plotCenter(i); if(c)spawnBurst(c.x,c.y,strainPalette(s).bud,18);
   G.plots[i].plant=null; sfx('harvest'); renderAll(); save();
 }
 function addBuds(s,qty,quality){
-  const key=(s.name||s.strainName)+'|'+Math.round(quality/10)*10;
+  const plo=s.ploidy||2;
+  const key=(s.name||s.strainName)+'|'+Math.round(quality/10)*10+'|'+plo;
   let b=G.buds.find(x=>x.key===key);
   if(b){b.qty+=qty;}
   else G.buds.push({key,strainName:s.name||s.strainName,type:s.type,rarity:s.rarity,
-    thc:s.thc,quality:Math.round(quality/10)*10,qty});
+    thc:s.thc,quality:Math.round(quality/10)*10,qty,ploidy:plo});
 }
 
 /* ---------- TICK crecimiento + plagas ---------- */
@@ -735,7 +811,7 @@ function cureJars(){
 }
 function packJar(i){
   const j=G.jars[i]; if(!j)return;
-  addBuds({name:j.strainName,type:j.type,rarity:j.rarity,thc:j.thc},j.qty,j.quality);
+  addBuds({name:j.strainName,type:j.type,rarity:j.rarity,thc:j.thc,ploidy:j.ploidy||2},j.qty,j.quality);
   G.jars.splice(i,1); sfx('treat'); toast('🫙 '+j.strainName+' empacado (cal '+j.quality+')'); renderAll(); save();
 }
 
@@ -754,7 +830,7 @@ function renderParent(slot,s){
   if(!s){el.innerHTML='<div class="mini">PROGENITOR '+slot+'</div><button class="btn alt wide" style="margin-top:6px" onclick="pickParent(\''+slot+'\')">Elegir cepa</button>';return}
   el.innerHTML=`<div class="mini">PROGENITOR ${slot}</div>
     <canvas id="pc${slot}" style="width:48px;height:48px;image-rendering:pixelated;background:#120f2b;margin:4px auto;display:block;border:1px solid var(--line)"></canvas>
-    <div class="name center" style="justify-content:center">${s.name}</div>
+    <div class="name center" style="justify-content:center">${s.name}${ploidyBadge(s)}</div>
     <div class="center"><span class="type t-${s.type}">${s.type}</span> <span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span></div>
     <div class="dna">${dnaBars(s)}</div>
     <button class="btn alt wide" style="margin-top:6px" onclick="pickParent('${slot}')">Cambiar</button>`;
@@ -765,17 +841,29 @@ function pickParent(slot){
     window['__par_'+s.id]=()=>{if(slot==='A')parentA=s;else parentB=s;closeModal();renderBreed();};
     return `<div class="selstrain" onclick="window.__par_${s.id}()">
       <canvas data-strain="${s.name}"></canvas>
-      <div style="flex:1"><div class="name">${s.name} <span class="type t-${s.type}">${s.type}</span></div>
-      <div class="mini">Gen ${s.gen} · <span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span> · 🌰${s.seeds}</div>
+      <div style="flex:1"><div class="name">${s.name} <span class="type t-${s.type}">${s.type}</span>${ploidyBadge(s)}</div>
+      <div class="mini">Gen ${s.gen} · <span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span> · 🌰${s.seeds}${s.sterile?' · ⚠️estéril':''}</div>
       <div class="dna">${dnaBars(s)}</div></div></div>`;}).join(''));
   setTimeout(()=>$$('#modal canvas[data-strain]').forEach(cv=>drawStrainIcon(cv,strainByName(cv.dataset.strain))),0);
 }
 function doBreed(){
   if(!parentA||!parentB)return;
+  const pa=parentA.ploidy||2, pb=parentB.ploidy||2;
+  if(pa===3||pb===3){sfx('error');toast('Los triploides (3n) son estériles: no producen semilla','bad');return}
+  const triCombo=(pa===4&&pb===2)||(pa===2&&pb===4);
+  if(triCombo&&!res('triploid')){sfx('error');toast('Necesitas investigar «Cruce Triploide» para cruzar 4n × 2n','bad');return}
   if(G.cash<breedCost()){sfx('error');toast('Necesitas '+money(breedCost()),'bad');return}
   G.cash-=breedCost();
   const child=crossStrains(parentA,parentB); child.seeds=irnd(2,4);
-  G.strains.push(child); addXP(30); sfx('breed');
+  let kind='';
+  if(triCombo){ child.ploidy=3; child.sterile=true;
+    child.yield=clamp(child.yield*1.25,0,1); child.thc=clamp(child.thc*1.10,0,1); child.speed=clamp(child.speed*1.05,0,1);
+    child.name=baseName(child.name)+' Triploide'; child.seeds=irnd(3,6); child.rarity=calcRarity(child);
+    kind='TRIPLOIDE (3n) · sin semilla · premium'; }
+  else if(pa===4&&pb===4){ child.ploidy=4;
+    child.thc=clamp(child.thc*1.05,0,1); child.yield=clamp(child.yield*1.05,0,1); child.speed=clamp(child.speed*0.9,0,1);
+    child.rarity=calcRarity(child); kind='TETRAPLOIDE (4n)'; }
+  G.strains.push(child); addXP(triCombo?45:30); sfx(triCombo?'elite':'breed');
   // ¿desbloquea élite?
   let unlockedEl=null;
   for(const e of ELITES){
@@ -789,9 +877,10 @@ function doBreed(){
   box.innerHTML=`<div class="card" style="border-color:var(--gold)">
     <div class="center" style="margin-bottom:6px">✨ NUEVA CEPA ✨</div>
     <canvas id="bres" style="width:56px;height:56px;image-rendering:pixelated;background:#120f2b;display:block;margin:0 auto 6px;border:2px solid var(--gold)"></canvas>
-    <div class="name center" style="justify-content:center;font-size:14px">${child.name}</div>
+    <div class="name center" style="justify-content:center;font-size:14px">${child.name}${ploidyBadge(child)}</div>
     <div class="center" style="margin:4px 0"><span class="type t-${child.type}">${child.type}</span>
       <span class="rar r-${child.rarity}">${RAR_LABEL[child.rarity]}</span> · Gen ${child.gen} · 🌰${child.seeds}</div>
+    ${kind?'<div class="center" style="color:var(--blue);font-size:10px;letter-spacing:1px">✦ '+kind+'</div>':''}
     ${child.mutated?'<div class="center" style="color:var(--pink);font-size:9px">⚡ MUTACIÓN en '+child.mutated.toUpperCase()+'</div>':''}
     <div class="stats-mini"><span>THC <b>${pct(child.thc)}</b></span><span>Rend <b>${pct(child.yield)}</b></span>
       <span>Veloc <b>${pct(child.speed)}</b></span><span>Resist <b>${pct(child.resist)}</b></span></div></div>`;
@@ -808,6 +897,60 @@ function doBreed(){
     toast('🧬 Nace '+child.name+' ('+RAR_LABEL[child.rarity]+')', rankR(child.rarity)>=3?'gold':'');
   }
   renderHUD(); renderBreed(); save();
+}
+
+/* ---------- Sub-pestañas de genética: Cruzar / I+D ---------- */
+let gsub='breed';
+$$('[data-gsub]').forEach(t=>t.onclick=()=>{gsub=t.dataset.gsub;
+  $$('[data-gsub]').forEach(x=>x.classList.toggle('active',x===t));
+  $('#gsub-breed').classList.toggle('hide',gsub!=='breed');
+  $('#gsub-lab').classList.toggle('hide',gsub!=='lab');
+  renderGenetics();});
+function renderGenetics(){ if(gsub==='breed')renderBreed(); else renderLab(); }
+
+function renderLab(){
+  checkResearch();
+  const box=$('#gsub-lab'); let h='';
+  h+=`<div class="row"><div class="name">🔬 Datos de investigación</div><div><b style="color:var(--blue)">${G.research.rp}</b> 🔬</div></div>`;
+  h+='<div class="mini" style="margin:4px 0 8px">Cosecha para ganar datos (más calidad/THC = más datos). Investiga para desbloquear la poliploidía.</div>';
+  if(G.research.active){const n=RESEARCH.find(x=>x.id===G.research.active.id); const left=Math.max(0,G.research.active.doneDay-G.day);
+    h+=`<div class="card" style="border-color:var(--blue);margin-bottom:8px"><div class="name">⏳ ${n.emoji} ${n.name}</div><div class="mini">Completa en ${left} día(s)</div></div>`;}
+  h+='<div class="sub">ÁRBOL DE INVESTIGACIÓN</div><div class="grid2">';
+  for(const n of RESEARCH){
+    const done=res(n.id), active=G.research.active&&G.research.active.id===n.id, locked=!reqMet(n);
+    const canStart=!done&&!active&&!locked&&!G.research.active&&G.research.rp>=n.rp&&G.cash>=n.cash;
+    h+=`<div class="card ${done?'':locked?'locked-el':''}" ${done?'style="border-color:var(--green)"':''}>
+      <div class="name">${n.emoji} ${n.name} ${done?'<span class="rar r-legend">✓</span>':''}</div>
+      <div class="mini">${n.desc}</div>
+      <div class="mini" style="margin-top:4px">🔬 ${n.rp} · 💵 ${money(n.cash)} · ⏳ ${n.days}d</div>
+      ${done?'<div class="mini" style="color:var(--green);margin-top:4px">✅ COMPLETADA</div>':
+        active?'<div class="mini" style="color:var(--blue);margin-top:4px">EN CURSO…</div>':
+        locked?'<div class="mini" style="color:var(--dim);margin-top:4px">🔒 requiere previa</div>':
+        `<button class="btn blue wide" style="margin-top:6px" ${canStart?'':'disabled'} onclick="startResearch('${n.id}')">Investigar</button>`}
+    </div>`;
+  }
+  h+='</div>';
+  if(res('ploidy1')){
+    const chance=res('ploidy2')?75:40;
+    h+=`<div class="sub g" style="margin-top:12px">✦ INDUCCIÓN TETRAPLOIDE — ${chance}% éxito</div>
+      <div class="mini" style="margin-bottom:6px">Trata una cepa diploide (2n) con colquicina ($500). Si prende → versión 4n: +THC, +rendimiento, +resistencia, pero más lenta.</div>
+      <button class="btn gold wide" onclick="openInducePicker()">🧪 Inducir tetraploide ($500)</button>`;
+  }
+  if(res('triploid')){
+    h+=`<div class="mini" style="margin-top:8px;color:var(--pink)">🌟 Cruce triploide activo: en «Cruzar», combina una 4n con una 2n para obtener triploides sin semilla y de precio premium.</div>`;
+  }
+  box.innerHTML=h;
+}
+function openInducePicker(){
+  const list=G.strains.filter(s=>(s.ploidy||2)===2);
+  if(!list.length){sfx('error');toast('No tienes cepas diploides','bad');return}
+  modal('Inducir tetraploide (2n → 4n)', list.map(s=>{
+    window['__ind_'+s.id]=()=>{closeModal(); induceTetraploid(s.id);};
+    return `<div class="selstrain" onclick="window.__ind_${s.id}()"><canvas data-strain="${s.name}"></canvas>
+      <div style="flex:1"><div class="name">${s.name} <span class="type t-${s.type}">${s.type}</span></div>
+      <div class="mini"><span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span> · 🌰${s.seeds}</div>
+      <div class="dna">${dnaBars(s)}</div></div></div>`;}).join(''));
+  setTimeout(()=>$$('#modal canvas[data-strain]').forEach(cv=>drawStrainIcon(cv,strainByName(cv.dataset.strain))),0);
 }
 
 /* ============================================================
@@ -890,8 +1033,9 @@ function refreshMarket(){
 }
 function budPrice(b){
   const base=8, qF=0.5+b.quality/100, thcF=0.7+b.thc*0.9, rarF=RAR_MULT[b.rarity]||1;
+  const plo=b.ploidy||2, ploF=plo===3?1.35:plo===4?1.15:1; // triploide sinsemilla = premium
   const dem=(G.market.demand&&G.market.demand[b.type])||1, mood=G.market.mood?G.market.mood.m:1;
-  return Math.max(1, base*qF*thcF*rarF*dem*mood*(1+G.upg.dryer*0.15)*(1+G.upg.mktBoost*0.1));
+  return Math.max(1, base*qF*thcF*rarF*ploF*dem*mood*(1+G.upg.dryer*0.15)*(1+G.upg.mktBoost*0.1));
 }
 /* --- contratos --- */
 function genContract(){
@@ -942,8 +1086,8 @@ function renderMarket(){
   const b=$('#marketBody');
   if(!G.buds.length){b.innerHTML='<div class="empty-msg">🎒 No tienes cogollos listos.<br>Cultiva, cosecha y cura para vender.</div>';return}
   b.innerHTML=G.buds.map((bud,i)=>{const per=budPrice(bud),total=per*bud.qty;
-    return `<div class="row"><div><div class="name">${bud.strainName} <span class="type t-${bud.type}">${bud.type}</span></div>
-      <div class="mini">${bud.qty}g · cal ${bud.quality} · THC ${pct(bud.thc)} · <span class="rar r-${bud.rarity}">${RAR_LABEL[bud.rarity]}</span></div>
+    return `<div class="row"><div><div class="name">${bud.strainName} <span class="type t-${bud.type}">${bud.type}</span>${ploidyBadge(bud)}</div>
+      <div class="mini">${bud.qty}g · cal ${bud.quality} · THC ${pct(bud.thc)} · <span class="rar r-${bud.rarity}">${RAR_LABEL[bud.rarity]}</span>${(bud.ploidy||2)===3?' · 🌟sinsemilla':''}</div>
       <div class="mini" style="color:var(--green)">${money(per)}/g</div></div>
       <button class="btn gold" onclick="sellBud(${i})">Vender ${money(total)}</button></div>`;}).join('')+
     `<div class="btnrow"><button class="btn wide gold" onclick="sellAll()">💰 Vender TODO (${money(G.buds.reduce((a,b)=>a+budPrice(b)*b.qty,0))})</button></div>`;
@@ -1005,8 +1149,8 @@ function renderStash(){
   // genéticas
   html+='<div class="sub g" style="margin-top:12px">🧬 GENÉTICAS ('+G.strains.length+')</div>';
   html+='<div class="grid2">'+G.strains.slice().sort((a,b)=>rankR(b.rarity)-rankR(a.rarity)).map(s=>`
-    <div class="card"><div class="name">${s.elite?'🏆 ':''}${s.name} <span class="type t-${s.type}">${s.type}</span></div>
-      <div class="mini"><span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span> · Gen ${s.gen} · 🌰 ${s.seeds}
+    <div class="card"><div class="name">${s.elite?'🏆 ':''}${s.name} <span class="type t-${s.type}">${s.type}</span>${ploidyBadge(s)}</div>
+      <div class="mini"><span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span> · Gen ${s.gen} · 🌰 ${s.seeds}${s.sterile?' ⚠️':''}
         ${s.mutated?'· <span style="color:var(--pink)">⚡'+s.mutated+'</span>':''}</div>
       <div class="dna">${dnaBars(s)}</div>
       <div class="stats-mini"><span>THC <b>${pct(s.thc)}</b></span><span>Rend <b>${pct(s.yield)}</b></span>
@@ -1030,7 +1174,7 @@ function switchTab(t){
 $$('.tab[data-tab]').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
 function renderTab(){
   if(curTab==='grow')renderPlots();
-  else if(curTab==='breed')renderBreed();
+  else if(curTab==='breed')renderGenetics();
   else if(curTab==='shop')renderShop();
   else if(curTab==='market')renderMarket();
   else if(curTab==='codex')renderCodex();
@@ -1064,10 +1208,11 @@ function loop(ts){
   if(ts-lastTick>=TICK_MS){ lastTick=ts; G.tick++; tickGrow(); save(); }
   if(ts-lastDay>=DAY_MS){ lastDay=ts; G.day++;
     if(G.wDay!==G.day)refreshWeather();
-    refreshMarket(); refreshContracts();
+    refreshMarket(); refreshContracts(); checkResearch();
     if(curTab==='grow')renderWeather();
     if(curTab==='market')renderMarket();
     if(curTab==='shop'&&shopTab==='seeds')renderShop();
+    if(curTab==='breed'&&gsub==='lab')renderLab();
     renderHUD();
   }
   requestAnimationFrame(loop);
@@ -1080,7 +1225,13 @@ function migrate(){
   if(!G.upg)G.upg={dryer:0,mktBoost:0,jarCap:0};
   if(G.upg.jarCap==null)G.upg.jarCap=0;
   if(!G.jars)G.jars=[]; if(!G.buds)G.buds=[]; if(!G.contracts)G.contracts=[]; if(!G.elites)G.elites={};
+  if(!G.research)G.research={done:{},active:null,rp:0};
+  if(!G.research.done)G.research.done={}; if(G.research.rp==null)G.research.rp=0;
+  if(G.research.active===undefined)G.research.active=null;
   if(G.sound==null)G.sound=true;
+  G.strains.forEach(s=>{if(s.ploidy==null)s.ploidy=2;});
+  G.buds.forEach(b=>{if(b.ploidy==null)b.ploidy=2;});
+  G.jars.forEach(j=>{if(j.ploidy==null)j.ploidy=2;});
   G.plots.forEach(p=>{if(p.plant&&p.plant.pest===undefined)p.plant.pest=null;});
 }
 function init(){

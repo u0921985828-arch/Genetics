@@ -16,7 +16,7 @@ namespace chrona::presets
     //      <PARAMS>            (APVTS state)
     //      <TimeCurve>...</>   (breakpoints)
     //      <VolCurve>...</>    (breakpoints)
-    //      <META name=.. author=.. />
+    //      presetName=".."     (attribute on the root)
     // ========================================================================
     class PresetManager
     {
@@ -25,7 +25,7 @@ namespace chrona::presets
             : apvts (s), automation (a)
         {
             userDir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                          .getChildFile ("Genetics Audio").getChildFile ("CHRONA").getChildFile ("Presets");
+                          .getChildFile ("CHRONA").getChildFile ("Presets");
             userDir.createDirectory();
             buildFactoryBank();
             refresh();

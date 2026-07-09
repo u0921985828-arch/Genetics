@@ -39,9 +39,9 @@ if(CHRONA_BUILD_STANDALONE)
 endif()
 
 juce_add_plugin(CHRONA
-    COMPANY_NAME            "Genetics Audio"
-    BUNDLE_ID               "com.geneticsaudio.chrona"
-    PLUGIN_MANUFACTURER_CODE Gntx
+    COMPANY_NAME            "Anonymous"
+    BUNDLE_ID               "audio.chrona.chrona"
+    PLUGIN_MANUFACTURER_CODE Anon
     PLUGIN_CODE             Chrn
     FORMATS                 ${CHRONA_FORMATS}
     PRODUCT_NAME            "CHRONA"

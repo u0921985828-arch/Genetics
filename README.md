@@ -50,7 +50,7 @@ cmake --build build --config Release -j
 
 On macOS the bundles are also copied into `~/Library/Audio/Plug-Ins`
 automatically (`COPY_PLUGIN_AFTER_BUILD`). Rescan in your DAW and load **CHRONA**
-(manufacturer *Genetics Audio*).
+(manufacturer *Anonymous*).
 
 Useful options: `-DCHRONA_BUILD_STANDALONE=OFF`, `-DCHRONA_JUCE_TAG=8.0.4`.
 

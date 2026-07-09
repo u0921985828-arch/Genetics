@@ -448,7 +448,7 @@ function induceTetraploid(strainId){
 const WEATHERS=[
   {id:'sol',name:'Soleado',emoji:'☀️',grow:1.15,mold:0.5,water:1.25,desc:'crecimiento rápido'},
   {id:'nub',name:'Nublado',emoji:'☁️',grow:0.9,mold:0.8,water:0.9,desc:'crecimiento lento'},
-  {id:'hum',name:'Húmedo',emoji:'🌧️',grow:1.0,mold:2.0,water:0.7,desc:'¡riesgo de moho!'},
+  {id:'hum',name:'Húmedo',emoji:'🌧️',grow:1.0,mold:1.5,water:0.7,desc:'¡riesgo de moho!'},
   {id:'cal',name:'Ola de calor',emoji:'🔥',grow:1.2,mold:0.6,water:1.7,desc:'sed extrema'},
   {id:'fri',name:'Frío',emoji:'❄️',grow:0.72,mold:0.6,water:0.8,desc:'metabolismo lento'},
 ];
@@ -463,7 +463,7 @@ const PESTS={
 /* ---------- Estado ---------- */
 const STAGES=['semilla','plántula','vegetativo','floración','cosecha'];
 const STAGE_EMOJI={semilla:'🌰',plántula:'🌱',vegetativo:'🌿',floración:'🌸',cosecha:'✅'};
-const STAGE_DUR=[8,22,34,40];
+const STAGE_DUR=[6,16,26,30];
 
 let G;
 const DEFAULT=()=>({
@@ -475,7 +475,7 @@ const DEFAULT=()=>({
   ],
   buds:[], jars:[], contracts:[], elites:{},
   research:{done:{},active:null,rp:0},
-  gear:{lamp:0,fan:0,nutrients:2,water:5,pesticide:1},
+  gear:{lamp:0,fan:0,nutrients:2,water:5,pesticide:2},
   upg:{dryer:0,mktBoost:0,jarCap:0},
   weather:null, wDay:0, market:{}, mktDay:0, cDay:0, tick:0,
   sound:true,
@@ -494,7 +494,7 @@ function addXP(n){
   G.xp+=n; const need=lvlNeed(G.level);
   if(G.xp>=need){G.xp-=need; G.level++; sfx('level'); toast('¡NIVEL '+G.level+'! Nuevas cepas en el shop','gold');}
 }
-const lvlNeed=l=>40+l*l*22;
+const lvlNeed=l=>35+l*l*18;
 
 /* ============================================================
    SPRITES DIBUJADOS A MANO (16x16 por etapa)
@@ -797,12 +797,12 @@ function harvest(i){
   const p=G.plots[i].plant, s=strainByName(p.strainName);
   const potF=res('potency')?1.10:1, vigF=res('vigor')?1.10:1, plo=s.ploidy||2;
   const purple=!!(p.expr&&p.expr.purpura), frost=!!(p.expr&&p.expr.escarcha);
-  const yieldBase=(6+s.yield*22)*vigF, qualF=p.quality/100, healthF=p.health/100;
+  const yieldBase=(8+s.yield*26)*vigF, qualF=p.quality/100, healthF=p.health/100;
   const qty=Math.max(1,Math.round(yieldBase*(0.5+qualF*0.5)*(0.6+healthF*0.4)));
   let quality=Math.round(clamp(p.quality*(0.7+healthF*0.3),5,100));
   let effThc=clamp(s.thc*potF,0,1);
   if(frost){ effThc=clamp(effThc*1.12,0,1); quality=Math.round(clamp(quality*1.08,5,100)); } // escarcha: +potencia/calidad
-  addXP(Math.round(qty*0.8+s.thc*10)); G.rep+=Math.round(s.thc*3);
+  addXP(Math.round(qty*1.0+s.thc*14)); G.rep+=Math.round(s.thc*3);
   G.research.rp+=Math.max(1,Math.round(quality/10+s.thc*5)); // datos de I+D
   if(plo!==3 && Math.random()<0.5+qualF*0.3) s.seeds+=irnd(1,3); // triploides estériles: sin semilla
   const bud={strainName:s.name,type:s.type,rarity:s.rarity,thc:effThc,ploidy:plo,purple,frost};
@@ -838,7 +838,7 @@ function tickGrow(){
     pl.food=clamp(pl.food-0.8,0,100);
     // plagas: aparecen en veg/floración
     if(!pl.pest && pl.stage>=2){
-      const base=0.012*(1-s.resist*0.7);
+      const base=0.009*(1-s.resist*0.8);
       // moho escala con humedad
       if(Math.random()<base*wMold){
         const tipo = (G.weather&&G.weather.id==='hum'&&Math.random()<0.6)?'moho':pick(['arana','mosca','moho']);
@@ -1052,7 +1052,7 @@ function getShopSeeds(){const key=G.day+'_'+G.level; if(_shopKey!==key){_shopCac
 const GEAR=[
   {k:'water',name:'Bidón de agua x5',emoji:'💧',price:15,desc:'+5 riegos',amt:5},
   {k:'nutrients',name:'Nutrientes x3',emoji:'🍯',price:40,desc:'+3 abonos, +calidad',amt:3},
-  {k:'pesticide',name:'Fitosanitario x2',emoji:'🧪',price:60,desc:'+2 tratamientos de plaga',amt:2},
+  {k:'pesticide',name:'Fitosanitario x3',emoji:'🧪',price:45,desc:'+3 tratamientos de plaga',amt:3},
 ];
 const UPG=[
   {k:'lamp',name:'Lámpara LED',emoji:'💡',base:250,desc:'+35% velocidad por nivel',max:4,get:()=>G.gear.lamp,inc:()=>G.gear.lamp++},
@@ -1108,7 +1108,7 @@ function refreshMarket(){
   G.mktDay=G.day;
 }
 function budPrice(b){
-  const base=8, qF=0.5+b.quality/100, thcF=0.7+b.thc*0.9, rarF=RAR_MULT[b.rarity]||1;
+  const base=13, qF=0.5+b.quality/100, thcF=0.7+b.thc*0.9, rarF=RAR_MULT[b.rarity]||1;
   const plo=b.ploidy||2, ploF=plo===3?1.35:plo===4?1.15:1; // triploide sinsemilla = premium
   const epiF=(b.purple?1.10:1)*(b.frost?1.12:1); // bag appeal + escarcha
   const dem=(G.market.demand&&G.market.demand[b.type])||1, mood=G.market.mood?G.market.mood.m:1;
@@ -1322,14 +1322,33 @@ function migrate(){
     if(p.plant.cold==null)p.plant.cold=0; if(p.plant.uv==null)p.plant.uv=0;
     if(!p.plant.expr)p.plant.expr={purpura:false,escarcha:false}; }});
 }
+function showIntro(){
+  modal('🌱 BIENVENIDO A PIXELGROW',
+   `<div class="mini" style="line-height:1.7">
+    <div class="sub">TU META</div>Construir un imperio botánico: cultiva, mejora la genética y véndelo todo.
+    <div class="sub g" style="margin-top:8px">EL BUCLE</div>
+    1️⃣ <b>Planta</b> una semilla en una maceta (pestaña 🌱).<br>
+    2️⃣ <b>Riega 💧 y nutre 🍯</b> mientras crece en tiempo real.<br>
+    3️⃣ Vigila <b>plagas 🐛 y clima</b> — tratá con 🧪 si aparecen.<br>
+    4️⃣ <b>Cosecha ✂️</b> → va a <b>curado 🫙</b> (gana calidad con los días).<br>
+    5️⃣ <b>Vende</b> en el 💰 mercado o cumple <b>contratos 📦</b>.<br>
+    6️⃣ Reinvierte en el 🛒 shop: semillas, equipo y mejoras.
+    <div class="sub p" style="margin-top:8px">PROFUNDIDAD</div>
+    🧬 <b>Cruza</b> cepas (genética mendeliana con alelos raros y epigenética).<br>
+    🔬 <b>Investiga</b> para inducir tetraploides (4n) y lograr triploides (3n).<br>
+    📖 Descubre las cepas <b>ÉLITE</b> del códex.
+    <div style="margin-top:8px;color:var(--gold)">¡Toca una maceta y planta tu primera semilla!</div>
+   </div>`);
+}
 function init(){
-  if(!load())G=DEFAULT();
+  const fresh=!load(); if(fresh)G=DEFAULT();
   migrate();
   if(!G.weather)refreshWeather();
   if(!G.market||!G.market.mood)refreshMarket();
   refreshContracts();
   $('#soundBtn').textContent=G.sound?'🔊':'🔇';
   initFx(); renderAll(); requestAnimationFrame(loop);
+  if(fresh)setTimeout(showIntro,350);
   window.addEventListener('resize',resizeFx);
   document.addEventListener('visibilitychange',()=>{lastTick=0;lastDay=0;lastFx=0;});
   // audio arranca con el primer gesto (política de autoplay)

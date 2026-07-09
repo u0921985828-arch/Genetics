@@ -135,6 +135,30 @@ if(CHRONA_BUILD_TESTS)
     endif()
 endif()
 
+# ---------------------------------------------------------------------------
+#  pluginval — industry-standard plug-in validator (state, threads, params,
+#  fuzzing). Run:  cmake --build build --target validate
+#  It uses an installed pluginval (PATH or -DPLUGINVAL_EXE=…) or downloads the
+#  right prebuilt binary for the host OS. Override strictness with
+#  -DPLUGINVAL_LEVEL=N and pass extra flags with -DPLUGINVAL_ARGS="--skip-gui-tests".
+# ---------------------------------------------------------------------------
+if(NOT PLUGINVAL_LEVEL)
+    set(PLUGINVAL_LEVEL 10)
+endif()
+set(CHRONA_VST3_BUNDLE "${CMAKE_BINARY_DIR}/CHRONA_artefacts/$<CONFIG>/VST3/CHRONA.vst3")
+add_custom_target(validate
+    COMMAND ${CMAKE_COMMAND}
+        -DPLUGIN_PATH=${CHRONA_VST3_BUNDLE}
+        -DPLUGINVAL_LEVEL=${PLUGINVAL_LEVEL}
+        -DPLUGINVAL_EXE=${PLUGINVAL_EXE}
+        -DPLUGINVAL_ARGS=${PLUGINVAL_ARGS}
+        -DPLUGINVAL_DIR=${CMAKE_BINARY_DIR}/pluginval
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunPluginval.cmake"
+    DEPENDS CHRONA_VST3
+    VERBATIM
+    USES_TERMINAL
+    COMMENT "Validating CHRONA.vst3 with pluginval")
+
 # BinaryData (factory presets, fonts) — optional, only if the folder exists.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Resources")
     file(GLOB CHRONA_RES "${CMAKE_CURRENT_SOURCE_DIR}/Resources/*")

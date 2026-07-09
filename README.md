@@ -62,6 +62,26 @@ CMake is the single source of truth for this project — it drives the plug-in
 build, the CI/validator flow, and the sanitizer/test targets. Any IDE that opens
 a CMake project (CLion, VS, VS Code, Xcode via `-G Xcode`) works directly.
 
+### Validation & tests
+
+```bash
+# pluginval — the industry-standard validator (state, threads, params, fuzzing).
+# Uses an installed pluginval, or downloads the right prebuilt for your OS.
+cmake --build build --target validate
+#   -DPLUGINVAL_LEVEL=5           # strictness 1..10 (default 10)
+#   -DPLUGINVAL_EXE=/path/to/pluginval   # use an existing binary
+#   -DPLUGINVAL_ARGS=--skip-gui-tests    # headless CI (or run under xvfb)
+
+# Sanitizer stress test (all modes × sample rates × block sizes, randomised
+# transport/params/MIDI + a concurrent curve-editing thread):
+cmake -B build -DCHRONA_BUILD_TESTS=ON -DCHRONA_SANITIZE=ON   # ASan + UBSan
+cmake --build build --target ChronaTests && ./build/ChronaTests_artefacts/*/ChronaTests
+#   -DCHRONA_TSAN=ON                                          # ThreadSanitizer
+```
+
+The engine has been verified clean under ASan+UBSan and ThreadSanitizer (0 data
+races) across all modes; `validate` adds the DAW-host-level checks.
+
 ---
 
 ## Using it

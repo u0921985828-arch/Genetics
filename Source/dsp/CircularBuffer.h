@@ -2,6 +2,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 #include <vector>
+#include <atomic>
 #include "Interpolation.h"
 #include "../params/Parameters.h"
 
@@ -23,6 +24,7 @@ namespace chrona::dsp
     public:
         void prepare (double sampleRate, int numChannels, double maxBarSeconds)
         {
+            ready.store (false, std::memory_order_release); // block visualiser reads while we reallocate
             sr        = sampleRate;
             channels  = juce::jlimit (1, 2, numChannels);
 
@@ -34,7 +36,12 @@ namespace chrona::dsp
             data.assign ((size_t) channels, std::vector<float> ((size_t) capacity, 0.0f));
             writeIndex = 0;
             totalWritten = 0;
+            ready.store (true, std::memory_order_release);
         }
+
+        // True once storage is allocated; the visualiser skips reads until then
+        // so a concurrent prepare() reallocation can't be read mid-flight.
+        bool isReady() const noexcept { return ready.load (std::memory_order_acquire); }
 
         void reset()
         {
@@ -114,5 +121,6 @@ namespace chrona::dsp
         int    writeIndex = 0;
         long long totalWritten = 0;
         std::vector<std::vector<float>> data;
+        std::atomic<bool> ready { false };
     };
 }

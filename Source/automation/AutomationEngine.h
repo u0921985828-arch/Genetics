@@ -37,10 +37,10 @@ namespace chrona::automation
     public:
         AutomationEngine()
         {
-            // sensible defaults + pre-grown storage (audio thread copies these
-            // out without reallocating — see TemporalEngine snapshots).
-            for (auto& c : timeSlots) { c.reserve (kMaxPoints); c.setLinearRamp (0.0f, 0.0f); }
-            for (auto& c : volSlots)  { c.reserve (kMaxPoints); c.setFlat (1.0f); }
+            // sensible defaults + pre-grown storage so the audio-thread copy
+            // reuses capacity instead of allocating.
+            timeMaster.reserve (kMaxPoints); timeMaster.setLinearRamp (0.0f, 0.0f); // live
+            volMaster .reserve (kMaxPoints); volMaster .setFlat (1.0f);
         }
 
         static constexpr int kMaxPoints = 512;
@@ -91,28 +91,44 @@ namespace chrona::automation
         double getPatternBeats()   const { return patternBeats; }
         const TransportInfo& getTransport() const { return transport; }
 
-        // --- lock-free curve hand-off ---------------------------------------
-        // Audio thread: get the live curves for this block.
-        const Curve& liveTimeCurve()   const { return timeSlots[(size_t) timeIdx.load (std::memory_order_acquire)]; }
-        const Curve& liveVolumeCurve() const { return volSlots [(size_t) volIdx.load  (std::memory_order_acquire)]; }
+        // --- curve hand-off (audio thread never blocks) ---------------------
+        //
+        // A single spinlock guards each master curve. The message thread takes
+        // the full lock to publish or snapshot (it may spin briefly). The audio
+        // thread only ever *tries* the lock: on the rare block where the editor
+        // holds it, the audio thread keeps its previous snapshot instead of
+        // blocking — so there is no priority inversion and, crucially, the
+        // editor can never free/realloc a vector the audio thread is copying.
+
+        // Audio thread: refresh `dest` from the master if the lock is free.
+        bool tryCopyTimeCurve (Curve& dest) const
+        {
+            const juce::SpinLock::ScopedTryLockType l (timeLock);
+            if (l.isLocked()) { dest = timeMaster; return true; }
+            return false;
+        }
+        bool tryCopyVolumeCurve (Curve& dest) const
+        {
+            const juce::SpinLock::ScopedTryLockType l (volLock);
+            if (l.isLocked()) { dest = volMaster; return true; }
+            return false;
+        }
 
         // Message thread: publish an edited curve.
         void publishTimeCurve (const Curve& edited)
         {
-            const int next = 1 - timeIdx.load (std::memory_order_relaxed);
-            timeSlots[(size_t) next] = edited;
-            timeIdx.store (next, std::memory_order_release);
+            const juce::SpinLock::ScopedLockType l (timeLock);
+            timeMaster = edited;
         }
         void publishVolumeCurve (const Curve& edited)
         {
-            const int next = 1 - volIdx.load (std::memory_order_relaxed);
-            volSlots[(size_t) next] = edited;
-            volIdx.store (next, std::memory_order_release);
+            const juce::SpinLock::ScopedLockType l (volLock);
+            volMaster = edited;
         }
 
         // Message thread: read the currently-published curve to seed an editor.
-        Curve snapshotTimeCurve()   const { return timeSlots[(size_t) timeIdx.load (std::memory_order_acquire)]; }
-        Curve snapshotVolumeCurve() const { return volSlots [(size_t) volIdx.load  (std::memory_order_acquire)]; }
+        Curve snapshotTimeCurve()   const { const juce::SpinLock::ScopedLockType l (timeLock); return timeMaster; }
+        Curve snapshotVolumeCurve() const { const juce::SpinLock::ScopedLockType l (volLock);  return volMaster; }
 
     private:
         double sampleRate    = 44100.0;
@@ -124,9 +140,7 @@ namespace chrona::automation
 
         TransportInfo transport;
 
-        std::array<Curve, 2> timeSlots;
-        std::array<Curve, 2> volSlots;
-        std::atomic<int> timeIdx { 0 };
-        std::atomic<int> volIdx  { 0 };
+        Curve timeMaster, volMaster;
+        mutable juce::SpinLock timeLock, volLock;
     };
 }

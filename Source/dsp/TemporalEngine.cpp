@@ -34,15 +34,20 @@ namespace chrona::dsp
         space.prepare (sr, channels);
 
         engageSmoother.prepare (sr, 6.0);
+        gateSmooth.prepare (sr, 3.0);
+        gateSmooth.reset (1.0f);
         for (auto& s : macroSmooth) s.prepare (sr, 25.0);
 
         crackleRng.seed (0x1234567u);
         humanRng.seed (0xC0FFEEu);
 
-        // Pre-grow the Custom-mode snapshot storage so copying the live curve
-        // on the audio thread never allocates.
+        // Pre-grow + seed the Custom-mode snapshot storage so copying the live
+        // curve on the audio thread never allocates, and a first-block lock
+        // miss yields musical defaults (live playback, unity gain) not silence.
         customTimeSnapshot.reserve (automation::AutomationEngine::kMaxPoints);
         customVolSnapshot .reserve (automation::AutomationEngine::kMaxPoints);
+        customTimeSnapshot.setFlat (0.0f);
+        customVolSnapshot .setFlat (1.0f);
 
         reset();
     }
@@ -87,7 +92,11 @@ namespace chrona::dsp
         if (level2.humanize > 0.0f)
             target *= 1.0 + (humanRng.unipolar() - 0.5f) * 0.08f * level2.humanize;
 
-        currentLoopLen = juce::jmax (256.0, target);
+        // Clamp the FINAL length (after swing/humanize) so Double/Reverse — which
+        // read up to 2×loopLen behind live — never exceed the recorded window
+        // and freeze on the oldest sample.
+        const double maxLen = juce::jmax (256.0, windowSamples * 0.5);
+        currentLoopLen = juce::jlimit (256.0, maxLen, target);
 
         // Hard resync on transport (re)start OR a host locate / loop jump so
         // the pattern grid stays locked to the timeline instead of drifting.
@@ -138,16 +147,19 @@ namespace chrona::dsp
             lastProcessedMode = requestedMode;
         }
 
-        auto* customMode = dynamic_cast<CustomMode*> (modes[(size_t) params::Mode::Custom].get());
-        if (customMode != nullptr)
-        {
-            customTimeSnapshot = automation->liveTimeCurve();
-            customVolSnapshot  = automation->liveVolumeCurve();
-            customMode->setCurves (&customTimeSnapshot, &customVolSnapshot);
-        }
-
         IMode* mode = activeMode();
         const bool isCustom = (requestedMode == params::Mode::Custom);
+
+        // Only the Custom mode needs the curves — refresh its snapshots without
+        // ever blocking the audio thread (keeps the previous snapshot on the
+        // rare block where the editor holds the lock).
+        if (isCustom)
+        {
+            auto* customMode = static_cast<CustomMode*> (modes[(size_t) params::Mode::Custom].get());
+            automation->tryCopyTimeCurve   (customTimeSnapshot);
+            automation->tryCopyVolumeCurve (customVolSnapshot);
+            customMode->setCurves (&customTimeSnapshot, &customVolSnapshot);
+        }
 
         // ducker coefficients depend only on block params — compute once here
         if (level2.scSource != 0 && level2.duck > 0.0001f)
@@ -245,8 +257,13 @@ namespace chrona::dsp
             if (level2.gate > 0.0001f)
             {
                 const float gp = std::fmod ((float) loopPos, gateDiv) / gateDiv;
-                const float g = gp < 0.5f ? 1.0f : (1.0f - level2.gate);
+                const float gTarget = gp < 0.5f ? 1.0f : (1.0f - level2.gate);
+                const float g = gateSmooth.process (gTarget); // de-zippered
                 for (int c = 0; c < nch; ++c) frameWet[c] *= g;
+            }
+            else
+            {
+                gateSmooth.reset (1.0f); // avoid a jump when the gate re-engages
             }
 
             // --- stereo width (mid/side) ---

@@ -20,8 +20,9 @@ namespace chrona::ui
             slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
             slider.setVelocityBasedMode (true);
             slider.setVelocityModeParameters (0.7, 1, 0.09, false);
-            slider.setDoubleClickReturnValue (true, state.getParameter (paramID) != nullptr
-                                                    ? state.getParameter (paramID)->getDefaultValue() : 0.5);
+            if (auto* param = state.getParameter (paramID))
+                slider.setDoubleClickReturnValue (true,
+                    (double) param->convertFrom0to1 (param->getDefaultValue()));
             slider.setWantsKeyboardFocus (false);
             addAndMakeVisible (slider);
 

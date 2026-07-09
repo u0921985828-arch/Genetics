@@ -45,6 +45,7 @@ namespace chrona::visualizer
 
             // waveform of the recorded window (oldest → newest, left → right)
             const auto& buf = engine.getBuffer();
+            if (! buf.isReady()) return; // storage being (re)allocated — skip this frame
             const int   pts = juce::jlimit (64, 1024, (int) b.getWidth());
             const double window = juce::jmin ((double) buf.getCapacity() - 32.0,
                                               buf.getSampleRate() * 4.0); // ~2 bars @120

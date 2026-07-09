@@ -223,7 +223,10 @@ namespace chrona::dsp
                 const float r = rng.unipolar();
                 curSpeed = r < 0.4f ? 1.0f : (r < 0.7f ? 0.5f : 2.0f);
                 curGate  = rng.unipolar() < (0.15f * ctx.depth) ? 0.0f : 1.0f;
-                curOffset = (double) rng.range ((int) ctx.loopLenSamples);
+                // keep the whole slice within the recorded window (origin +
+                // baseSlice*speed must not pass the loop-start live edge).
+                const int maxOffset = (int) std::max (0.0, ctx.loopLenSamples - baseSlice * curSpeed);
+                curOffset = (double) rng.range (maxOffset);
             }
 
             const double posInSlice = std::fmod (ctx.localSamples, baseSlice);

@@ -106,6 +106,7 @@ namespace chrona::dsp
         Lcg   crackleRng;
 
         OnePole engageSmoother;
+        OnePole gateSmooth;
         std::array<OnePole, 6> macroSmooth; // time,depth,mix,texture,space,width
 
         std::array<float, 2> lastWet { { 0.0f, 0.0f } };

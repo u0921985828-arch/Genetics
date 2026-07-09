@@ -9,7 +9,6 @@ namespace chrona::params
     using Range = juce::NormalisableRange<float>;
 
     static Range pct()            { return Range (0.0f, 1.0f, 0.0001f); }
-    static Range bipolar()        { return Range (-1.0f, 1.0f, 0.0001f); }
     static Range ms (float lo, float hi, float skew = 1.0f)
     {
         Range r (lo, hi);
@@ -43,7 +42,8 @@ namespace chrona::params
                                              juce::StringArray { "Linear", "Hermite", "Sinc (HQ)" }, 1));
         layout.add (std::make_unique<APF>   (juce::ParameterID { id::antiClick, 1 }, "Anti-Click",
                                              ms (0.5f, 25.0f), 3.0f));
-        layout.add (std::make_unique<APF>   (juce::ParameterID { id::swing, 1 }, "Swing", bipolar(), 0.0f));
+        layout.add (std::make_unique<APF>   (juce::ParameterID { id::swing, 1 }, "Swing",
+                                             Range (-0.5f, 0.5f, 0.0001f), 0.0f));
         layout.add (std::make_unique<APF>   (juce::ParameterID { id::humanize, 1 }, "Humanize", pct(), 0.0f));
         layout.add (std::make_unique<APF>   (juce::ParameterID { id::smartFade, 1 }, "Smart Fade", pct(), 0.5f));
 

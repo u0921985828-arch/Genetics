@@ -84,6 +84,11 @@ construction.
 - **Audio thread**: only reads parameters (cached atomics), reads the currently
   published curve snapshot, and reads/writes the ring buffer. No locks, no
   allocation after `prepareToPlay`.
-- **Message thread**: edits curves and publishes them via a double-buffered
-  atomic index in `AutomationEngine` (lock-free on the audio side). The
-  visualiser only reads.
+- **Message thread**: edits curves and publishes them into `AutomationEngine`
+  under a `SpinLock`. The audio thread only ever *tries* that lock
+  (`tryCopyTimeCurve`/`tryCopyVolumeCurve`); on the rare block where the editor
+  holds it, the audio thread keeps its previous snapshot rather than blocking —
+  no priority inversion, and the editor can never realloc a vector the audio
+  thread is mid-copy of. Snapshot vectors are pre-reserved so the copy never
+  allocates. The visualiser only reads, and skips frames while the buffer is
+  being (re)allocated (`CircularBuffer::isReady`).

@@ -33,6 +33,7 @@ namespace chrona::dsp
         bool      loopReset    = false;
         double    phase        = 0.0;  // pattern phase 0..1 (Custom mode)
         float     time = 0.5f, depth = 1.0f;
+        float     smartFade = 0.5f;    // slice edge fade shape
         double    sampleRate = 44100.0;
         double    samplesPerBeat = 22050.0;
         double    windowSamples = 0.0;
@@ -147,7 +148,7 @@ namespace chrona::dsp
             const double sliceStart = (double) ctx.anchorAbs - sliceLen;
             const double srcAbs = sliceStart + posInSlice;
 
-            const float win = SmartFade::gain ((int) posInSlice, (int) sliceLen, 0.5f);
+            const float win = SmartFade::gain ((int) posInSlice, (int) sliceLen, ctx.smartFade);
 
             // Beat Repeat fades successive repeats by Depth.
             float rg = 1.0f;
@@ -237,7 +238,8 @@ namespace chrona::dsp
             else
                 srcAbs = sliceOriginAbs + posInSlice * curSpeed;
 
-            const float win = SmartFade::gain ((int) posInSlice, (int) baseSlice, 0.35f);
+            const float win = SmartFade::gain ((int) posInSlice, (int) baseSlice,
+                                               0.15f + 0.5f * ctx.smartFade);
             for (int c = 0; c < channels; ++c)
                 out[c] = ctx.read (c, srcAbs) * win * curGate;
         }
@@ -253,7 +255,7 @@ namespace chrona::dsp
     class CustomMode : public IMode
     {
     public:
-        const char* name() const override { return "Custom (PAT)"; }
+        const char* name() const override { return "Time Warp"; }
         void setCurves (const automation::Curve* timeC, const automation::Curve* volC)
         {
             timeCurve = timeC; volCurve = volC;

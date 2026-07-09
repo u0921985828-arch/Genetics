@@ -70,10 +70,13 @@ namespace chrona
                 advancedButton.onClick = [this]
                 {
                     advancedOpen = advancedButton.getToggleState();
-                    level2.setVisible (advancedOpen);
                     if (auto* pc = findParentComponentOfClass<ChronaEditor>())
                         pc->applyZoom (pc->currentZoom());
                     resized();
+                    // fluid reveal (60fps) rather than a hard pop-in
+                    auto& animator = juce::Desktop::getInstance().getAnimator();
+                    if (advancedOpen) animator.fadeIn  (&level2, 220);
+                    else              animator.fadeOut (&level2, 160);
                 };
                 addAndMakeVisible (advancedButton);
 

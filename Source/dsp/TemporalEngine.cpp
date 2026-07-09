@@ -222,6 +222,7 @@ namespace chrona::dsp
             mc.loopReset = loopReset;
             mc.phase = phase;
             mc.time = mTime; mc.depth = mDepth;
+            mc.smartFade = level2.smartFade;
             mc.sampleRate = sampleRate;
             mc.samplesPerBeat = automation->getSamplesPerBeat();
             mc.windowSamples = windowSamples;

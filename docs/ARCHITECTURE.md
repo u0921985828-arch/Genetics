@@ -73,8 +73,9 @@ I playing from") each sample:
   `SmartFade` so edges never click.
 - **Vinyl** — near-live playback with wow/flutter and optional crackle.
 - **Glitch** — per-slice stochastic reverse / pitch / gate (deterministic LCG).
-- **Custom (PAT)** — the read delay and gain follow the editable **Time** and
-  **Volume** curves, sampled by pattern phase.
+- **Time Warp** (the curve mode) — the read delay and gain follow the editable
+  **Time** and **Volume** curves, sampled by pattern phase. Virtual scratch and
+  free time-warp gestures are just curve shapes (see the factory presets).
 
 Loop boundaries crossfade through `DeclickRamp`; the whole path is anti-click by
 construction.

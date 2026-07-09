@@ -26,6 +26,19 @@ namespace chrona::ui
             slider.setWantsKeyboardFocus (false);
             addAndMakeVisible (slider);
 
+            // Auto-pick a readout style from the parameter's range: a 0..1 (or
+            // ±1) control reads as a percentage like the reference plugins;
+            // anything wider reads as a plain value plus an optional unit.
+            if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (state.getParameter (paramID)))
+            {
+                const auto r = rp->getNormalisableRange();
+                if (r.end <= 1.0001f && r.start >= -1.0001f && (r.end - r.start) <= 2.0001f)
+                {
+                    percentMode = true;
+                    signedPercent = (r.start < -0.0001f); // e.g. Swing ±50%
+                }
+            }
+
             attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>
                              (state, paramID, slider);
 
@@ -62,9 +75,23 @@ namespace chrona::ui
     private:
         void updateValueText()
         {
-            value.setText (juce::String (slider.getValue(), 2) + suffix, juce::dontSendNotification);
+            const double v = slider.getValue();
+            juce::String txt;
+            if (percentMode && suffix.isEmpty())
+            {
+                const int pct = juce::roundToInt (v * 100.0);
+                txt = (signedPercent && pct > 0 ? "+" : "") + juce::String (pct) + "%";
+            }
+            else
+            {
+                const int dp = std::abs (v) >= 10.0 ? 1 : 2;
+                txt = juce::String (v, dp) + suffix;
+            }
+            value.setText (txt, juce::dontSendNotification);
         }
 
+        bool percentMode = false;
+        bool signedPercent = false;
         juce::String name, suffix;
         juce::Slider slider;
         juce::Label  ca, value;

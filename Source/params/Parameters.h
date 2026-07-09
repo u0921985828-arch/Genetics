@@ -63,7 +63,7 @@ namespace chrona::params
     inline juce::StringArray modeNames()
     {
         return { "Half", "Double", "Reverse", "Tape Stop",
-                 "Stutter", "Beat Repeat", "Vinyl", "Glitch", "Custom (PAT)" };
+                 "Stutter", "Beat Repeat", "Vinyl", "Glitch", "Time Warp" };
     }
 
     inline juce::StringArray syncDivisions()

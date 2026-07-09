@@ -98,8 +98,9 @@ namespace chrona::presets
             setParam (p, pid::humanize, 0.3f);
         }, flatTime(), flatVol());
 
-        // --- a Custom/PAT showcase with edited curves ----------------------
+        // --- Time-Warp (curve) showcases -----------------------------------
         {
+            // Gated freeze: hold time on a step, chop the volume.
             Curve tc;
             tc.setPoints ({ { 0.0f, 0.0f, 0.0f }, { 0.25f, 0.0f, 0.0f },
                             { 0.25f, 0.5f, 0.0f }, { 0.5f, 0.5f, 0.0f },
@@ -108,10 +109,33 @@ namespace chrona::presets
             vc.setPoints ({ { 0.0f, 1.0f, 0.0f }, { 0.5f, 1.0f, 0.0f },
                             { 0.5f, 0.0f, 0.0f }, { 0.75f, 0.0f, 0.0f },
                             { 0.75f, 1.0f, 0.0f }, { 1.0f, 1.0f, 0.0f } });
-            add ("PAT: Gated Freeze", params::Mode::Custom, [] (juce::ValueTree& p)
+            add ("Warp: Gated Freeze", params::Mode::Custom, [] (juce::ValueTree& p)
             {
                 setParam (p, pid::bufferBars, 1.0f);
             }, tc, vc);
+        }
+        {
+            // Time-Warp sweep: dive back into the buffer and rush back to live.
+            Curve tc;
+            tc.setPoints ({ { 0.0f, 0.0f, 0.0f }, { 0.5f, 0.85f, 0.0f }, { 1.0f, 0.0f, 0.0f } });
+            add ("Warp: Rewind Sweep", params::Mode::Custom, [] (juce::ValueTree& p)
+            {
+                setParam (p, pid::texture, 0.3f); setParam (p, pid::space, 0.25f);
+            }, tc, flatVol());
+        }
+        {
+            // Virtual scratch: rapid forward/back zig-zag on the time axis.
+            Curve tc;
+            tc.setPoints ({ { 0.0f, 0.0f, 0.0f }, { 0.125f, 0.35f, 0.0f },
+                            { 0.25f, 0.0f, 0.0f }, { 0.375f, 0.35f, 0.0f },
+                            { 0.5f, 0.0f, 0.0f },  { 0.625f, 0.35f, 0.0f },
+                            { 0.75f, 0.0f, 0.0f }, { 0.875f, 0.35f, 0.0f },
+                            { 1.0f, 0.0f, 0.0f } });
+            add ("Warp: Vinyl Scratch", params::Mode::Custom, [] (juce::ValueTree& p)
+            {
+                setParam (p, pid::bufferBars, 1.0f);
+                setParam (p, pid::texture, 0.55f);
+            }, tc, flatVol());
         }
     }
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <cmath>
 #include "Theme.h"
 #include "../params/Parameters.h"
 
@@ -34,9 +35,10 @@ namespace chrona::ui
 
         void resized() override
         {
-            // 4 columns × 2 rows for 8 core modes (+ Custom folded into Level 2).
+            // square-ish grid so the mode count always lays out evenly
+            // (9 modes → a clean 3×3).
             auto b = getLocalBounds().reduced (2);
-            const int cols = 4;
+            const int cols = juce::jmax (1, (int) std::ceil (std::sqrt ((double) buttons.size())));
             const int rows = (buttons.size() + cols - 1) / cols;
             const int cw = b.getWidth() / cols;
             const int ch = b.getHeight() / juce::jmax (1, rows);

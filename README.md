@@ -69,7 +69,7 @@ Six macro knobs and a mode grid:
 - **Width** – stereo width
 
 Modes: **Half · Double · Reverse · Tape Stop · Stutter · Beat Repeat · Vinyl ·
-Glitch** (plus **Custom (PAT)** for the curve editor).
+Glitch** (plus **Time Warp** — the curve-driven mode for the Level-2 editor).
 
 ### Level 2 — Advanced (drops down via **ADVANCED**)
 - Editable **Time** and **Volume** curves (click to add, drag to move, double

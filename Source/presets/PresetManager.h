@@ -35,16 +35,23 @@ namespace chrona::presets
         juce::ValueTree captureState() const
         {
             juce::ValueTree root ("CHRONA");
-            root.setProperty ("version", 1, nullptr);
+            root.setProperty ("version", kStateVersion, nullptr);
             root.appendChild (apvts.copyState(), nullptr);
             root.appendChild (automation.snapshotTimeCurve().toValueTree ("TimeCurve"), nullptr);
             root.appendChild (automation.snapshotVolumeCurve().toValueTree ("VolCurve"), nullptr);
             return root;
         }
 
+        static constexpr int kStateVersion = 1;
+
         void applyState (const juce::ValueTree& root)
         {
             if (! root.isValid() || root.getType() != juce::Identifier ("CHRONA"))
+                return;
+
+            // Don't silently half-apply a newer/unknown format written by a
+            // future build — leave the current state untouched instead.
+            if ((int) root.getProperty ("version", kStateVersion) > kStateVersion)
                 return;
 
             // APVTS is the first non-curve child.

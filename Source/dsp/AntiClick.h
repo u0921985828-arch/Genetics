@@ -28,7 +28,7 @@ namespace chrona::dsp
         // Blend the freshly read value against the held tail.
         inline float process (float freshValue)
         {
-            if (counter <= 0)
+            if (counter <= 0 || lengthSamples <= 1) // ~0ms declick == off, no stale sample
                 return freshValue;
 
             const float t = 1.0f - (float) counter / (float) lengthSamples; // 0..1

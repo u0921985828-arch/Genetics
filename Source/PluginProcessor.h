@@ -64,7 +64,7 @@ namespace chrona
         std::atomic<float>* pMix = nullptr;  std::atomic<float>* pTexture = nullptr;
         std::atomic<float>* pSpace = nullptr; std::atomic<float>* pWidth = nullptr;
         std::atomic<float>* pMode = nullptr;  std::atomic<float>* pSync = nullptr;
-        std::atomic<float>* pBuffer = nullptr; std::atomic<float>* pSnap = nullptr;
+        std::atomic<float>* pBuffer = nullptr;
         std::atomic<float>* pQuality = nullptr; std::atomic<float>* pAntiClick = nullptr;
         std::atomic<float>* pSwing = nullptr; std::atomic<float>* pHumanize = nullptr;
         std::atomic<float>* pSmartFade = nullptr; std::atomic<float>* pTrigMode = nullptr;

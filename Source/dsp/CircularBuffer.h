@@ -91,9 +91,12 @@ namespace chrona::dsp
         double getSampleRate() const noexcept { return sr; }
         long long getTotalWritten() const noexcept { return totalWritten; }
 
-        // Snapshot for the visualiser (non-RT thread copies out a downsampled
-        // view). Returns the sample `delaySamples` behind write head, ch 0/1
-        // averaged for a mono waveform.
+        // Snapshot for the visualiser (message thread). This reads the sample
+        // arrays and writeIndex while the audio thread may be writing them — an
+        // INTENTIONAL, benign data race: the worst case is a torn/stale float in
+        // a waveform scope (inaudible, invisible in practice). Making the whole
+        // sample buffer atomic would be absurd for a display; the reallocation
+        // hazard (the only unsafe one) is handled separately by isReady().
         float peekMono (double delaySamples) const
         {
             float s = 0.0f;

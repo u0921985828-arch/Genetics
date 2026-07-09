@@ -37,6 +37,7 @@ namespace chrona
             // host-driven resizes map cleanly to a zoom factor.
             const float logicalW = (float) Content::kLogicalW;
             const float z = juce::jlimit (1.0f, 3.0f, (float) getWidth() / logicalW);
+            zoom = z; // keep the member in sync with host-driven resizes
             content->setTransform (juce::AffineTransform::scale (z));
             content->setBounds (0, 0, Content::kLogicalW, content->logicalHeight());
         }

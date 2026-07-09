@@ -143,6 +143,10 @@ namespace chrona::dsp
                 const double beats = 0.25 + 0.75 * (double) (1 + (int) std::round (ctx.time * 3.0));
                 sliceLen = std::max (64.0, ctx.samplesPerBeat * (beats * 0.25));
             }
+            // Never let the slice exceed the readable window (guards degenerate
+            // sub-one-beat meters where a beat is longer than the buffer).
+            if (ctx.windowSamples > 64.0)
+                sliceLen = std::min (sliceLen, ctx.windowSamples * 0.5);
 
             const double posInSlice = std::fmod (ctx.localSamples, sliceLen);
             const double sliceStart = (double) ctx.anchorAbs - sliceLen;

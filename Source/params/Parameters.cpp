@@ -9,11 +9,10 @@ namespace chrona::params
     using Range = juce::NormalisableRange<float>;
 
     static Range pct()            { return Range (0.0f, 1.0f, 0.0001f); }
-    static Range ms (float lo, float hi, float skew = 1.0f)
+    static Range ms (float lo, float hi)
     {
         Range r (lo, hi);
         r.setSkewForCentre (juce::jlimit (lo + 1.0f, hi - 1.0f, (lo + hi) * 0.25f));
-        juce::ignoreUnused (skew);
         return r;
     }
 

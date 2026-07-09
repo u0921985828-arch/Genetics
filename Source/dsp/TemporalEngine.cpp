@@ -106,8 +106,13 @@ namespace chrona::dsp
         if (playing && (! wasPlaying || forceResync))
         {
             loopPos   = std::fmod (ppqSamples, currentLoopLen);
+            if (loopPos < 0.0) loopPos += currentLoopLen; // negative ppq (host count-in / pre-roll)
             loopIndex = (long long) std::floor (ppqSamples / juce::jmax (1.0, currentLoopLen));
-            anchorAbs = buffer.getTotalWritten() - 1;
+            // Anchor at the loop-START edge (loopPos samples ago), not the current
+            // live edge — otherwise an off-grid locate shifts every mode's read by
+            // up to one division until the next boundary re-anchors.
+            anchorAbs = buffer.getTotalWritten() - 1 - (long long) std::llround (loopPos);
+            if (anchorAbs < 0) anchorAbs = 0;
         }
         wasPlaying = playing;
     }
@@ -185,8 +190,14 @@ namespace chrona::dsp
             const float mSpace   = macroSmooth[4].process (macros.space);
             const float mWidth   = macroSmooth[5].process (macros.width);
 
-            // --- read + record input ---
-            for (int c = 0; c < nch; ++c) frameIn[c] = ch[c] ? ch[c][n] : 0.0f;
+            // --- read + record input (sanitised: a single NaN/Inf from an
+            //     upstream plugin would otherwise latch the Space feedback
+            //     loop forever; ScopedNoDenormals does not cover NaN/Inf) ---
+            for (int c = 0; c < nch; ++c)
+            {
+                const float v = ch[c] ? ch[c][n] : 0.0f;
+                frameIn[c] = std::isfinite (v) ? v : 0.0f;
+            }
             if (nch == 1) frameIn[1] = frameIn[0];
             buffer.write (frameIn);
 
@@ -304,7 +315,8 @@ namespace chrona::dsp
             {
                 const float dry = frameIn[c];
                 const float wet = frameWet[c] * duckGain;
-                ch[c][n] = dry * (1.0f - wetMix) + wet * wetMix;
+                const float outv = dry * (1.0f - wetMix) + wet * wetMix;
+                ch[c][n] = std::isfinite (outv) ? outv : 0.0f; // never emit NaN/Inf
             }
 
             if (isCustom && ! t.isPlaying) automation->advanceFreePhase();

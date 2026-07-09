@@ -222,16 +222,20 @@ namespace chrona::ui
             aw->addTextEditor ("name", presetMgr.getCurrentName());
             aw->addButton ("Save", 1);
             aw->addButton ("Cancel", 0);
+            // SafePointer guards against the editor being closed while the modal
+            // is open (the AlertWindow outlives this panel); deleteWhenDismissed
+            // (last arg = true) hands ownership to the modal manager — no manual
+            // delete, no double-free.
+            juce::Component::SafePointer<Level2Panel> safe (this);
             aw->enterModalState (true, juce::ModalCallbackFunction::create (
-                [this, aw] (int r)
+                [safe, aw] (int r)
                 {
-                    if (r == 1)
+                    if (r == 1 && safe != nullptr)
                     {
                         const auto name = aw->getTextEditorContents ("name");
-                        if (name.isNotEmpty()) { presetMgr.save (name); rebuildPresetList(); }
+                        if (name.isNotEmpty()) { safe->presetMgr.save (name); safe->rebuildPresetList(); }
                     }
-                    delete aw;
-                }));
+                }), true);
         }
 
         juce::AudioProcessorValueTreeState& state;

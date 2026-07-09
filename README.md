@@ -52,23 +52,15 @@ On macOS the bundles are also copied into `~/Library/Audio/Plug-Ins`
 automatically (`COPY_PLUGIN_AFTER_BUILD`). Rescan in your DAW and load **CHRONA**
 (manufacturer *Anonymous*).
 
-Useful options: `-DCHRONA_BUILD_STANDALONE=OFF`, `-DCHRONA_JUCE_TAG=8.0.4`.
+Useful options:
+`-DCHRONA_BUILD_STANDALONE=OFF`, `-DCHRONA_JUCE_TAG=8.0.4`,
+`-DCHRONA_COPY_AFTER_BUILD=OFF` (don't install into system plug-in folders — use
+on CI), `-DCHRONA_BUILD_TESTS=ON -DCHRONA_SANITIZE=ON` (build the ASan+UBSan
+stress test), `-DCHRONA_TSAN=ON` (ThreadSanitizer build).
 
-### Alternative: Projucer
-
-A `CHRONA.jucer` project is included if you prefer Projucer / an IDE project over
-CMake. It needs a **JUCE 8** checkout:
-
-1. Clone JUCE 8 (e.g. `git clone --branch 8.0.4 https://github.com/juce-framework/JUCE`).
-2. Open the **Projucer** (from that JUCE), then either set your global module
-   path (Projucer → *Settings → Global Paths → JUCE modules*) to `JUCE/modules`,
-   or place the JUCE checkout so `../../JUCE/modules` resolves from the exporter
-   folder (the paths baked into the `.jucer`).
-3. Open `CHRONA.jucer`, pick an exporter (Xcode / Visual Studio 2022 / Linux
-   Makefile), **Save**, and build from the generated IDE project.
-
-The `.jucer` mirrors the CMake target exactly: same sources, modules, formats
-(VST3/AU/Standalone), MIDI input, and options.
+CMake is the single source of truth for this project — it drives the plug-in
+build, the CI/validator flow, and the sanitizer/test targets. Any IDE that opens
+a CMake project (CLion, VS, VS Code, Xcode via `-G Xcode`) works directly.
 
 ---
 

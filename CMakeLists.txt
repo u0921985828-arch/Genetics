@@ -19,6 +19,9 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum macOS version")
 #  reproducible builds. Override with -DCHRONA_JUCE_TAG=... if needed.
 # ---------------------------------------------------------------------------
 option(CHRONA_BUILD_STANDALONE "Build the Standalone target" ON)
+# Installing into the system plug-in folders after each build is convenient
+# locally but breaks sandboxed CI / validator machines — off by default there.
+option(CHRONA_COPY_AFTER_BUILD "Copy the plugin into the user plug-in folders after build" ON)
 set(CHRONA_JUCE_TAG "8.0.4" CACHE STRING "JUCE git tag to fetch")
 
 include(FetchContent)
@@ -50,7 +53,7 @@ juce_add_plugin(CHRONA
     NEEDS_MIDI_OUTPUT       FALSE
     IS_MIDI_EFFECT          FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
-    COPY_PLUGIN_AFTER_BUILD TRUE
+    COPY_PLUGIN_AFTER_BUILD ${CHRONA_COPY_AFTER_BUILD}
     VST3_CATEGORIES         "Fx" "Delay" "Modulation"
     AU_MAIN_TYPE            "kAudioUnitType_Effect"
 )

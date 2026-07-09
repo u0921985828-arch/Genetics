@@ -270,12 +270,40 @@ const PREFIX=['Purple','Green','Blue','Northern','Sour','Amnesia','White','Goril
 const SUFFIX=['Kush','Haze','Diesel','OG','Widow','Dream','Punch','Crack','Cookies','Gelato','Skunk','Runtz','Cake','Glue','Berry','Cheese','Star','Storm','Fire','Mist'];
 const randName=()=>pick(PREFIX)+' '+pick(SUFFIX);
 
+/* --- Genética diploide: un rasgo = par de alelos {v, dom, rare} --- */
+const cloneAllele=a=>({v:a.v,dom:!!a.dom,rare:!!a.rare});
+// Expresión fenotípica de un par de alelos (con enmascaramiento recesivo de raros)
+function expressTrait(pair){
+  const [x,y]=pair;
+  if(x.rare&&!y.rare)return y.v;   // raro heterocigoto → oculto, se muestra el otro
+  if(y.rare&&!x.rare)return x.v;
+  if(x.dom===y.dom)return (x.v+y.v)/2;      // mismo tipo → media
+  const d=x.dom?x:y, r=x.dom?y:x;           // dominante manda
+  return d.v*0.8+r.v*0.2;
+}
+// Par de alelos alrededor de un valor dado; a veces esconde un alelo raro recesivo alto
+function buildAllelePair(val){
+  let a={v:val,dom:true}, b={v:val,dom:true};
+  if(Math.random()<0.08){ const rare={v:clamp(rnd(.82,.98),0,1),dom:false,rare:true};
+    if(Math.random()<0.5)a=rare; else b=rare; }
+  return [a,b];
+}
+function deriveStats(g){
+  g.thc=expressTrait(g.genome.thc); g.yield=expressTrait(g.genome.yield);
+  g.speed=expressTrait(g.genome.speed); g.resist=expressTrait(g.genome.resist);
+  g.color=expressTrait(g.genome.color);
+}
 function makeStrain(o={}){
   const type=o.type||pick(TYPES);
-  const g={id:uid(), name:o.name||randName(), type,
-    thc:o.thc??rnd(.35,.6), yield:o.yield??rnd(.35,.6),
-    speed:o.speed??rnd(.35,.6), resist:o.resist??rnd(.35,.6),
-    color:o.color??Math.random(), gen:o.gen||1, seeds:o.seeds??0};
+  const flat={thc:o.thc??rnd(.35,.6), yield:o.yield??rnd(.35,.6),
+    speed:o.speed??rnd(.35,.6), resist:o.resist??rnd(.35,.6), color:o.color??Math.random()};
+  const genome=o.genome||{
+    thc:buildAllelePair(flat.thc), yield:buildAllelePair(flat.yield),
+    speed:buildAllelePair(flat.speed), resist:buildAllelePair(flat.resist),
+    color:buildAllelePair(flat.color),
+    latent:{purpura:o.purpura??(Math.random()<0.12), escarcha:o.escarcha??(Math.random()<0.12)}};
+  const g={id:uid(), name:o.name||randName(), type, genome, gen:o.gen||1, seeds:o.seeds??0};
+  deriveStats(g);
   g.ploidy=o.ploidy||2;
   if(o.elite)g.elite=o.elite;
   if(o.sterile)g.sterile=true;
@@ -297,15 +325,41 @@ function calcRarity(g){
 const RAR_LABEL={comun:'COMÚN',rara:'RARA',epica:'ÉPICA',legend:'LEGENDARIA',mitica:'MÍTICA'};
 const RAR_MULT ={comun:1,rara:1.3,epica:1.7,legend:2.3,mitica:3.2};
 const rankR=r=>({comun:0,rara:1,epica:2,legend:3,mitica:4}[r]||0);
+function latentTags(s){
+  const l=s.genome&&s.genome.latent; if(!l||(!l.purpura&&!l.escarcha))return'';
+  return '<div class="tagrow">'+(l.purpura?'<span class="tag" style="color:#b06cff">🟣 gen púrpura</span>':'')+
+    (l.escarcha?'<span class="tag" style="color:#5bc8ff">❄️ gen escarcha</span>':'')+'</div>';
+}
+function showGenome(id){
+  const s=G.strains.find(x=>x.id===id); if(!s||!s.genome)return;
+  const g=s.genome;
+  const al=a=>`<span style="color:${a.rare?'var(--pink)':a.dom?'var(--gold)':'var(--dim)'}">${a.rare?'★':''}${a.dom?'A':'a'}<b>${Math.round(a.v*100)}</b></span>`;
+  const trait=(lbl,pair)=>`<div class="row"><div class="name" style="font-size:11px">${lbl}</div>
+    <div>${al(pair[0])} · ${al(pair[1])} → <b style="color:var(--green)">${pct(expressTrait(pair))}</b></div></div>`;
+  modal('🧬 Genotipo — '+s.name+ploidyBadge(s),
+    `<div class="mini" style="margin-bottom:6px">A = dominante · a = recesivo · ★ = alelo raro (solo se expresa en homocigosis ★/★). Cruza dos portadores para revelarlo.</div>`+
+    trait('THC',g.thc)+trait('Rendimiento',g.yield)+trait('Velocidad',g.speed)+trait('Resistencia',g.resist)+
+    `<div class="sub" style="margin-top:10px">Genes latentes · epigenética</div>
+     <div class="mini">🟣 Púrpura: ${g.latent.purpura?'<b style="color:#b06cff">presente</b> — exprésalo cultivando con clima FRÍO en floración':'ausente'}</div>
+     <div class="mini">❄️ Escarcha: ${g.latent.escarcha?'<b style="color:#5bc8ff">presente</b> — exprésala con 2+ lámparas en floración':'ausente'}</div>`);
+}
 
+const inheritLatent=(x,y)=>x||y?Math.random()<0.6:Math.random()<0.02;
 function crossStrains(a,b){
-  const mix=(x,y)=>clamp((x+y)/2+rnd(-.06,.06),0,1);
+  const ga=a.genome, gb=b.genome;
+  const genome={latent:{
+    purpura:inheritLatent(ga.latent.purpura,gb.latent.purpura),
+    escarcha:inheritLatent(ga.latent.escarcha,gb.latent.escarcha)}};
+  ['thc','yield','speed','resist','color'].forEach(t=>{
+    genome[t]=[cloneAllele(pick(ga[t])), cloneAllele(pick(gb[t]))];   // un alelo de cada padre
+    if(Math.random()<0.10){const al=pick(genome[t]); al.v=clamp(al.v+rnd(-.15,.2),0,1);} // deriva
+  });
   const type=a.type===b.type?a.type:'hybrid';
-  const g=makeStrain({type, thc:mix(a.thc,b.thc), yield:mix(a.yield,b.yield),
-    speed:mix(a.speed,b.speed), resist:mix(a.resist,b.resist),
-    color:clamp((a.color+b.color)/2+rnd(-.1,.1),0,1),
-    gen:Math.max(a.gen,b.gen)+1, name:hybridName(a,b)});
-  if(Math.random()<.22){const k=pick(['thc','yield','speed','resist']); g[k]=clamp(g[k]+rnd(.08,.22),0,1); g.mutated=k;}
+  const g={id:uid(), name:hybridName(a,b), type, genome, gen:Math.max(a.gen,b.gen)+1, seeds:0, ploidy:2};
+  // mutación rara: nace un alelo raro alto
+  if(Math.random()<0.06){const t=pick(['thc','yield','speed','resist']);
+    const al=pick(genome[t]); al.rare=true; al.v=clamp(rnd(.85,.99),0,1); al.dom=false; g.mutated=t;}
+  deriveStats(g);
   g.rarity=calcRarity(g);
   return g;
 }
@@ -484,20 +538,26 @@ function drawPlant(cv,plant,plotIndex){
   if(!plant){ // maceta vacía
     paintRows(c,POT_ROWS,pal,0,11); return;
   }
+  // epigenética: color púrpura expresado
+  if(plant.expr&&plant.expr.purpura){
+    pal.leaf=hsl(280,55,44); pal.leafD=hsl(280,55,28); pal.leafL=hsl(285,50,60); pal.stem=hsl(280,45,24);
+    pal.bud=hsl(292,60,58); pal.budD=hsl(292,55,40); pal.budH=hsl(296,55,78);
+  }
   const map={'S':pal.stem,'D':pal.leafD,'L':pal.leaf,'H':pal.leafL,
     'B':pal.bud,'b':pal.budD,'f':pal.budH,'x':pal.pistil,
     'P':pal.pot,'p':pal.potD,'.':pal.potL,'o':pal.soil};
   const rows=PLANT_SPRITES[plant.stage]||PLANT_SPRITES[0];
   paintRows(c,rows,pal,0,0,map);
   paintRows(c,POT_ROWS,pal,0,11,map);
-  // tricomas: chispas sobre cogollos (twinkle por tick)
+  // tricomas: chispas sobre cogollos (más densas si expresó escarcha)
   if(plant.stage>=3){
+    const frost=plant.expr&&plant.expr.escarcha;
     c.fillStyle='#ffffff';
-    const seed=(G.tick*7+(plotIndex||0)*13);
-    for(let i=0;i<4;i++){
+    const seed=(G.tick*7+(plotIndex||0)*13), n=frost?8:4, thr=frost?0.35:0.55;
+    for(let i=0;i<n;i++){
       const r=((seed+i*97)*9301+49297)%233280/233280;
-      if(r>0.55){const bx=4+((seed+i*31)%9)*2, by=2+((seed*3+i*17)%8)*2;
-        c.globalAlpha=0.8; c.fillRect(bx,by,1,1); c.globalAlpha=1;}
+      if(r>thr){const bx=4+((seed+i*31)%11)*2, by=2+((seed*3+i*17)%9)*2;
+        c.globalAlpha=frost?0.95:0.8; c.fillRect(bx,by,1,1); c.globalAlpha=1;}
     }
   }
   // enfermedad/plaga tint
@@ -648,6 +708,8 @@ function renderPlots(){
       if(p.plant.water<35) ni+='<span title="sed">💧</span>';
       if(p.plant.food<35) ni+='<span title="hambre">🍯</span>';
       if(p.plant.health<40) ni+='<span>🥀</span>';
+      if(p.plant.expr&&p.plant.expr.purpura) ni+='<span title="púrpura">🟣</span>';
+      if(p.plant.expr&&p.plant.expr.escarcha) ni+='<span title="escarcha">❄️</span>';
       nd.innerHTML=ni; el.appendChild(nd);
       if(st>=4) el.classList.add('ready-glow');
       if(p.plant.pest) el.classList.add('pest-glow');
@@ -706,7 +768,8 @@ function dnaBars(s){
 function plantSeed(i,strain){
   if(strain.seeds<=0){sfx('error');toast('Sin semillas','bad');return}
   strain.seeds--;
-  G.plots[i].plant={strainName:strain.name, stage:0, grow:0, water:100, food:100, health:100, quality:60, pest:null};
+  G.plots[i].plant={strainName:strain.name, stage:0, grow:0, water:100, food:100, health:100, quality:60,
+    pest:null, cold:0, uv:0, expr:{purpura:false,escarcha:false}};
   sfx('plant'); toast('Plantada '+strain.name+' 🌱'); renderAll(); save();
 }
 function waterPlant(i){
@@ -733,14 +796,16 @@ function treatPlant(i){
 function harvest(i){
   const p=G.plots[i].plant, s=strainByName(p.strainName);
   const potF=res('potency')?1.10:1, vigF=res('vigor')?1.10:1, plo=s.ploidy||2;
+  const purple=!!(p.expr&&p.expr.purpura), frost=!!(p.expr&&p.expr.escarcha);
   const yieldBase=(6+s.yield*22)*vigF, qualF=p.quality/100, healthF=p.health/100;
   const qty=Math.max(1,Math.round(yieldBase*(0.5+qualF*0.5)*(0.6+healthF*0.4)));
-  const quality=Math.round(clamp(p.quality*(0.7+healthF*0.3),5,100));
-  const effThc=clamp(s.thc*potF,0,1);
+  let quality=Math.round(clamp(p.quality*(0.7+healthF*0.3),5,100));
+  let effThc=clamp(s.thc*potF,0,1);
+  if(frost){ effThc=clamp(effThc*1.12,0,1); quality=Math.round(clamp(quality*1.08,5,100)); } // escarcha: +potencia/calidad
   addXP(Math.round(qty*0.8+s.thc*10)); G.rep+=Math.round(s.thc*3);
   G.research.rp+=Math.max(1,Math.round(quality/10+s.thc*5)); // datos de I+D
   if(plo!==3 && Math.random()<0.5+qualF*0.3) s.seeds+=irnd(1,3); // triploides estériles: sin semilla
-  const bud={strainName:s.name,type:s.type,rarity:s.rarity,thc:effThc,ploidy:plo};
+  const bud={strainName:s.name,type:s.type,rarity:s.rarity,thc:effThc,ploidy:plo,purple,frost};
   // → curado si hay frasco libre, si no directo al alijo
   if(G.jars.length<jarCap()){
     G.jars.push({...bud,qty,quality,baseQ:quality,cureDay:G.day,ready:false});
@@ -753,12 +818,12 @@ function harvest(i){
   G.plots[i].plant=null; sfx('harvest'); renderAll(); save();
 }
 function addBuds(s,qty,quality){
-  const plo=s.ploidy||2;
-  const key=(s.name||s.strainName)+'|'+Math.round(quality/10)*10+'|'+plo;
+  const plo=s.ploidy||2, purple=!!s.purple, frost=!!s.frost;
+  const key=(s.name||s.strainName)+'|'+Math.round(quality/10)*10+'|'+plo+'|'+(purple?'p':'')+(frost?'f':'');
   let b=G.buds.find(x=>x.key===key);
   if(b){b.qty+=qty;}
   else G.buds.push({key,strainName:s.name||s.strainName,type:s.type,rarity:s.rarity,
-    thc:s.thc,quality:Math.round(quality/10)*10,qty,ploidy:plo});
+    thc:s.thc,quality:Math.round(quality/10)*10,qty,ploidy:plo,purple,frost});
 }
 
 /* ---------- TICK crecimiento + plagas ---------- */
@@ -787,6 +852,17 @@ function tickGrow(){
     if(pl.water<20||pl.food<20){pl.health=clamp(pl.health-1.4*resF,0,100); pl.quality=clamp(pl.quality-0.5,0,100);}
     else if(pl.water>45&&pl.food>45&&!pl.pest){pl.health=clamp(pl.health+0.5,0,100); pl.quality=clamp(pl.quality+0.25,0,100);}
     if(G.gear.fan&&pl.stage<4) pl.quality=clamp(pl.quality+0.15*G.gear.fan,0,100);
+    // epigenética: acumula ambiente en floración y expresa genes latentes
+    if(pl.stage>=3){
+      if(!pl.expr)pl.expr={purpura:false,escarcha:false};
+      if(G.weather&&G.weather.id==='fri')pl.cold=(pl.cold||0)+1;
+      if(G.gear.lamp>=2)pl.uv=(pl.uv||0)+1;
+      const lat=s.genome&&s.genome.latent;
+      if(lat){
+        if(lat.purpura&&(pl.cold||0)>=4&&!pl.expr.purpura){pl.expr.purpura=true; toast('🟣 '+s.name+' expresó color púrpura');}
+        if(lat.escarcha&&(pl.uv||0)>=5&&!pl.expr.escarcha){pl.expr.escarcha=true; toast('❄️ '+s.name+' se cubrió de escarcha');}
+      }
+    }
     const care=(pl.water>15&&pl.food>15)?1:0.25;
     const spd=(0.6+s.speed*0.9)*mult*care;
     pl.grow+=spd/STAGE_DUR[pl.stage];
@@ -811,7 +887,7 @@ function cureJars(){
 }
 function packJar(i){
   const j=G.jars[i]; if(!j)return;
-  addBuds({name:j.strainName,type:j.type,rarity:j.rarity,thc:j.thc,ploidy:j.ploidy||2},j.qty,j.quality);
+  addBuds({name:j.strainName,type:j.type,rarity:j.rarity,thc:j.thc,ploidy:j.ploidy||2,purple:j.purple,frost:j.frost},j.qty,j.quality);
   G.jars.splice(i,1); sfx('treat'); toast('🫙 '+j.strainName+' empacado (cal '+j.quality+')'); renderAll(); save();
 }
 
@@ -1034,8 +1110,9 @@ function refreshMarket(){
 function budPrice(b){
   const base=8, qF=0.5+b.quality/100, thcF=0.7+b.thc*0.9, rarF=RAR_MULT[b.rarity]||1;
   const plo=b.ploidy||2, ploF=plo===3?1.35:plo===4?1.15:1; // triploide sinsemilla = premium
+  const epiF=(b.purple?1.10:1)*(b.frost?1.12:1); // bag appeal + escarcha
   const dem=(G.market.demand&&G.market.demand[b.type])||1, mood=G.market.mood?G.market.mood.m:1;
-  return Math.max(1, base*qF*thcF*rarF*ploF*dem*mood*(1+G.upg.dryer*0.15)*(1+G.upg.mktBoost*0.1));
+  return Math.max(1, base*qF*thcF*rarF*ploF*epiF*dem*mood*(1+G.upg.dryer*0.15)*(1+G.upg.mktBoost*0.1));
 }
 /* --- contratos --- */
 function genContract(){
@@ -1087,7 +1164,7 @@ function renderMarket(){
   if(!G.buds.length){b.innerHTML='<div class="empty-msg">🎒 No tienes cogollos listos.<br>Cultiva, cosecha y cura para vender.</div>';return}
   b.innerHTML=G.buds.map((bud,i)=>{const per=budPrice(bud),total=per*bud.qty;
     return `<div class="row"><div><div class="name">${bud.strainName} <span class="type t-${bud.type}">${bud.type}</span>${ploidyBadge(bud)}</div>
-      <div class="mini">${bud.qty}g · cal ${bud.quality} · THC ${pct(bud.thc)} · <span class="rar r-${bud.rarity}">${RAR_LABEL[bud.rarity]}</span>${(bud.ploidy||2)===3?' · 🌟sinsemilla':''}</div>
+      <div class="mini">${bud.qty}g · cal ${bud.quality} · THC ${pct(bud.thc)} · <span class="rar r-${bud.rarity}">${RAR_LABEL[bud.rarity]}</span>${(bud.ploidy||2)===3?' · 🌟sinsemilla':''}${bud.purple?' · 🟣':''}${bud.frost?' · ❄️':''}</div>
       <div class="mini" style="color:var(--green)">${money(per)}/g</div></div>
       <button class="btn gold" onclick="sellBud(${i})">Vender ${money(total)}</button></div>`;}).join('')+
     `<div class="btnrow"><button class="btn wide gold" onclick="sellAll()">💰 Vender TODO (${money(G.buds.reduce((a,b)=>a+budPrice(b)*b.qty,0))})</button></div>`;
@@ -1144,8 +1221,8 @@ function renderStash(){
   // cogollos
   html+='<div class="sub g" style="margin-top:12px">🌿 COGOLLOS</div>';
   if(!G.buds.length) html+='<div class="mini">Vacío.</div>';
-  else html+=G.buds.map(bud=>`<div class="row"><div><div class="name">${bud.strainName}</div>
-    <div class="mini">${bud.qty}g · cal ${bud.quality} · <span class="rar r-${bud.rarity}">${RAR_LABEL[bud.rarity]}</span></div></div></div>`).join('');
+  else html+=G.buds.map(bud=>`<div class="row"><div><div class="name">${bud.strainName}${ploidyBadge(bud)}</div>
+    <div class="mini">${bud.qty}g · cal ${bud.quality} · <span class="rar r-${bud.rarity}">${RAR_LABEL[bud.rarity]}</span>${bud.purple?' · 🟣':''}${bud.frost?' · ❄️':''}</div></div></div>`).join('');
   // genéticas
   html+='<div class="sub g" style="margin-top:12px">🧬 GENÉTICAS ('+G.strains.length+')</div>';
   html+='<div class="grid2">'+G.strains.slice().sort((a,b)=>rankR(b.rarity)-rankR(a.rarity)).map(s=>`
@@ -1154,7 +1231,9 @@ function renderStash(){
         ${s.mutated?'· <span style="color:var(--pink)">⚡'+s.mutated+'</span>':''}</div>
       <div class="dna">${dnaBars(s)}</div>
       <div class="stats-mini"><span>THC <b>${pct(s.thc)}</b></span><span>Rend <b>${pct(s.yield)}</b></span>
-        <span>Vel <b>${pct(s.speed)}</b></span><span>Res <b>${pct(s.resist)}</b></span></div></div>`).join('')+'</div>';
+        <span>Vel <b>${pct(s.speed)}</b></span><span>Res <b>${pct(s.resist)}</b></span></div>
+      ${latentTags(s)}
+      <button class="btn alt wide" style="margin-top:6px" onclick="showGenome('${s.id}')">🧬 Ver genotipo</button></div>`).join('')+'</div>';
   $('#stashBody').innerHTML=html;
 }
 
@@ -1229,10 +1308,19 @@ function migrate(){
   if(!G.research.done)G.research.done={}; if(G.research.rp==null)G.research.rp=0;
   if(G.research.active===undefined)G.research.active=null;
   if(G.sound==null)G.sound=true;
-  G.strains.forEach(s=>{if(s.ploidy==null)s.ploidy=2;});
-  G.buds.forEach(b=>{if(b.ploidy==null)b.ploidy=2;});
-  G.jars.forEach(j=>{if(j.ploidy==null)j.ploidy=2;});
-  G.plots.forEach(p=>{if(p.plant&&p.plant.pest===undefined)p.plant.pest=null;});
+  G.strains.forEach(s=>{
+    if(s.ploidy==null)s.ploidy=2;
+    if(!s.genome){ s.genome={
+      thc:buildAllelePair(s.thc??.5), yield:buildAllelePair(s.yield??.5),
+      speed:buildAllelePair(s.speed??.5), resist:buildAllelePair(s.resist??.5),
+      color:buildAllelePair(s.color??.5),
+      latent:{purpura:Math.random()<0.12, escarcha:Math.random()<0.12}}; }
+  });
+  G.buds.forEach(b=>{if(b.ploidy==null)b.ploidy=2; if(b.purple==null)b.purple=false; if(b.frost==null)b.frost=false;});
+  G.jars.forEach(j=>{if(j.ploidy==null)j.ploidy=2; if(j.purple==null)j.purple=false; if(j.frost==null)j.frost=false;});
+  G.plots.forEach(p=>{if(p.plant){ if(p.plant.pest===undefined)p.plant.pest=null;
+    if(p.plant.cold==null)p.plant.cold=0; if(p.plant.uv==null)p.plant.uv=0;
+    if(!p.plant.expr)p.plant.expr={purpura:false,escarcha:false}; }});
 }
 function init(){
   if(!load())G=DEFAULT();

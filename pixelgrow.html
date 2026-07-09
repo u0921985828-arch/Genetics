@@ -1,0 +1,1002 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>PixelGrow · Cultivo 8-bit</title>
+<style>
+  :root{
+    --bg:#0d0b1a; --bg2:#171331; --panel:#1e1a3d; --panel2:#272251;
+    --ink:#e8e6ff; --dim:#9a94c7; --line:#3a3470;
+    --green:#5fd35f; --green2:#2f8f3a; --lime:#a6e660;
+    --gold:#ffd23f; --amber:#ff9d2e; --red:#ff5b6e; --blue:#5bc8ff;
+    --purple:#b06cff; --pink:#ff6ec7;
+    --shadow:#000;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #241d52 0%, transparent 60%),
+      linear-gradient(#0d0b1a,#080614);
+    color:var(--ink);
+    font-family:'Courier New',ui-monospace,monospace;
+    font-weight:bold;
+    -webkit-font-smoothing:none;
+    image-rendering:pixelated;
+    display:flex; flex-direction:column; align-items:center;
+    min-height:100%;
+    user-select:none;
+    letter-spacing:.5px;
+  }
+  .wrap{width:100%; max-width:900px; padding:8px; display:flex; flex-direction:column; gap:8px}
+
+  /* ---------- HUD ---------- */
+  .hud{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:6px;
+  }
+  .stat{
+    background:var(--panel); border:2px solid var(--line);
+    border-bottom-width:4px; padding:6px 8px; text-align:center;
+    box-shadow:0 2px 0 #000;
+  }
+  .stat .lbl{font-size:9px; color:var(--dim); letter-spacing:1px}
+  .stat .val{font-size:15px; margin-top:2px}
+  .stat .val .ic{margin-right:3px}
+
+  h1.logo{
+    margin:2px 0 0; text-align:center; font-size:22px; letter-spacing:2px;
+    color:var(--green);
+    text-shadow:2px 2px 0 var(--green2), 4px 4px 0 #000;
+  }
+  h1.logo small{display:block;font-size:9px;color:var(--dim);letter-spacing:3px;text-shadow:none;margin-top:2px}
+
+  /* ---------- Tabs ---------- */
+  .tabs{display:grid; grid-template-columns:repeat(5,1fr); gap:4px}
+  .tab{
+    background:var(--panel); border:2px solid var(--line); border-bottom-width:4px;
+    color:var(--dim); padding:8px 2px; text-align:center; cursor:pointer;
+    font-size:11px; letter-spacing:1px;
+  }
+  .tab .em{display:block;font-size:16px;margin-bottom:1px}
+  .tab.active{background:var(--panel2); color:var(--ink); border-color:var(--green);
+    box-shadow:0 0 0 2px var(--green2) inset}
+  .tab:active{transform:translateY(1px)}
+
+  /* ---------- Panels ---------- */
+  .panel{
+    background:var(--panel); border:2px solid var(--line); border-bottom-width:4px;
+    padding:10px; min-height:120px; box-shadow:0 3px 0 #000;
+  }
+  .panel h2{margin:0 0 8px; font-size:13px; color:var(--gold); letter-spacing:1px;
+    display:flex; justify-content:space-between; align-items:center}
+  .hide{display:none !important}
+
+  /* ---------- Grow grid ---------- */
+  .plots{display:grid; grid-template-columns:repeat(4,1fr); gap:6px}
+  @media(max-width:520px){.plots{grid-template-columns:repeat(3,1fr)}}
+  .plot{
+    position:relative; background:linear-gradient(#241d52,#191339);
+    border:2px solid var(--line); aspect-ratio:1; cursor:pointer;
+    display:flex; align-items:flex-end; justify-content:center; overflow:hidden;
+  }
+  .plot.sel{border-color:var(--gold); box-shadow:0 0 0 2px var(--gold) inset}
+  .plot canvas{width:100%; height:100%; image-rendering:pixelated}
+  .plot.locked{cursor:pointer; opacity:.85}
+  .plot .lock{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; font-size:22px; color:var(--dim); background:rgba(8,6,20,.6)}
+  .plot .lock small{font-size:8px;margin-top:2px}
+  .plot .empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:20px;color:var(--dim)}
+  .badge{position:absolute; top:2px; left:2px; right:2px; display:flex; gap:2px; flex-wrap:wrap}
+  .badge span{font-size:8px; background:rgba(0,0,0,.55); padding:1px 3px; border-radius:2px}
+  .pbar{position:absolute; bottom:0; left:0; height:4px; background:var(--green)}
+  .needs{position:absolute; top:2px; right:2px; display:flex; flex-direction:column; gap:1px; align-items:flex-end}
+  .needs span{font-size:11px; line-height:1}
+  .ready-glow{animation:glow 1s steps(2) infinite}
+  @keyframes glow{50%{box-shadow:0 0 0 2px var(--gold) inset,0 0 12px var(--gold)}}
+
+  /* ---------- Buttons ---------- */
+  .btn{
+    background:var(--green2); border:2px solid #1c5a24; border-bottom-width:4px;
+    color:#eafff0; font-family:inherit; font-weight:bold; font-size:11px;
+    padding:8px 10px; cursor:pointer; letter-spacing:1px;
+  }
+  .btn:active{transform:translateY(2px); border-bottom-width:2px}
+  .btn.alt{background:#39336e; border-color:#221d4d}
+  .btn.gold{background:#b8890f; border-color:#7a5a07; color:#fff8e0}
+  .btn.red{background:#a02b3a; border-color:#6e1c27}
+  .btn.wide{width:100%}
+  .btn:disabled{filter:grayscale(1) brightness(.6); cursor:not-allowed}
+  .btnrow{display:flex; gap:4px; flex-wrap:wrap; margin-top:8px}
+  .btnrow .btn{flex:1; min-width:70px}
+
+  /* ---------- Lists / cards ---------- */
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  @media(max-width:520px){.grid2{grid-template-columns:1fr}}
+  .card{
+    background:var(--panel2); border:2px solid var(--line); border-bottom-width:3px;
+    padding:8px; font-size:11px;
+  }
+  .card .name{font-size:12px; color:var(--ink); display:flex; align-items:center; gap:4px}
+  .card .type{font-size:8px; padding:1px 4px; border-radius:2px; letter-spacing:1px}
+  .t-indica{background:#5a2a7a; color:#e9c8ff}
+  .t-sativa{background:#7a5a12; color:#ffe9b0}
+  .t-hybrid{background:#1c5a5a; color:#b8fff0}
+  .stats-mini{display:grid; grid-template-columns:1fr 1fr; gap:2px 8px; margin:6px 0; color:var(--dim); font-size:9px}
+  .stats-mini b{color:var(--ink)}
+  .dna{display:flex; gap:2px; margin-top:4px}
+  .dna i{height:6px; flex:1; background:#332c66; border-radius:1px; overflow:hidden; position:relative}
+  .dna i::after{content:''; position:absolute; inset:0 auto 0 0; background:var(--green); width:var(--w,0)}
+  .rar{font-size:8px; letter-spacing:1px}
+  .r-comun{color:#9a94c7} .r-rara{color:#5bc8ff} .r-epica{color:#b06cff}
+  .r-legend{color:#ffd23f} .r-mitica{color:#ff6ec7}
+
+  .row{display:flex; justify-content:space-between; align-items:center; gap:6px;
+    padding:6px 4px; border-bottom:1px solid var(--line); font-size:11px}
+  .row:last-child{border-bottom:none}
+  .qty{color:var(--dim); font-size:10px}
+
+  .empty-msg{color:var(--dim); text-align:center; padding:24px 8px; font-size:11px; line-height:1.6}
+
+  /* ---------- Toast / log ---------- */
+  #toast{position:fixed; left:50%; bottom:14px; transform:translateX(-50%);
+    display:flex; flex-direction:column-reverse; gap:4px; z-index:50; pointer-events:none; width:92%; max-width:420px}
+  .toast{
+    background:#1a1636; border:2px solid var(--green); border-left-width:5px;
+    padding:7px 10px; font-size:11px; box-shadow:0 3px 0 #000;
+    animation:slide .25s ease; }
+  .toast.bad{border-color:var(--red)}
+  .toast.gold{border-color:var(--gold)}
+  @keyframes slide{from{transform:translateY(10px);opacity:0}}
+
+  /* ---------- Modal ---------- */
+  #modal{position:fixed; inset:0; background:rgba(6,4,16,.82); z-index:60;
+    display:flex; align-items:center; justify-content:center; padding:14px}
+  #modal .box{background:var(--panel); border:2px solid var(--gold); border-bottom-width:5px;
+    max-width:420px; width:100%; padding:14px; box-shadow:0 6px 0 #000; max-height:88vh; overflow:auto}
+  #modal h3{margin:0 0 10px; color:var(--gold); font-size:14px; letter-spacing:1px}
+  .selstrain{display:flex; gap:6px; align-items:center; padding:7px; border:2px solid var(--line);
+    background:var(--panel2); cursor:pointer; margin-bottom:5px; font-size:11px}
+  .selstrain.sel{border-color:var(--green); box-shadow:0 0 0 2px var(--green2) inset}
+  .selstrain canvas{width:34px;height:34px;image-rendering:pixelated;background:#120f2b;border:1px solid var(--line)}
+
+  .foot{text-align:center; font-size:9px; color:var(--dim); padding:6px 0 16px; line-height:1.6}
+  .foot a{color:var(--green)}
+  .pricebtn small{display:block;font-size:8px;color:#eafff0aa}
+  progress{width:100%}
+  .flex{display:flex;gap:6px}
+  .flex>*{flex:1}
+  .center{text-align:center}
+  .mini{font-size:9px;color:var(--dim)}
+  .tagrow{display:flex;gap:3px;flex-wrap:wrap;margin-top:4px}
+  .tag{font-size:8px;background:#332c66;padding:1px 4px;border-radius:2px;color:var(--dim)}
+</style>
+
+<div class="wrap">
+  <h1 class="logo">PIXELGROW<small>CULTIVO · GENÉTICA · IMPERIO</small></h1>
+
+  <div class="hud">
+    <div class="stat"><div class="lbl">EFECTIVO</div><div class="val"><span class="ic">💵</span><span id="hCash">0</span></div></div>
+    <div class="stat"><div class="lbl">DÍA</div><div class="val"><span class="ic">📅</span><span id="hDay">1</span></div></div>
+    <div class="stat"><div class="lbl">NIVEL</div><div class="val"><span class="ic">⭐</span><span id="hLvl">1</span></div></div>
+    <div class="stat"><div class="lbl">REPUT.</div><div class="val"><span class="ic">🔥</span><span id="hRep">0</span></div></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="grow"><span class="em">🌱</span>CULTIVO</div>
+    <div class="tab" data-tab="breed"><span class="em">🧬</span>GENÉT.</div>
+    <div class="tab" data-tab="shop"><span class="em">🛒</span>SHOP</div>
+    <div class="tab" data-tab="market"><span class="em">💰</span>MERCADO</div>
+    <div class="tab" data-tab="stash"><span class="em">🎒</span>ALIJO</div>
+  </div>
+
+  <!-- GROW -->
+  <div class="panel" id="tab-grow">
+    <h2>SALA DE CULTIVO <span class="mini" id="growSpeed">☀️ x1</span></h2>
+    <div class="plots" id="plots"></div>
+    <div class="btnrow" id="growActions"></div>
+    <div class="mini center" style="margin-top:8px">Toca una maceta para seleccionarla · las plantas crecen en tiempo real</div>
+  </div>
+
+  <!-- BREED -->
+  <div class="panel hide" id="tab-breed">
+    <h2>LABORATORIO DE GENÉTICA</h2>
+    <div class="mini" style="margin-bottom:8px">Cruza dos cepas para crear híbridos. Los genes se heredan y mutan. ¡Descubre cepas legendarias!</div>
+    <div class="grid2" style="margin-bottom:8px">
+      <div class="card center" id="parentA"><div class="mini">PROGENITOR A</div><button class="btn alt wide" style="margin-top:6px" onclick="pickParent('A')">Elegir cepa</button></div>
+      <div class="card center" id="parentB"><div class="mini">PROGENITOR B</div><button class="btn alt wide" style="margin-top:6px" onclick="pickParent('B')">Elegir cepa</button></div>
+    </div>
+    <button class="btn gold wide" id="breedBtn" onclick="doBreed()">🧬 CRUZAR ($<span id="breedCost">200</span>)</button>
+    <div id="breedResult" style="margin-top:10px"></div>
+  </div>
+
+  <!-- SHOP -->
+  <div class="panel hide" id="tab-shop">
+    <h2>GROWSHOP</h2>
+    <div class="tabs" style="grid-template-columns:repeat(3,1fr);margin-bottom:8px">
+      <div class="tab active" data-shop="seeds" style="font-size:10px"><span class="em" style="font-size:14px">🌰</span>SEMILLAS</div>
+      <div class="tab" data-shop="gear" style="font-size:10px"><span class="em" style="font-size:14px">🔧</span>EQUIPO</div>
+      <div class="tab" data-shop="upg" style="font-size:10px"><span class="em" style="font-size:14px">🏭</span>MEJORAS</div>
+    </div>
+    <div id="shopBody"></div>
+  </div>
+
+  <!-- MARKET -->
+  <div class="panel hide" id="tab-market">
+    <h2>MERCADO NEGRO <span class="mini" id="mktMood"></span></h2>
+    <div class="mini" style="margin-bottom:8px">Vende tus cogollos. La calidad y la cepa suben el precio. La demanda fluctúa cada día.</div>
+    <div id="marketBody"></div>
+  </div>
+
+  <!-- STASH -->
+  <div class="panel hide" id="tab-stash">
+    <h2>ALIJO & GENÉTICAS</h2>
+    <div id="stashBody"></div>
+  </div>
+
+  <div class="foot">
+    PixelGrow v1 · <a href="#" onclick="hardReset();return false">reiniciar partida</a> · guardado automático<br>
+    Juego de ficción — cultivo virtual con fines de entretenimiento.
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ============================================================
+   PIXELGROW — juego 8-bit de cultivo, genética y economía
+   Un solo archivo, sin dependencias. Todo procedural.
+============================================================ */
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const irnd=(a,b)=>Math.floor(rnd(a,b+1));
+const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
+const uid=()=>Math.random().toString(36).slice(2,9);
+const money=n=>'$'+Math.floor(n).toLocaleString('es');
+
+/* ---------- Paletas de color por tipo/genética ---------- */
+// El color del cogollo/planta deriva de los genes → cada cepa se ve distinta.
+function strainPalette(g){
+  // hue base según tipo + gen "color"
+  const base = g.type==='indica'? 265 : g.type==='sativa'? 95 : 150;
+  const hue = (base + (g.color||0)*140) % 360;
+  const leaf = hsl(hue, 55, 42);
+  const leafD= hsl(hue, 55, 28);
+  const leafL= hsl(hue, 50, 56);
+  // pistilos (color THC/cogollo)
+  const budHue = (hue + 40 + g.thc*80)%360;
+  const bud = hsl(budHue, 70, 60);
+  const budD= hsl(budHue, 65, 42);
+  return {leaf,leafD,leafL,bud,budD,pot:'#8a4a2a',potD:'#5e2f16',soil:'#3a2416'};
+}
+function hsl(h,s,l){
+  s/=100;l/=100;
+  const k=n=>(n+h/30)%12, a=s*Math.min(l,1-l);
+  const f=n=>{const c=l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));return Math.round(255*c)};
+  const to=x=>x.toString(16).padStart(2,'0');
+  return '#'+to(f(0))+to(f(8))+to(f(4));
+}
+
+/* ---------- Genética ---------- */
+const TYPES=['indica','sativa','hybrid'];
+const PREFIX=['Purple','Green','Blue','Northern','Sour','Amnesia','White','Gorilla','Girl','Wedding','Lemon','Cosmic','Pixel','Neon','Dragon','Ghost','Sunset','Diesel','Golden','Frosty'];
+const SUFFIX=['Kush','Haze','Diesel','OG','Widow','Dream','Punch','Crack','Cookies','Gelato','Skunk','Runtz','Cake','Glue','Berry','Cheese','Star','Storm','Fire','Mist'];
+
+function randName(){return pick(PREFIX)+' '+pick(SUFFIX)}
+
+// gen valores 0..1 salvo yield/growth escalados
+function makeStrain(o={}){
+  const type=o.type||pick(TYPES);
+  const g={
+    id:uid(),
+    name:o.name||randName(),
+    type,
+    thc:o.thc??rnd(.35,.6),        // potencia 0..1
+    yield:o.yield??rnd(.35,.6),    // rendimiento
+    speed:o.speed??rnd(.35,.6),    // velocidad de crecimiento
+    resist:o.resist??rnd(.35,.6),  // resistencia (menos daño por descuido)
+    color:o.color??Math.random(),  // gen estético
+    gen:o.gen||1,                   // generación de cruce
+    seeds:o.seeds??0,
+  };
+  g.rarity=calcRarity(g);
+  return g;
+}
+function calcRarity(g){
+  const avg=(g.thc+g.yield+g.speed+g.resist)/4;
+  if(avg>=.88) return 'mitica';
+  if(avg>=.78) return 'legend';
+  if(avg>=.68) return 'epica';
+  if(avg>=.55) return 'rara';
+  return 'comun';
+}
+const RAR_LABEL={comun:'COMÚN',rara:'RARA',epica:'ÉPICA',legend:'LEGENDARIA',mitica:'MÍTICA'};
+const RAR_MULT ={comun:1,rara:1.3,epica:1.7,legend:2.3,mitica:3.2};
+
+// Cruce: promedio + varianza + posible mutación
+function crossStrains(a,b){
+  const mix=(x,y)=>clamp((x+y)/2 + rnd(-.06,.06),0,1);
+  let type;
+  if(a.type===b.type) type=a.type;
+  else type='hybrid';
+  const g=makeStrain({
+    type,
+    thc:mix(a.thc,b.thc),
+    yield:mix(a.yield,b.yield),
+    speed:mix(a.speed,b.speed),
+    resist:mix(a.resist,b.resist),
+    color:clamp((a.color+b.color)/2+rnd(-.1,.1),0,1),
+    gen:Math.max(a.gen,b.gen)+1,
+    name:hybridName(a,b),
+  });
+  // Mutación: 22% de que un gen dé un salto
+  if(Math.random()<.22){
+    const k=pick(['thc','yield','speed','resist']);
+    g[k]=clamp(g[k]+rnd(.08,.22),0,1);
+    g.mutated=k;
+  }
+  g.rarity=calcRarity(g);
+  return g;
+}
+function hybridName(a,b){
+  const pa=a.name.split(' '), pb=b.name.split(' ');
+  return pick([pa[0],pb[0]])+' '+pick([pa[pa.length-1],pb[pb.length-1]]);
+}
+
+/* ---------- Estado del juego ---------- */
+const STAGES=['semilla','plántula','vegetativo','floración','cosecha'];
+const STAGE_EMOJI={semilla:'🌰',plántula:'🌱',vegetativo:'🌿',floración:'🌸',cosecha:'✅'};
+// duración base de cada plot (en "ticks") — modificada por speed y equipo
+const STAGE_DUR=[8,22,34,40]; // semilla,plántula,veg,flor (cosecha=fin)
+
+let G; // game state
+const DEFAULT=()=>({
+  cash:500, day:1, level:1, xp:0, rep:0,
+  plots:Array.from({length:8},(_,i)=>({unlocked:i<2, plant:null})),
+  strains:[
+    makeStrain({name:'Pixel Kush',type:'indica',thc:.5,yield:.5,speed:.45,resist:.55,seeds:3,color:.7}),
+    makeStrain({name:'Neon Haze',type:'sativa',thc:.52,yield:.42,speed:.6,resist:.4,seeds:2,color:.25}),
+  ],
+  buds:[], // {strainName,type,rarity,quality,qty,thc}
+  gear:{lamp:0,fan:0,nutrients:2,water:5},
+  upg:{auto:false,dryer:0,mktBoost:0},
+  market:{},
+  mktDay:0,
+  tick:0,
+});
+
+/* ---------- Persistencia ---------- */
+const SAVE='pixelgrow_v1';
+function save(){try{localStorage.setItem(SAVE,JSON.stringify(G))}catch(e){}}
+function load(){
+  try{const s=localStorage.getItem(SAVE); if(s){G=JSON.parse(s); return true}}catch(e){}
+  return false;
+}
+function hardReset(){
+  if(confirm('¿Reiniciar toda la partida? Se perderá el progreso.')){
+    localStorage.removeItem(SAVE); G=DEFAULT(); refreshMarket(); renderAll();
+    toast('Nueva partida iniciada 🌱');
+  }
+}
+
+/* ---------- XP / nivel ---------- */
+function addXP(n){
+  G.xp+=n;
+  const need=lvlNeed(G.level);
+  if(G.xp>=need){G.xp-=need; G.level++; toast('¡NIVEL '+G.level+'! Nuevas cepas en el shop','gold');
+    // desbloquear plot cada 2 niveles automáticamente disponible para comprar
+  }
+}
+const lvlNeed=l=>40+l*l*22;
+
+/* ============================================================
+   RENDER — pixel plant al canvas
+============================================================ */
+function drawPlant(cv,plant){
+  const S=32; cv.width=S; cv.height=S;
+  const c=cv.getContext('2d'); c.imageRendering='pixelated';
+  c.clearRect(0,0,S,S);
+  const strain=plant?strainByName(plant.strainName):null;
+  const pal=strain?strainPalette(strain):strainPalette({type:'hybrid',color:0,thc:.5});
+  const px=(x,y,w,h,col)=>{c.fillStyle=col;c.fillRect(x,y,w,h)};
+
+  // maceta siempre
+  px(10,25,12,6,pal.potD); px(11,24,10,2,pal.pot);
+  px(12,22,8,3,pal.soil);
+
+  if(!plant){return}
+  const st=plant.stage;
+  const grow=plant.grow; // 0..1 dentro de la etapa
+  const health=plant.health;
+
+  // tronco
+  if(st>=1){
+    const h=st>=2?10:5;
+    px(15,22-h,2,h, pal.leafD);
+  }
+  // hojas por etapa
+  function fan(cx,cy,size,col){
+    // hoja tipo abanico simple pixel
+    for(let i=-2;i<=2;i++){
+      const len=size-Math.abs(i);
+      px(cx+i, cy-len, 1, len, col);
+    }
+  }
+  if(st===0){ // semilla / brote
+    px(15,21,2,2, pal.leafL);
+    px(14,20,4,1, pal.leaf);
+  }
+  if(st===1){ // plántula
+    fan(16,17,4,pal.leaf);
+    px(13,16,2,2,pal.leafL); px(17,16,2,2,pal.leafL);
+  }
+  if(st===2){ // vegetativo
+    fan(16,13,7,pal.leaf);
+    fan(11,17,5,pal.leafD); fan(21,17,5,pal.leafD);
+    px(14,14,2,2,pal.leafL); px(16,14,2,2,pal.leafL);
+  }
+  if(st>=3){ // floración / cosecha con cogollos
+    fan(16,11,8,pal.leaf);
+    fan(9,16,6,pal.leafD); fan(23,16,6,pal.leafD);
+    fan(12,13,5,pal.leaf); fan(20,13,5,pal.leaf);
+    // cogollos (dependen de grow)
+    const buds=st===4?7:Math.floor(grow*6);
+    const spots=[[16,8],[12,11],[20,11],[10,15],[22,15],[16,13],[14,16]];
+    for(let i=0;i<Math.min(buds,spots.length);i++){
+      const[bx,by]=spots[i];
+      px(bx,by,2,2,pal.bud); px(bx,by,1,1,pal.budD);
+      // pistilos
+      if(st===4){px(bx+1,by-1,1,1,'#ff8a3d')}
+    }
+  }
+  // overlay salud baja (marchito)
+  if(health<40){
+    c.globalAlpha=.35; px(0,0,S,S,'#3a2a00'); c.globalAlpha=1;
+    px(6,6,2,2,'#caa000');
+  }
+}
+
+function drawStrainIcon(cv,strain){
+  drawPlant(cv,{strainName:strain.name,stage:4,grow:1,health:100});
+}
+
+function strainByName(n){return G.strains.find(s=>s.name===n)}
+
+/* ============================================================
+   CULTIVO
+============================================================ */
+let selPlot=null;
+let plantMode=false;
+
+function growMultiplier(){
+  // lámparas aceleran
+  return 1 + G.gear.lamp*0.35 + (G.upg.dryer?0:0);
+}
+
+function renderPlots(){
+  const box=$('#plots'); box.innerHTML='';
+  $('#growSpeed').textContent='☀️ x'+growMultiplier().toFixed(2);
+  G.plots.forEach((p,i)=>{
+    const el=document.createElement('div');
+    el.className='plot'+(selPlot===i?' sel':'');
+    if(!p.unlocked){
+      el.classList.add('locked');
+      el.innerHTML='<div class="lock">🔒<small>NIVEL '+plotLevel(i)+'</small></div>';
+      el.onclick=()=>tryUnlock(i);
+      box.appendChild(el); return;
+    }
+    const cv=document.createElement('canvas');
+    el.appendChild(cv);
+    if(p.plant){
+      drawPlant(cv,p.plant);
+      const st=p.plant.stage;
+      // barra progreso
+      const pb=document.createElement('div'); pb.className='pbar';
+      pb.style.width=(st>=4?100:Math.floor(p.plant.grow*100))+'%';
+      pb.style.background=st>=4?'var(--gold)':'var(--green)';
+      el.appendChild(pb);
+      // badge etapa
+      const bd=document.createElement('div'); bd.className='badge';
+      bd.innerHTML='<span>'+STAGE_EMOJI[STAGES[st]]+' '+STAGES[st]+'</span>';
+      el.appendChild(bd);
+      // needs
+      const nd=document.createElement('div'); nd.className='needs';
+      let ni='';
+      if(p.plant.water<35) ni+='<span title="sed">💧</span>';
+      if(p.plant.food<35) ni+='<span title="hambre">🍯</span>';
+      if(p.plant.health<40) ni+='<span>🥀</span>';
+      nd.innerHTML=ni; el.appendChild(nd);
+      if(st>=4) el.classList.add('ready-glow');
+    }else{
+      const em=document.createElement('div'); em.className='empty'; em.textContent='➕';
+      el.appendChild(em);
+    }
+    el.onclick=()=>selectPlot(i);
+    box.appendChild(el);
+  });
+  renderGrowActions();
+}
+
+const plotLevel=i=>[1,1,2,3,4,6,8,10][i]||99;
+
+function tryUnlock(i){
+  const lv=plotLevel(i);
+  const cost=120*Math.pow(2,i-2);
+  if(G.level<lv){toast('Necesitas nivel '+lv+' para esta maceta','bad');return}
+  if(G.cash<cost){toast('Cuesta '+money(cost),'bad');return}
+  G.cash-=cost; G.plots[i].unlocked=true;
+  toast('¡Maceta desbloqueada! '+money(cost),'gold'); renderAll(); save();
+}
+
+function selectPlot(i){
+  selPlot=(selPlot===i?null:i);
+  renderPlots();
+}
+
+function renderGrowActions(){
+  const box=$('#growActions'); box.innerHTML='';
+  if(selPlot===null){box.innerHTML='<div class="mini center" style="width:100%">Selecciona una maceta ↑</div>';return}
+  const p=G.plots[selPlot];
+  const mk=(txt,fn,cls='')=>{const b=document.createElement('button');b.className='btn '+cls;b.innerHTML=txt;b.onclick=fn;return b};
+  if(!p.plant){
+    box.appendChild(mk('🌰 Plantar semilla',()=>openPlantPicker(),'gold'));
+  }else{
+    const st=p.plant.stage;
+    if(st>=4){
+      box.appendChild(mk('✂️ COSECHAR',()=>harvest(selPlot),'gold'));
+    }else{
+      box.appendChild(mk('💧 Regar ('+G.gear.water+')',()=>waterPlant(selPlot)));
+      box.appendChild(mk('🍯 Nutrir ('+G.gear.nutrients+')',()=>feedPlant(selPlot),'alt'));
+    }
+    box.appendChild(mk('🗑️',()=>{if(confirm('¿Arrancar la planta?')){p.plant=null;renderAll();save()}},'red'));
+  }
+}
+
+function openPlantPicker(){
+  const avail=G.strains.filter(s=>s.seeds>0);
+  if(!avail.length){toast('No tienes semillas. Compra en el Growshop 🛒','bad'); switchTab('shop');return}
+  modal('Elegir semilla', avail.map(s=>strainRow(s,()=>{plantSeed(selPlot,s); closeModal()})).join(''),
+    '', true);
+  // attach icons
+  setTimeout(()=>{$$('#modal canvas[data-strain]').forEach(cv=>{
+    drawStrainIcon(cv, strainByName(cv.dataset.strain));
+  })},0);
+}
+function strainRow(s,onclick){
+  const id='sr_'+s.id;
+  const html=`<div class="selstrain" onclick="(${'window.__pick_'+s.id}||(()=>{}))()">
+    <canvas data-strain="${s.name}"></canvas>
+    <div style="flex:1">
+      <div class="name">${s.name} <span class="type t-${s.type}">${s.type}</span></div>
+      <div class="mini">🌰 ${s.seeds} semillas · <span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span></div>
+      <div class="dna">${dnaBars(s)}</div>
+    </div></div>`;
+  window['__pick_'+s.id]=onclick;
+  return html;
+}
+function dnaBars(s){
+  const bar=(v,c)=>`<i style="--w:${Math.round(v*100)}%"><b style="position:absolute;inset:0;background:${c};width:${Math.round(v*100)}%"></b></i>`;
+  return bar(s.thc,'#ff6ec7')+bar(s.yield,'#5fd35f')+bar(s.speed,'#5bc8ff')+bar(s.resist,'#ffd23f');
+}
+
+function plantSeed(i,strain){
+  if(strain.seeds<=0){toast('Sin semillas de esa cepa','bad');return}
+  strain.seeds--;
+  G.plots[i].plant={
+    strainName:strain.name, stage:0, grow:0,
+    water:100, food:100, health:100, quality:60,
+  };
+  toast('Plantada '+strain.name+' 🌱');
+  renderAll(); save();
+}
+
+function waterPlant(i){
+  const p=G.plots[i].plant;
+  if(G.gear.water<=0){toast('Sin agua. Compra en el shop 💧','bad');return}
+  if(p.water>=95){toast('Ya está bien regada','bad');return}
+  G.gear.water--; p.water=clamp(p.water+55,0,100); p.health=clamp(p.health+4,0,100);
+  toast('💧 Regada'); renderAll(); save();
+}
+function feedPlant(i){
+  const p=G.plots[i].plant;
+  if(G.gear.nutrients<=0){toast('Sin nutrientes. Compra en el shop 🍯','bad');return}
+  if(p.food>=95){toast('Ya está bien nutrida','bad');return}
+  G.gear.nutrients--; p.food=clamp(p.food+55,0,100); p.health=clamp(p.health+3,0,100);
+  p.quality=clamp(p.quality+3,0,100);
+  toast('🍯 Nutrida'); renderAll(); save();
+}
+
+function harvest(i){
+  const p=G.plots[i].plant, s=strainByName(p.strainName);
+  const yieldBase = 6 + s.yield*22;            // gramos base
+  const qualF = p.quality/100;                  // 0..1
+  const healthF = p.health/100;
+  const qty = Math.max(1, Math.round(yieldBase*(0.5+qualF*0.5)*(0.6+healthF*0.4)));
+  const quality = Math.round(clamp(p.quality*(0.7+healthF*0.3),5,100));
+  // añadir cogollos al alijo (agrupa por cepa+calidad tier)
+  const tier=Math.round(quality/20)*20;
+  addBuds(s,qty,quality);
+  // XP + reputación + a veces semillas
+  addXP(Math.round(qty*0.8 + s.thc*10));
+  G.rep+=Math.round(s.thc*3);
+  if(Math.random()<0.5+qualF*0.3){ s.seeds+=irnd(1,3); }
+  G.plots[i].plant=null;
+  toast('✂️ +'+qty+'g de '+s.name+' (cal '+quality+')','gold');
+  renderAll(); save();
+}
+function addBuds(s,qty,quality){
+  const key=s.name+'|'+Math.round(quality/10)*10;
+  let b=G.buds.find(x=>x.key===key);
+  if(b){ b.qty+=qty; }
+  else{
+    G.buds.push({key,strainName:s.name,type:s.type,rarity:s.rarity,
+      thc:s.thc,quality:Math.round(quality/10)*10,qty});
+  }
+}
+
+/* ---------- TICK: crecimiento en tiempo real ---------- */
+function tickGrow(){
+  let dirty=false;
+  const mult=growMultiplier();
+  G.plots.forEach(p=>{
+    if(!p.unlocked||!p.plant)return;
+    const pl=p.plant, s=strainByName(pl.strainName);
+    if(pl.stage>=4)return;
+    // consumo de recursos
+    pl.water=clamp(pl.water-1.1,0,100);
+    pl.food=clamp(pl.food-0.8,0,100);
+    // salud según cuidado (resistencia mitiga)
+    const resF=1-s.resist*0.6;
+    if(pl.water<20||pl.food<20){ pl.health=clamp(pl.health-1.4*resF,0,100); pl.quality=clamp(pl.quality-0.5,0,100); }
+    else if(pl.water>45&&pl.food>45){ pl.health=clamp(pl.health+0.5,0,100); pl.quality=clamp(pl.quality+0.25,0,100); }
+    // progreso: sólo crece bien si tiene agua/comida
+    const care=(pl.water>15&&pl.food>15)?1:0.25;
+    const spd=(0.6+s.speed*0.9)*mult*care;
+    const dur=STAGE_DUR[pl.stage];
+    pl.grow += spd/dur;
+    if(pl.grow>=1){ pl.grow=0; pl.stage++; if(pl.stage>4)pl.stage=4;
+      if(pl.stage===4){pl.grow=1; toast('🌸 '+s.name+' lista para cosechar','gold');} }
+    dirty=true;
+  });
+  if(dirty && $('#tab-grow').offsetParent!==null) renderPlots();
+}
+
+/* ============================================================
+   BREEDING
+============================================================ */
+let parentA=null, parentB=null;
+const breedCost=()=>200;
+function renderBreed(){
+  $('#breedCost').textContent=breedCost();
+  renderParent('A',parentA); renderParent('B',parentB);
+  $('#breedBtn').disabled=!(parentA&&parentB&&G.cash>=breedCost());
+}
+function renderParent(slot,s){
+  const el=$('#parent'+slot);
+  if(!s){el.innerHTML='<div class="mini">PROGENITOR '+slot+'</div><button class="btn alt wide" style="margin-top:6px" onclick="pickParent(\''+slot+'\')">Elegir cepa</button>';return}
+  el.innerHTML=`<div class="mini">PROGENITOR ${slot}</div>
+    <canvas id="pc${slot}" style="width:48px;height:48px;image-rendering:pixelated;background:#120f2b;margin:4px auto;display:block;border:1px solid var(--line)"></canvas>
+    <div class="name center" style="justify-content:center">${s.name}</div>
+    <div class="center"><span class="type t-${s.type}">${s.type}</span> <span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span></div>
+    <div class="dna">${dnaBars(s)}</div>
+    <button class="btn alt wide" style="margin-top:6px" onclick="pickParent('${slot}')">Cambiar</button>`;
+  setTimeout(()=>{const cv=$('#pc'+slot); if(cv)drawStrainIcon(cv,s)},0);
+}
+function pickParent(slot){
+  const list=G.strains;
+  modal('Progenitor '+slot, list.map(s=>{
+    window['__par_'+s.id]=()=>{ if(slot==='A')parentA=s; else parentB=s; closeModal(); renderBreed(); };
+    return `<div class="selstrain" onclick="window.__par_${s.id}()">
+      <canvas data-strain="${s.name}"></canvas>
+      <div style="flex:1"><div class="name">${s.name} <span class="type t-${s.type}">${s.type}</span></div>
+      <div class="mini">Gen ${s.gen} · <span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span> · 🌰${s.seeds}</div>
+      <div class="dna">${dnaBars(s)}</div></div>`;
+  }).join(''),'',true);
+  setTimeout(()=>{$$('#modal canvas[data-strain]').forEach(cv=>drawStrainIcon(cv,strainByName(cv.dataset.strain)))},0);
+}
+function doBreed(){
+  if(!parentA||!parentB)return;
+  if(G.cash<breedCost()){toast('Necesitas '+money(breedCost()),'bad');return}
+  G.cash-=breedCost();
+  const child=crossStrains(parentA,parentB);
+  child.seeds=irnd(2,4);
+  G.strains.push(child);
+  addXP(30);
+  const box=$('#breedResult');
+  box.innerHTML=`<div class="card" style="border-color:var(--gold)">
+    <div class="center" style="margin-bottom:6px">✨ NUEVA CEPA ✨</div>
+    <canvas id="bres" style="width:56px;height:56px;image-rendering:pixelated;background:#120f2b;display:block;margin:0 auto 6px;border:2px solid var(--gold)"></canvas>
+    <div class="name center" style="justify-content:center;font-size:14px">${child.name}</div>
+    <div class="center" style="margin:4px 0"><span class="type t-${child.type}">${child.type}</span>
+      <span class="rar r-${child.rarity}">${RAR_LABEL[child.rarity]}</span> · Gen ${child.gen} · 🌰${child.seeds}</div>
+    ${child.mutated?'<div class="center" style="color:var(--pink);font-size:9px">⚡ MUTACIÓN en '+child.mutated.toUpperCase()+'</div>':''}
+    <div class="stats-mini">
+      <span>THC <b>${pct(child.thc)}</b></span><span>Rend <b>${pct(child.yield)}</b></span>
+      <span>Veloc <b>${pct(child.speed)}</b></span><span>Resist <b>${pct(child.resist)}</b></span>
+    </div></div>`;
+  setTimeout(()=>drawStrainIcon($('#bres'),child),0);
+  const r=child.rarity;
+  toast('🧬 Nace '+child.name+' ('+RAR_LABEL[r]+')', r==='legend'||r==='mitica'?'gold':'');
+  renderHUD(); renderBreed(); save();
+}
+const pct=v=>Math.round(v*100)+'%';
+
+/* ============================================================
+   SHOP
+============================================================ */
+let shopTab='seeds';
+$$('[data-shop]').forEach(t=>t.onclick=()=>{
+  shopTab=t.dataset.shop; $$('[data-shop]').forEach(x=>x.classList.toggle('active',x===t)); renderShop();
+});
+
+// semillas del shop escalan con nivel
+function shopSeeds(){
+  const out=[];
+  const n=3+Math.floor(G.level/2);
+  // generar determinista por día para que no cambie cada render
+  let seed=G.day*7+G.level*13;
+  const rng=()=>{seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff};
+  for(let i=0;i<n;i++){
+    const q=0.35+rng()*(0.25+G.level*0.02);
+    const st=makeStrain({
+      type:TYPES[Math.floor(rng()*3)],
+      thc:clamp(q+rng()*0.15,0,1), yield:clamp(q+rng()*0.15,0,1),
+      speed:clamp(q+rng()*0.15,0,1), resist:clamp(q+rng()*0.15,0,1),
+      color:rng(),
+    });
+    st.price=Math.round((30+st.thc*80+RAR_MULT[st.rarity]*40)*(1+G.level*0.05));
+    st._shopId=i;
+    out.push(st);
+  }
+  return out;
+}
+let _shopCache=null,_shopKey='';
+function getShopSeeds(){
+  const key=G.day+'_'+G.level;
+  if(_shopKey!==key){_shopCache=shopSeeds();_shopKey=key}
+  return _shopCache;
+}
+
+const GEAR=[
+  {k:'water',name:'Bidón de agua x5',emoji:'💧',price:15,desc:'+5 riegos',amt:5},
+  {k:'nutrients',name:'Nutrientes x3',emoji:'🍯',price:40,desc:'+3 abonos, mejora calidad',amt:3},
+];
+const UPG=[
+  {k:'lamp',name:'Lámpara LED',emoji:'💡',base:250,desc:'+35% velocidad de crecimiento por nivel',max:4,
+    get:()=>G.gear.lamp,inc:()=>G.gear.lamp++},
+  {k:'fan',name:'Ventilación',emoji:'🌬️',base:180,desc:'+calidad y salud pasiva',max:3,
+    get:()=>G.gear.fan,inc:()=>G.gear.fan++},
+  {k:'dryer',name:'Secadero Pro',emoji:'🏵️',base:600,desc:'+15% precio de venta por nivel',max:3,
+    get:()=>G.upg.dryer,inc:()=>G.upg.dryer++},
+  {k:'mktBoost',name:'Contactos',emoji:'🤝',base:500,desc:'+demanda y mejores precios',max:3,
+    get:()=>G.upg.mktBoost,inc:()=>G.upg.mktBoost++},
+];
+
+function renderShop(){
+  const b=$('#shopBody');
+  if(shopTab==='seeds'){
+    const seeds=getShopSeeds();
+    b.innerHTML='<div class="grid2">'+seeds.map(s=>`
+      <div class="card">
+        <div class="name">${s.name} <span class="type t-${s.type}">${s.type}</span></div>
+        <div class="mini"><span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span></div>
+        <div class="dna">${dnaBars(s)}</div>
+        <div class="stats-mini">
+          <span>THC <b>${pct(s.thc)}</b></span><span>Rend <b>${pct(s.yield)}</b></span>
+          <span>Vel <b>${pct(s.speed)}</b></span><span>Res <b>${pct(s.resist)}</b></span>
+        </div>
+        <button class="btn wide" ${G.cash<s.price?'disabled':''} onclick="buySeed(${s._shopId})">
+          Comprar ${money(s.price)}</button>
+      </div>`).join('')+'</div>';
+  }
+  if(shopTab==='gear'){
+    b.innerHTML=GEAR.map(g=>`
+      <div class="row">
+        <div><div class="name">${g.emoji} ${g.name}</div><div class="mini">${g.desc} · tienes ${G.gear[g.k]}</div></div>
+        <button class="btn" ${G.cash<g.price?'disabled':''} onclick="buyGear('${g.k}')">${money(g.price)}</button>
+      </div>`).join('');
+  }
+  if(shopTab==='upg'){
+    b.innerHTML=UPG.map(u=>{
+      const lvl=u.get(), maxed=lvl>=u.max, price=Math.round(u.base*Math.pow(1.8,lvl));
+      return `<div class="row">
+        <div><div class="name">${u.emoji} ${u.name} <span class="mini">Lv ${lvl}/${u.max}</span></div>
+          <div class="mini">${u.desc}</div></div>
+        <button class="btn gold" ${maxed||G.cash<price?'disabled':''} onclick="buyUpg('${u.k}')">
+          ${maxed?'MÁX':money(price)}</button>
+      </div>`;
+    }).join('');
+  }
+}
+function buySeed(id){
+  const s=getShopSeeds().find(x=>x._shopId===id);
+  if(!s||G.cash<s.price)return;
+  G.cash-=s.price;
+  // si ya tengo esa cepa exacta por nombre, sumo semilla; si no, la añado
+  let exist=G.strains.find(x=>x.name===s.name&&Math.abs(x.thc-s.thc)<0.001);
+  if(exist)exist.seeds++;
+  else{const cp=makeStrain({...s,seeds:1}); cp.name=s.name; G.strains.push(cp);}
+  toast('Comprada semilla '+s.name); renderAll(); save();
+}
+function buyGear(k){
+  const g=GEAR.find(x=>x.k===k); if(G.cash<g.price)return;
+  G.cash-=g.price; G.gear[k]+=g.amt;
+  toast('+'+g.amt+' '+g.name); renderAll(); save();
+}
+function buyUpg(k){
+  const u=UPG.find(x=>x.k===k), lvl=u.get(); if(lvl>=u.max)return;
+  const price=Math.round(u.base*Math.pow(1.8,lvl)); if(G.cash<price)return;
+  G.cash-=price; u.inc();
+  toast(u.name+' mejorada a Lv '+u.get(),'gold'); renderAll(); save();
+}
+
+/* ============================================================
+   MERCADO
+============================================================ */
+const MOODS=[
+  {t:'😴 Mercado tranquilo',m:0.85},
+  {t:'📈 Buena demanda',m:1.15},
+  {t:'🔥 ¡Fiebre! Precios altos',m:1.4},
+  {t:'💤 Saturado',m:0.7},
+  {t:'⚖️ Estable',m:1},
+];
+function refreshMarket(){
+  // demanda por tipo cada día
+  G.market={
+    mood:pick(MOODS),
+    demand:{indica:rnd(.8,1.3),sativa:rnd(.8,1.3),hybrid:rnd(.8,1.3)},
+  };
+  G.mktDay=G.day;
+}
+function budPrice(b){
+  const base=8; // por gramo
+  const qF=0.5+b.quality/100;          // calidad
+  const thcF=0.7+b.thc*0.9;
+  const rarF=RAR_MULT[b.rarity]||1;
+  const dem=(G.market.demand&&G.market.demand[b.type])||1;
+  const mood=G.market.mood?G.market.mood.m:1;
+  const dryer=1+G.upg.dryer*0.15;
+  const contacts=1+G.upg.mktBoost*0.1;
+  return Math.max(1, base*qF*thcF*rarF*dem*mood*dryer*contacts);
+}
+function renderMarket(){
+  if(G.mktDay!==G.day||!G.market.mood) refreshMarket();
+  $('#mktMood').textContent=G.market.mood.t;
+  const b=$('#marketBody');
+  if(!G.buds.length){b.innerHTML='<div class="empty-msg">🎒 No tienes cogollos.<br>Cultiva y cosecha para vender aquí.</div>';return}
+  b.innerHTML=G.buds.map((bud,i)=>{
+    const per=budPrice(bud), total=per*bud.qty;
+    return `<div class="row">
+      <div><div class="name">${bud.strainName} <span class="type t-${bud.type}">${bud.type}</span></div>
+        <div class="mini">${bud.qty}g · calidad ${bud.quality} · THC ${pct(bud.thc)} · <span class="rar r-${bud.rarity}">${RAR_LABEL[bud.rarity]}</span></div>
+        <div class="mini" style="color:var(--green)">${money(per)}/g</div></div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <button class="btn gold" onclick="sellBud(${i},false)">Vender ${money(total)}</button>
+      </div></div>`;
+  }).join('')+`<div class="btnrow"><button class="btn wide gold" onclick="sellAll()">💰 Vender TODO ($${Math.floor(G.buds.reduce((a,b)=>a+budPrice(b)*b.qty,0))})</button></div>`;
+}
+function sellBud(i){
+  const bud=G.buds[i]; if(!bud)return;
+  const total=Math.floor(budPrice(bud)*bud.qty);
+  G.cash+=total; G.rep+=Math.round(bud.qty*0.1);
+  addXP(Math.round(bud.qty*0.3));
+  // vender saturando un poco la demanda de ese tipo
+  if(G.market.demand)G.market.demand[bud.type]=clamp(G.market.demand[bud.type]-0.08,0.6,1.5);
+  G.buds.splice(i,1);
+  toast('💰 Vendido '+bud.strainName+' +'+money(total),'gold');
+  renderAll(); save();
+}
+function sellAll(){
+  if(!G.buds.length)return;
+  let total=0;
+  G.buds.forEach(b=>total+=Math.floor(budPrice(b)*b.qty));
+  G.cash+=total; addXP(Math.round(total/50)); G.rep+=G.buds.length;
+  G.buds=[];
+  toast('💰 Todo vendido: +'+money(total),'gold');
+  renderAll(); save();
+}
+
+/* ============================================================
+   ALIJO
+============================================================ */
+function renderStash(){
+  const b=$('#stashBody');
+  let html='<h2 style="color:var(--green);font-size:12px;margin:0 0 6px">🌿 COGOLLOS</h2>';
+  if(!G.buds.length) html+='<div class="mini">Vacío.</div>';
+  else html+=G.buds.map(bud=>`<div class="row"><div><div class="name">${bud.strainName}</div>
+    <div class="mini">${bud.qty}g · cal ${bud.quality} · <span class="rar r-${bud.rarity}">${RAR_LABEL[bud.rarity]}</span></div></div></div>`).join('');
+  html+='<h2 style="color:var(--gold);font-size:12px;margin:14px 0 6px">🧬 GENÉTICAS ('+G.strains.length+')</h2>';
+  html+='<div class="grid2">'+G.strains.slice().sort((a,b)=>rankR(b.rarity)-rankR(a.rarity)).map(s=>`
+    <div class="card">
+      <div class="name">${s.name} <span class="type t-${s.type}">${s.type}</span></div>
+      <div class="mini"><span class="rar r-${s.rarity}">${RAR_LABEL[s.rarity]}</span> · Gen ${s.gen} · 🌰 ${s.seeds}
+        ${s.mutated?'· <span style="color:var(--pink)">⚡'+s.mutated+'</span>':''}</div>
+      <div class="dna">${dnaBars(s)}</div>
+      <div class="stats-mini">
+        <span>THC <b>${pct(s.thc)}</b></span><span>Rend <b>${pct(s.yield)}</b></span>
+        <span>Vel <b>${pct(s.speed)}</b></span><span>Res <b>${pct(s.resist)}</b></span>
+      </div>
+    </div>`).join('')+'</div>';
+  b.innerHTML=html;
+}
+const rankR=r=>({comun:0,rara:1,epica:2,legend:3,mitica:4}[r]||0);
+
+/* ============================================================
+   HUD / TABS / RENDER
+============================================================ */
+function renderHUD(){
+  $('#hCash').textContent=Math.floor(G.cash).toLocaleString('es');
+  $('#hDay').textContent=G.day;
+  $('#hLvl').textContent=G.level;
+  $('#hRep').textContent=G.rep;
+}
+let curTab='grow';
+function switchTab(t){
+  curTab=t;
+  $$('.tab[data-tab]').forEach(x=>x.classList.toggle('active',x.dataset.tab===t));
+  ['grow','breed','shop','market','stash'].forEach(k=>$('#tab-'+k).classList.toggle('hide',k!==t));
+  renderTab();
+}
+$$('.tab[data-tab]').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
+function renderTab(){
+  if(curTab==='grow')renderPlots();
+  if(curTab==='breed')renderBreed();
+  if(curTab==='shop')renderShop();
+  if(curTab==='market')renderMarket();
+  if(curTab==='stash')renderStash();
+}
+function renderAll(){renderHUD(); renderTab();}
+
+/* ---------- Toast ---------- */
+function toast(msg,cls=''){
+  const t=document.createElement('div');
+  t.className='toast '+cls; t.textContent=msg;
+  $('#toast').appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity .3s'; setTimeout(()=>t.remove(),300)},2200);
+  while($('#toast').children.length>4)$('#toast').firstChild.remove();
+}
+
+/* ---------- Modal ---------- */
+function modal(title,body,foot='',scroll=false){
+  const m=document.createElement('div'); m.id='modal';
+  m.innerHTML=`<div class="box"><h3>${title}</h3><div>${body}</div>
+    <button class="btn alt wide" style="margin-top:10px" onclick="closeModal()">Cerrar</button></div>`;
+  m.onclick=e=>{if(e.target===m)closeModal()};
+  document.body.appendChild(m);
+}
+function closeModal(){const m=$('#modal'); if(m)m.remove();}
+
+/* ============================================================
+   BUCLE PRINCIPAL
+============================================================ */
+let lastTick=0, lastDay=0;
+const TICK_MS=1400;      // cada tick de crecimiento
+const DAY_MS=1400*12;    // avanzar día (refresca mercado/shop)
+
+function loop(ts){
+  if(!lastTick)lastTick=ts, lastDay=ts;
+  if(ts-lastTick>=TICK_MS){ lastTick=ts; G.tick++; tickGrow();
+    // ventilación: calidad pasiva
+    if(G.gear.fan){G.plots.forEach(p=>{if(p.plant&&p.plant.stage<4){p.plant.quality=clamp(p.plant.quality+0.15*G.gear.fan,0,100)}})}
+    save();
+  }
+  if(ts-lastDay>=DAY_MS){ lastDay=ts; G.day++; refreshMarket();
+    if(curTab==='market')renderMarket(); if(curTab==='shop'&&shopTab==='seeds')renderShop();
+    renderHUD();
+  }
+  requestAnimationFrame(loop);
+}
+
+/* ---------- Init ---------- */
+function init(){
+  if(!load()){G=DEFAULT();}
+  // migración defensiva
+  if(!G.gear)G.gear={lamp:0,fan:0,nutrients:2,water:5};
+  if(!G.upg)G.upg={auto:false,dryer:0,mktBoost:0};
+  if(!G.market||!G.market.mood)refreshMarket();
+  renderAll();
+  requestAnimationFrame(loop);
+  // pausa el tiempo si la pestaña está oculta (no acumula)
+  document.addEventListener('visibilitychange',()=>{lastTick=0;lastDay=0});
+}
+init();
+</script>

@@ -54,6 +54,22 @@ automatically (`COPY_PLUGIN_AFTER_BUILD`). Rescan in your DAW and load **CHRONA*
 
 Useful options: `-DCHRONA_BUILD_STANDALONE=OFF`, `-DCHRONA_JUCE_TAG=8.0.4`.
 
+### Alternative: Projucer
+
+A `CHRONA.jucer` project is included if you prefer Projucer / an IDE project over
+CMake. It needs a **JUCE 8** checkout:
+
+1. Clone JUCE 8 (e.g. `git clone --branch 8.0.4 https://github.com/juce-framework/JUCE`).
+2. Open the **Projucer** (from that JUCE), then either set your global module
+   path (Projucer → *Settings → Global Paths → JUCE modules*) to `JUCE/modules`,
+   or place the JUCE checkout so `../../JUCE/modules` resolves from the exporter
+   folder (the paths baked into the `.jucer`).
+3. Open `CHRONA.jucer`, pick an exporter (Xcode / Visual Studio 2022 / Linux
+   Makefile), **Save**, and build from the generated IDE project.
+
+The `.jucer` mirrors the CMake target exactly: same sources, modules, formats
+(VST3/AU/Standalone), MIDI input, and options.
+
 ---
 
 ## Using it

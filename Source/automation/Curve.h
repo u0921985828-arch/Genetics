@@ -26,6 +26,11 @@ namespace chrona::automation
     class Curve
     {
     public:
+        // Hard cap on breakpoints. The audio thread copies a published curve into
+        // a snapshot vector pre-reserved to at least this many points, so bounding
+        // the count here guarantees that copy never reallocates on the RT thread.
+        static constexpr int kMaxPoints = 128;
+
         Curve() = default;
 
         void clear() { points.clear(); }
@@ -46,6 +51,7 @@ namespace chrona::automation
 
         void addPoint (Point p)
         {
+            if ((int) points.size() >= kMaxPoints) return; // bound RT-copy size
             p.x = juce::jlimit (0.0f, 1.0f, p.x);
             p.y = juce::jlimit (0.0f, 1.0f, p.y);
             p.curve = juce::jlimit (-1.0f, 1.0f, p.curve);
@@ -53,7 +59,13 @@ namespace chrona::automation
             sort();
         }
 
-        void setPoints (std::vector<Point> pts) { points = std::move (pts); sort(); }
+        void setPoints (std::vector<Point> pts)
+        {
+            points = std::move (pts);
+            sort();
+            if ((int) points.size() > kMaxPoints)
+                points.resize ((size_t) kMaxPoints);   // never exceed the RT-copy bound
+        }
         const std::vector<Point>& getPoints() const { return points; }
         std::vector<Point>& getPointsMutable() { return points; }
 
@@ -115,7 +127,8 @@ namespace chrona::automation
         void fromValueTree (const juce::ValueTree& vt)
         {
             points.clear();
-            for (int i = 0; i < vt.getNumChildren(); ++i)
+            const int n = juce::jmin (vt.getNumChildren(), kMaxPoints); // bound from untrusted files
+            for (int i = 0; i < n; ++i)
             {
                 const auto pt = vt.getChild (i);
                 points.push_back ({ juce::jlimit (0.0f, 1.0f, (float) pt.getProperty ("x")),

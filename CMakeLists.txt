@@ -100,6 +100,7 @@ target_link_libraries(CHRONA PRIVATE
 # ---------------------------------------------------------------------------
 option(CHRONA_BUILD_TESTS "Build the offline stress test" OFF)
 option(CHRONA_SANITIZE    "Build tests with ASan+UBSan"   OFF)
+option(CHRONA_TSAN        "Build tests with ThreadSanitizer" OFF)
 
 if(CHRONA_BUILD_TESTS)
     juce_add_console_app(ChronaTests PRODUCT_NAME "ChronaTests")
@@ -124,6 +125,10 @@ if(CHRONA_BUILD_TESTS)
     if(CHRONA_SANITIZE)
         target_compile_options (ChronaTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -O1 -g)
         target_link_options    (ChronaTests PRIVATE -fsanitize=address,undefined)
+    endif()
+    if(CHRONA_TSAN)
+        target_compile_options (ChronaTests PRIVATE -fsanitize=thread -fno-omit-frame-pointer -O1 -g)
+        target_link_options    (ChronaTests PRIVATE -fsanitize=thread)
     endif()
 endif()
 

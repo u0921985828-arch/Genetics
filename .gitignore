@@ -1,6 +1,7 @@
 # Build output
 /build/
 /Builds/
+JuceLibraryCode/
 cmake-build-*/
 *.o
 *.obj

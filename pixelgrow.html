@@ -3,18 +3,20 @@
 <title>PixelGrow · Cultivo 8-bit</title>
 <style>
   :root{
-    --bg:#0d0b1a; --bg2:#171331; --panel:#1e1a3d; --panel2:#272251;
-    --ink:#e8e6ff; --dim:#9a94c7; --line:#3a3470;
-    --green:#5fd35f; --green2:#2f8f3a; --lime:#a6e660;
-    --gold:#ffd23f; --amber:#ff9d2e; --red:#ff5b6e; --blue:#5bc8ff;
-    --purple:#b06cff; --pink:#ff6ec7;
+    --bg:#17110b; --bg2:#241a10; --panel:#2a2015; --panel2:#33271a;
+    --ink:#f2e7cb; --dim:#ab9670; --line:#54402a;
+    --green:#7cc24a; --green2:#3f7a2a; --lime:#b6e05a;
+    --gold:#f2c14e; --amber:#e0902f; --red:#d24b3e; --blue:#57a7c2;
+    --purple:#a875d8; --pink:#e878b0;
+    --wood:#7a5330; --woodD:#3c2815; --woodL:#9a6b3c; --soil:#3a2618;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%}
   body{
     background:
-      radial-gradient(1200px 600px at 50% -10%, #241d52 0%, transparent 60%),
-      linear-gradient(#0d0b1a,#080614);
+      radial-gradient(680px 300px at 50% -40px, #7a582899, transparent 70%),
+      radial-gradient(1100px 700px at 50% 128%, #223016, transparent 68%),
+      linear-gradient(#1a130c,#0e0a06);
     color:var(--ink);
     font-family:'Courier New',ui-monospace,monospace; font-weight:bold;
     -webkit-font-smoothing:none; image-rendering:pixelated;
@@ -24,32 +26,40 @@
   .wrap{width:100%; max-width:900px; padding:8px; display:flex; flex-direction:column; gap:8px}
 
   .hud{display:grid; grid-template-columns:repeat(4,1fr); gap:6px}
-  .stat{background:var(--panel); border:2px solid var(--line); border-bottom-width:4px;
-    padding:6px 8px; text-align:center; box-shadow:0 2px 0 #000}
-  .stat .lbl{font-size:9px; color:var(--dim); letter-spacing:1px}
-  .stat .val{font-size:15px; margin-top:2px}
+  .stat{background:linear-gradient(#2f2416,#241a0f); border:2px solid var(--woodL);
+    border-right-color:var(--woodD); border-bottom-color:var(--woodD); border-radius:2px;
+    box-shadow:0 0 0 2px var(--woodD), 0 3px 0 2px rgba(0,0,0,.45); padding:6px 8px; text-align:center}
+  .stat .lbl{font-size:9px; color:var(--gold); letter-spacing:1px}
+  .stat .val{font-size:15px; margin-top:2px; color:var(--ink)}
   .stat .val .ic{margin-right:3px}
 
-  h1.logo{margin:2px 0 0; text-align:center; font-size:22px; letter-spacing:2px; color:var(--green);
-    text-shadow:2px 2px 0 var(--green2), 4px 4px 0 #000}
+  h1.logo{margin:2px 0 0; text-align:center; font-size:22px; letter-spacing:2px; color:var(--lime);
+    text-shadow:0 2px 0 var(--green2), 0 3px 0 var(--woodD), 2px 4px 0 rgba(0,0,0,.6)}
   h1.logo small{display:block;font-size:9px;color:var(--dim);letter-spacing:3px;text-shadow:none;margin-top:2px}
 
   .tabs{display:grid; grid-template-columns:repeat(6,1fr); gap:4px}
-  .tab{background:var(--panel); border:2px solid var(--line); border-bottom-width:4px;
-    color:var(--dim); padding:7px 1px; text-align:center; cursor:pointer; font-size:9px; letter-spacing:.5px}
+  .tab{background:linear-gradient(#2f2416,#251b10); border:2px solid var(--woodL);
+    border-right-color:var(--woodD); border-bottom-color:var(--woodD); border-radius:2px;
+    box-shadow:0 0 0 2px var(--woodD); color:var(--dim); padding:7px 1px; text-align:center;
+    cursor:pointer; font-size:9px; letter-spacing:.5px}
   .tab .em{display:block;font-size:15px;margin-bottom:1px}
-  .tab.active{background:var(--panel2); color:var(--ink); border-color:var(--green);
-    box-shadow:0 0 0 2px var(--green2) inset}
+  .tab.active{background:linear-gradient(#54a038,#3c7826); color:#f4ffe6; border-color:#8fda58;
+    border-right-color:#2c5a1c; border-bottom-color:#2c5a1c;
+    box-shadow:0 0 0 2px var(--woodD), 0 0 10px rgba(124,194,74,.45)}
   .tab:active{transform:translateY(1px)}
 
-  .panel{background:var(--panel); border:2px solid var(--line); border-bottom-width:4px;
-    padding:10px; min-height:120px; box-shadow:0 3px 0 #000}
+  .panel{background:linear-gradient(#2a2015,#221a10); border:3px solid var(--woodL);
+    border-right-color:var(--woodD); border-bottom-color:var(--woodD); border-radius:3px;
+    box-shadow:0 0 0 3px var(--woodD), 0 5px 0 3px rgba(0,0,0,.5), inset 0 0 0 2px rgba(0,0,0,.22);
+    padding:12px; min-height:120px}
   .panel h2{margin:0 0 8px; font-size:13px; color:var(--gold); letter-spacing:1px;
-    display:flex; justify-content:space-between; align-items:center; gap:6px}
+    display:flex; justify-content:space-between; align-items:center; gap:6px;
+    border-bottom:2px solid var(--woodD); padding-bottom:7px; text-shadow:0 1px 0 rgba(0,0,0,.5)}
   .hide{display:none !important}
 
   .growTop{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:8px;
-    font-size:10px; background:var(--panel2); border:2px solid var(--line); padding:5px 8px}
+    font-size:10px; background:linear-gradient(#33270f,#281e10); border:2px solid var(--woodD);
+    box-shadow:inset 0 0 0 1px var(--woodL); border-radius:2px; padding:6px 9px; color:var(--ink)}
   .growTop .weather{display:flex; align-items:center; gap:5px}
   .growTop .weather b{font-size:14px}
 
@@ -57,9 +67,11 @@
   .plots{display:grid; grid-template-columns:repeat(4,1fr); gap:6px}
   @media(max-width:520px){.plots{grid-template-columns:repeat(3,1fr)}}
   #fx{position:absolute; inset:0; pointer-events:none; z-index:5; image-rendering:pixelated}
-  .plot{position:relative; background:linear-gradient(#241d52,#191339); border:2px solid var(--line);
+  .plot{position:relative; background:#20160d; border:2px solid var(--woodL);
+    border-right-color:var(--woodD); border-bottom-color:var(--woodD); border-radius:2px;
+    box-shadow:0 0 0 2px var(--woodD), inset 0 0 14px rgba(0,0,0,.5);
     aspect-ratio:1; cursor:pointer; display:flex; align-items:flex-end; justify-content:center; overflow:hidden}
-  .plot.sel{border-color:var(--gold); box-shadow:0 0 0 2px var(--gold) inset}
+  .plot.sel{border-color:var(--gold); box-shadow:0 0 0 2px var(--gold), 0 0 12px rgba(242,193,78,.5)}
   .plot canvas{width:100%; height:100%; image-rendering:pixelated}
   .plot.locked{opacity:.85}
   .plot .lock{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -76,13 +88,19 @@
   .pest-glow{animation:pglow 1.2s steps(2) infinite}
   @keyframes pglow{50%{box-shadow:0 0 0 2px var(--red) inset}}
 
-  .btn{background:var(--green2); border:2px solid #1c5a24; border-bottom-width:4px; color:#eafff0;
-    font-family:inherit; font-weight:bold; font-size:11px; padding:8px 10px; cursor:pointer; letter-spacing:1px}
-  .btn:active{transform:translateY(2px); border-bottom-width:2px}
-  .btn.alt{background:#39336e; border-color:#221d4d}
-  .btn.gold{background:#b8890f; border-color:#7a5a07; color:#fff8e0}
-  .btn.red{background:#a02b3a; border-color:#6e1c27}
-  .btn.blue{background:#1c5a72; border-color:#123a4a}
+  .btn{background:linear-gradient(#57a834,#3f7a26); border:2px solid #7cd24a;
+    border-right-color:#2a5418; border-bottom-color:#2a5418; box-shadow:0 3px 0 #1e3d10;
+    color:#f2ffe6; font-family:inherit; font-weight:bold; font-size:11px; padding:8px 10px; cursor:pointer;
+    letter-spacing:1px; border-radius:2px; text-shadow:0 1px 0 rgba(0,0,0,.4)}
+  .btn:active{transform:translateY(3px); box-shadow:0 0 0 #1e3d10}
+  .btn.alt{background:linear-gradient(#6a5232,#4e3c22); border-color:#9a7648;
+    border-right-color:#2e2010; border-bottom-color:#2e2010; box-shadow:0 3px 0 #251a0c; color:#f2e7cb}
+  .btn.gold{background:linear-gradient(#e6a92e,#c2851a); border-color:#f7d472;
+    border-right-color:#7a5207; border-bottom-color:#7a5207; box-shadow:0 3px 0 #6a4708; color:#3a2708}
+  .btn.red{background:linear-gradient(#c74a3c,#9a3226); border-color:#e37a6a;
+    border-right-color:#6a1f16; border-bottom-color:#6a1f16; box-shadow:0 3px 0 #5a1a12}
+  .btn.blue{background:linear-gradient(#3f92ad,#2c6d82); border-color:#6cc0d6;
+    border-right-color:#194756; border-bottom-color:#194756; box-shadow:0 3px 0 #143d49}
   .btn.wide{width:100%}
   .btn:disabled{filter:grayscale(1) brightness(.6); cursor:not-allowed}
   .btnrow{display:flex; gap:4px; flex-wrap:wrap; margin-top:8px}
@@ -90,23 +108,24 @@
 
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:6px}
   @media(max-width:520px){.grid2{grid-template-columns:1fr}}
-  .card{background:var(--panel2); border:2px solid var(--line); border-bottom-width:3px; padding:8px; font-size:11px}
+  .card{background:linear-gradient(#332719,#2a2014); border:2px solid var(--woodD); border-radius:2px;
+    box-shadow:inset 0 0 0 1px rgba(154,107,60,.3); padding:8px; font-size:11px}
   .card.locked-el{opacity:.6; filter:grayscale(.5)}
   .card .name{font-size:12px; color:var(--ink); display:flex; align-items:center; gap:4px; flex-wrap:wrap}
   .card .type{font-size:8px; padding:1px 4px; border-radius:2px; letter-spacing:1px}
-  .t-indica{background:#5a2a7a; color:#e9c8ff}
-  .t-sativa{background:#7a5a12; color:#ffe9b0}
-  .t-hybrid{background:#1c5a5a; color:#b8fff0}
+  .t-indica{background:#5a3a7a; color:#e3ccff}
+  .t-sativa{background:#8a6a1e; color:#ffe9b0}
+  .t-hybrid{background:#2a6a4a; color:#c8ffe0}
   .stats-mini{display:grid; grid-template-columns:1fr 1fr; gap:2px 8px; margin:6px 0; color:var(--dim); font-size:9px}
   .stats-mini b{color:var(--ink)}
   .dna{display:flex; gap:2px; margin-top:4px}
-  .dna i{height:6px; flex:1; background:#332c66; border-radius:1px; overflow:hidden; position:relative}
+  .dna i{height:6px; flex:1; background:#1e160d; border:1px solid var(--woodD); border-radius:1px; overflow:hidden; position:relative}
   .rar{font-size:8px; letter-spacing:1px}
-  .r-comun{color:#9a94c7} .r-rara{color:#5bc8ff} .r-epica{color:#b06cff}
-  .r-legend{color:#ffd23f} .r-mitica{color:#ff6ec7}
+  .r-comun{color:#ab9670} .r-rara{color:#57a7c2} .r-epica{color:#a875d8}
+  .r-legend{color:#f2c14e} .r-mitica{color:#e878b0}
 
   .row{display:flex; justify-content:space-between; align-items:center; gap:6px;
-    padding:6px 4px; border-bottom:1px solid var(--line); font-size:11px}
+    padding:6px 4px; border-bottom:1px solid rgba(154,107,60,.28); font-size:11px}
   .row:last-child{border-bottom:none}
   .empty-msg{color:var(--dim); text-align:center; padding:24px 8px; font-size:11px; line-height:1.6}
   .mini{font-size:9px;color:var(--dim)} .center{text-align:center}
@@ -115,27 +134,29 @@
 
   #toast{position:fixed; left:50%; bottom:14px; transform:translateX(-50%);
     display:flex; flex-direction:column-reverse; gap:4px; z-index:50; pointer-events:none; width:92%; max-width:420px}
-  .toast{background:#1a1636; border:2px solid var(--green); border-left-width:5px; padding:7px 10px;
-    font-size:11px; box-shadow:0 3px 0 #000; animation:slide .25s ease}
+  .toast{background:linear-gradient(#2f2416,#241a0f); border:2px solid var(--green); border-left-width:5px; padding:7px 10px;
+    font-size:11px; color:var(--ink); box-shadow:0 0 0 2px var(--woodD),0 3px 0 2px rgba(0,0,0,.5); animation:slide .25s ease}
   .toast.bad{border-color:var(--red)} .toast.gold{border-color:var(--gold)}
   @keyframes slide{from{transform:translateY(10px);opacity:0}}
 
-  #modal{position:fixed; inset:0; background:rgba(6,4,16,.82); z-index:60;
+  #modal{position:fixed; inset:0; background:rgba(10,7,3,.82); z-index:60;
     display:flex; align-items:center; justify-content:center; padding:14px}
-  #modal .box{background:var(--panel); border:2px solid var(--gold); border-bottom-width:5px;
-    max-width:440px; width:100%; padding:14px; box-shadow:0 6px 0 #000; max-height:88vh; overflow:auto}
-  #modal h3{margin:0 0 10px; color:var(--gold); font-size:14px; letter-spacing:1px}
-  .selstrain{display:flex; gap:6px; align-items:center; padding:7px; border:2px solid var(--line);
-    background:var(--panel2); cursor:pointer; margin-bottom:5px; font-size:11px}
-  .selstrain canvas{width:34px;height:34px;image-rendering:pixelated;background:#120f2b;border:1px solid var(--line)}
+  #modal .box{background:linear-gradient(#2c2115,#241a10); border:3px solid var(--gold);
+    border-right-color:#8a6a1e; border-bottom-color:#8a6a1e; border-radius:3px;
+    max-width:440px; width:100%; padding:14px; box-shadow:0 0 0 3px var(--woodD), 0 6px 0 3px rgba(0,0,0,.55); max-height:88vh; overflow:auto}
+  #modal h3{margin:0 0 10px; color:var(--gold); font-size:14px; letter-spacing:1px; text-shadow:0 1px 0 rgba(0,0,0,.5)}
+  .selstrain{display:flex; gap:6px; align-items:center; padding:7px; border:2px solid var(--woodD);
+    background:linear-gradient(#332719,#2a2014); border-radius:2px; cursor:pointer; margin-bottom:5px; font-size:11px}
+  .selstrain canvas{width:34px;height:34px;image-rendering:pixelated;background:#1a1109;border:1px solid var(--woodD)}
 
-  .soundbtn{position:fixed; top:6px; right:6px; z-index:45; background:var(--panel); border:2px solid var(--line);
-    border-bottom-width:3px; color:var(--ink); font-size:14px; padding:4px 7px; cursor:pointer}
+  .soundbtn{position:fixed; top:6px; right:6px; z-index:45; background:var(--panel); border:2px solid var(--woodL);
+    border-right-color:var(--woodD); border-bottom-color:var(--woodD); box-shadow:0 0 0 2px var(--woodD);
+    color:var(--ink); font-size:14px; padding:4px 7px; cursor:pointer; border-radius:2px}
 
   .foot{text-align:center; font-size:9px; color:var(--dim); padding:6px 0 16px; line-height:1.6}
   .foot a{color:var(--green)}
   .tagrow{display:flex;gap:3px;flex-wrap:wrap;margin-top:4px}
-  .tag{font-size:8px;background:#332c66;padding:1px 4px;border-radius:2px;color:var(--dim)}
+  .tag{font-size:8px;background:rgba(154,107,60,.22);border:1px solid var(--woodD);padding:1px 4px;border-radius:2px;color:var(--dim)}
 </style>
 
 <button class="soundbtn" id="soundBtn" onclick="toggleSound()">🔊</button>
@@ -255,13 +276,13 @@ function hsl(h,s,l){
   return '#'+to(f(0))+to(f(8))+to(f(4));
 }
 function strainPalette(g){
-  const base = g.type==='indica'? 265 : g.type==='sativa'? 95 : 150;
-  let hue = (base + (g.color||0)*140) % 360;
-  const leaf=hsl(hue,55,44), leafD=hsl(hue,55,28), leafL=hsl(hue,50,60), stem=hsl(hue,45,22);
-  const budHue=(hue+40+g.thc*80)%360;
+  const base = g.type==='indica'? 128 : g.type==='sativa'? 88 : 108;
+  let hue = (base + (g.color||0)*54 - 18) % 360; if(hue<0)hue+=360;
+  const leaf=hsl(hue,50,40), leafD=hsl(hue,54,25), leafL=hsl(hue,46,56), stem=hsl(hue,42,20);
+  const budHue=(hue-12+g.thc*8+360)%360; // cogollos: verde algo más claro/cálido, no azulado
   return {leaf,leafD,leafL,stem,
-    bud:hsl(budHue,70,62), budD:hsl(budHue,65,44), budH:hsl(budHue,60,78),
-    pot:'#9a5230', potD:'#5e2f16', potL:'#c47a4a', soil:'#3a2416', pistil:'#ff8a3d'};
+    bud:hsl(budHue,48,52), budD:hsl(budHue,52,37), budH:hsl(budHue,44,70),
+    pot:'#b06a38', potD:'#5e3416', potL:'#d4915e', soil:'#2c1c10', pistil:'#e8843a'};
 }
 
 /* ---------- Genética ---------- */
@@ -504,55 +525,65 @@ const lvlNeed=l=>35+l*l*18;
 const PLANT_SPRITES={
 0:[ // semilla / brote
 "                ","                ","                ","                ",
-"                ","                ","                ","       S        ",
-"      LSL       ","      HLH       ","       S        "],
+"                ","       H        ","      HLH       ","     DLLLD      ",
+"      DLD       ","      DSD       ","       S        "],
 1:[ // plántula
-"                ","                ","                ","       S        ",
-"     L S L      ","    HLLSLLH     ","     HLSLH      ","      LSL       ",
-"      HSH       ","       S        ","       S        "],
+"                ","                ","       H        ","      HLH       ",
+"    H DLD H     ","   HLLDLDLLH    ","    DLLSLLD     ","     DLSLD      ",
+"      DSD       ","       S        ","       S        "],
 2:[ // vegetativo
-"       S        ","   L  LSL  L    ","  HLLLLSLLLLH   ","   HLLLSLLLH    ",
-"  L  LLSLL  L   "," HLLLLLSLLLLLH  ","   HLLLSLLLH    ","     HLSLH      ",
-"      HSH       ","       S        ","       S        "],
+"       H        ","   H  HLH  H    ","  HLD DLD DLH   ","   DLLDLDLLD    ",
+"  HLLLDSDLLLH   "," HLDLLLSLLLDLH  ","  DLLLDSDLLLD   ","   HLLDLDLLH    ",
+"     DLSLD      ","      DSD       ","       S        "],
 3:[ // floración
-"      BSB       ","   L HBSBH L    ","  HLLBLSLBLLH   ","  BLLLBSBLLLB   ",
-"  HLLBLSLBLLH   "," L BLLBSBLLB L  "," HLLLLBSBLLLLH  ","   HLBLSLBLH    ",
-"     HBSBH      ","      HSH       ","       S        "],
-4:[ // cosecha (buds + pistilos)
-"     xBx        ","    BbBbB       ","  L xBfSfBx L   "," HLLBbBSBbBLLH  ",
-" BbLLBfSfBLLbB  "," HLBbBBSBBbBLH  ","L xBfLBSBLfBx L ","HLLBbBBSBBbBLLH ",
-"   xBfBSBfBx    ","     HBSBH      ","      HSH       "],
+"      fBf       ","   H HBSBH H    ","  HLDBLSLBDLH   ","  DLLBBSBBLLD   ",
+" HLDLBLSLBLDLH  ","  DLLBBSBBLLD   "," HLDLBLSLBLDLH  ","   DLLBSBLLD    ",
+"     DBSBD      ","      DSD       ","       S        "],
+4:[ // cosecha (colas + pistilos)
+"     xBx        ","    fBbBf       ","  H xBfSfBx H   "," HLDBbBSBbBDLH  ",
+" DLLBfBSBfBLLD  "," HLDBbBSBbBDLH  ","  HLxBfSfBxLH   "," DLLBbBSBbBLLD  ",
+"   xBfBSBfBx    ","     DBSBD      ","      DSD       "],
 };
 const POT_ROWS=[
 "    oooooooo    ",
-"   .PPPPPPPP.   ",
-"    PPPPPPPP    ",
-"    pPPPPPPp    ",
-"     pppppp     "];
+"   RPPPPPPPPR   ",
+"   PPPPPPPPPP   ",
+"   pPPPPPPPPp   ",
+"    pppppppp    "];
 
+// Escena de cultivo: pared cálida + resplandor de lámpara + suelo + sombra
+function drawScene(c){
+  c.fillStyle='#2b1f12'; c.fillRect(0,0,32,26);
+  c.fillStyle='#251a0f'; c.fillRect(0,15,32,11);
+  c.fillStyle='rgba(245,205,120,0.10)'; c.fillRect(4,0,24,12);
+  c.fillStyle='rgba(245,205,120,0.055)'; c.fillRect(1,0,30,18);
+  c.fillStyle='#3a2a18'; c.fillRect(0,26,32,6);
+  c.fillStyle='#4a3620'; c.fillRect(0,26,32,1);
+  c.fillStyle='#2e2113'; c.fillRect(0,30,32,1);
+  c.fillStyle='rgba(0,0,0,0.28)'; c.fillRect(8,29,16,2);
+}
 function drawPlant(cv,plant,plotIndex){
   const S=32; cv.width=S; cv.height=S;
   const c=cv.getContext('2d'); c.clearRect(0,0,S,S);
+  drawScene(c);
   const strain=plant?strainByName(plant.strainName):null;
-  const pal=strain?strainPalette(strain):strainPalette({type:'hybrid',color:0,thc:.5});
-  if(!plant){ // maceta vacía
-    paintRows(c,POT_ROWS,pal,0,11); return;
-  }
+  const pal=strain?strainPalette(strain):strainPalette({type:'hybrid',color:.2,thc:.5});
+  const potMap={'o':pal.soil,'R':pal.potL,'P':pal.pot,'p':pal.potD};
+  if(!plant){ paintRows(c,POT_ROWS,pal,0,11,potMap); return; }
   // epigenética: color púrpura expresado
   if(plant.expr&&plant.expr.purpura){
-    pal.leaf=hsl(280,55,44); pal.leafD=hsl(280,55,28); pal.leafL=hsl(285,50,60); pal.stem=hsl(280,45,24);
-    pal.bud=hsl(292,60,58); pal.budD=hsl(292,55,40); pal.budH=hsl(296,55,78);
+    pal.leaf=hsl(286,52,42); pal.leafD=hsl(286,55,26); pal.leafL=hsl(290,48,58); pal.stem=hsl(286,44,22);
+    pal.bud=hsl(300,55,58); pal.budD=hsl(300,52,40); pal.budH=hsl(304,52,76);
   }
   const map={'S':pal.stem,'D':pal.leafD,'L':pal.leaf,'H':pal.leafL,
     'B':pal.bud,'b':pal.budD,'f':pal.budH,'x':pal.pistil,
-    'P':pal.pot,'p':pal.potD,'.':pal.potL,'o':pal.soil};
-  const rows=PLANT_SPRITES[plant.stage]||PLANT_SPRITES[0];
-  paintRows(c,rows,pal,0,0,map);
+    'P':pal.pot,'p':pal.potD,'R':pal.potL,'o':pal.soil};
+  paintRows(c,PLANT_SPRITES[plant.stage]||PLANT_SPRITES[0],pal,0,0,map);
   paintRows(c,POT_ROWS,pal,0,11,map);
   // tricomas: chispas sobre cogollos (más densas si expresó escarcha)
   if(plant.stage>=3){
     const frost=plant.expr&&plant.expr.escarcha;
-    c.fillStyle='#ffffff';
+    c.fillStyle='#f6f4ea';
     const seed=(G.tick*7+(plotIndex||0)*13), n=frost?8:4, thr=frost?0.35:0.55;
     for(let i=0;i<n;i++){
       const r=((seed+i*97)*9301+49297)%233280/233280;

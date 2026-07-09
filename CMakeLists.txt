@@ -94,6 +94,39 @@ target_link_libraries(CHRONA PRIVATE
     juce::juce_recommended_warning_flags
 )
 
+# ---------------------------------------------------------------------------
+#  Offline stress test (headless). Opt-in: -DCHRONA_BUILD_TESTS=ON
+#  Add -DCHRONA_SANITIZE=ON for ASan+UBSan.
+# ---------------------------------------------------------------------------
+option(CHRONA_BUILD_TESTS "Build the offline stress test" OFF)
+option(CHRONA_SANITIZE    "Build tests with ASan+UBSan"   OFF)
+
+if(CHRONA_BUILD_TESTS)
+    juce_add_console_app(ChronaTests PRODUCT_NAME "ChronaTests")
+    target_sources(ChronaTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/StandaloneTest.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Source/PluginProcessor.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Source/params/Parameters.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Source/presets/PresetManager.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/TemporalEngine.cpp")
+    target_include_directories(ChronaTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+    target_compile_definitions(ChronaTests PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_DISABLE_JUCE_VERSION_PRINTING=1)
+    target_link_libraries(ChronaTests PRIVATE
+        juce::juce_audio_utils
+        juce::juce_audio_processors
+        juce::juce_dsp
+        juce::juce_gui_extra
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    if(CHRONA_SANITIZE)
+        target_compile_options (ChronaTests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -O1 -g)
+        target_link_options    (ChronaTests PRIVATE -fsanitize=address,undefined)
+    endif()
+endif()
+
 # BinaryData (factory presets, fonts) — optional, only if the folder exists.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Resources")
     file(GLOB CHRONA_RES "${CMAKE_CURRENT_SOURCE_DIR}/Resources/*")

@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JUCE_TAG: "8.0.4"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  #  Build the plug-in on the three desktop platforms.
+  # ---------------------------------------------------------------------------
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxext-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libxrender-dev \
+            libfreetype6-dev libfontconfig1-dev
+
+      - name: Cache JUCE source
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: juce-${{ runner.os }}-${{ env.JUCE_TAG }}
+
+      - name: Configure
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DCHRONA_LTO=OFF
+          -DCHRONA_COPY_AFTER_BUILD=OFF
+          -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/deps
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Upload VST3
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CHRONA-${{ matrix.os }}
+          path: |
+            build/CHRONA_artefacts/Release/VST3/**
+            build/CHRONA_artefacts/Release/AU/**
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  #  Sanitizers: ASan+UBSan and ThreadSanitizer on the headless stress test.
+  # ---------------------------------------------------------------------------
+  sanitizers:
+    name: sanitizers (${{ matrix.san }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - san: asan
+            flags: "-DCHRONA_SANITIZE=ON"
+            opts: "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1"
+          - san: tsan
+            flags: "-DCHRONA_TSAN=ON"
+            opts: "TSAN_OPTIONS=halt_on_error=1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxext-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libxrender-dev \
+            libfreetype6-dev libfontconfig1-dev
+
+      - name: Cache JUCE source
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: juce-${{ runner.os }}-${{ env.JUCE_TAG }}
+
+      - name: Configure
+        run: >
+          cmake -B build-san -DCMAKE_BUILD_TYPE=Release
+          -DCHRONA_BUILD_TESTS=ON -DCHRONA_BUILD_STANDALONE=OFF -DCHRONA_LTO=OFF
+          ${{ matrix.flags }}
+          -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/deps
+
+      - name: Build test
+        run: cmake --build build-san --config Release --target ChronaTests --parallel
+
+      - name: Run ${{ matrix.san }}
+        run: |
+          BIN=$(find build-san -name ChronaTests -type f -perm -u+x | head -1)
+          echo "running $BIN"
+          env ${{ matrix.opts }} "$BIN"
+
+  # ---------------------------------------------------------------------------
+  #  pluginval — DAW-host-level validation of the built VST3.
+  # ---------------------------------------------------------------------------
+  validate:
+    name: pluginval
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxext-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libxrender-dev \
+            libfreetype6-dev libfontconfig1-dev xvfb
+
+      - name: Cache JUCE source
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: juce-${{ runner.os }}-${{ env.JUCE_TAG }}
+
+      - name: Configure
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DCHRONA_LTO=OFF -DCHRONA_COPY_AFTER_BUILD=OFF
+          -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/deps
+
+      - name: Validate (strictness 10, under xvfb)
+        run: xvfb-run -a cmake --build build --config Release --target validate

@@ -86,6 +86,13 @@ target_compile_definitions(CHRONA PUBLIC
     JUCE_REPORT_APP_USAGE=0
 )
 
+# LTO gives smaller/faster binaries for release, but the link is slow — CI
+# turns it off for quick feedback (-DCHRONA_LTO=OFF).
+option(CHRONA_LTO "Enable link-time optimisation" ON)
+if(CHRONA_LTO)
+    target_link_libraries(CHRONA PUBLIC juce::juce_recommended_lto_flags)
+endif()
+
 target_link_libraries(CHRONA PRIVATE
     juce::juce_audio_utils
     juce::juce_audio_processors
@@ -93,7 +100,6 @@ target_link_libraries(CHRONA PRIVATE
     juce::juce_gui_extra
     PUBLIC
     juce::juce_recommended_config_flags
-    juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
 )
 

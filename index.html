@@ -164,6 +164,192 @@ function songPatternForBar(bar){
   return state.pattern - 1;
 }
 
+/* =========================================================================
+   Native plugin rack — real Web Audio DSP.  Each plugin is a small graph with
+   an `input` and `output` node; the mixer hosts a *series* chain of them per
+   channel (and on the master), exactly like a hardware insert rack.
+   The UA-style units model the SIGNATURE control logic of the originals, not
+   just a generic filter/compressor.
+   ========================================================================= */
+function shaperCurve(fn, n){ n = n || 1024; const c = new Float32Array(n); for (let i = 0; i < n; i++){ const x = i/(n-1)*2 - 1; c[i] = Math.max(-1, Math.min(1, fn(x))); } return c; }
+function fetCurve(){ return shaperCurve(x => Math.tanh(x*1.6)*0.92 + 0.05*Math.sin(x*Math.PI)); }   // FET colour: soft clip + a touch of 2nd harmonic
+function tapeCurve(drive){ const k = 1 + drive*4; return shaperCurve(x => Math.tanh(x*k)/Math.tanh(k)); }
+function tubeCurve(){ return shaperCurve(x => Math.tanh(x*1.1)); }
+function plateIR(ac, decaySec, damp){                       // synthesized plate impulse: decaying, HF-damped, decorrelated stereo
+  const rate = ac.sampleRate, len = Math.max(1, Math.floor(rate*decaySec));
+  const buf = ac.createBuffer(2, len, rate);
+  for (let ch = 0; ch < 2; ch++){
+    const d = buf.getChannelData(ch); let lp = 0;
+    for (let i = 0; i < len; i++){
+      const t = i/len;
+      const env = Math.pow(1 - t, 2.3) * (t < 0.02 ? t/0.02 : 1);   // fast build-up, exponential-ish tail
+      const s = (Math.random()*2 - 1) * env;
+      lp += (s - lp) * damp; d[i] = lp*0.6;
+    }
+  }
+  return buf;
+}
+
+const PLUG = {
+  comp1176: {
+    name:'1176 · FET Compressor', short:'1176', color:'#c9a63f',
+    params:[
+      {k:'input', label:'INPUT',  def:0.45},
+      {k:'output',label:'OUTPUT', def:0.55},
+      {k:'attack',label:'ATTACK', def:0.7},
+      {k:'release',label:'RELEASE',def:0.45},
+      {k:'ratio', label:'RATIO',  def:1, kind:'switch', opts:['4','8','12','20','ALL']},
+    ],
+    build(ac){
+      const input=ac.createGain(), drive=ac.createGain(), comp=ac.createDynamicsCompressor(), shaper=ac.createWaveShaper(), out=ac.createGain();
+      shaper.curve=fetCurve(); shaper.oversample='2x';
+      input.connect(drive); drive.connect(comp); comp.connect(shaper); shaper.connect(out);
+      return {input, output:out, drive, comp, out};
+    },
+    apply(ac,i){
+      const p=i.p, n=i._nodes, r=(p.ratio|0);
+      n.drive.gain.value = 1 + p.input*5;                       // 1176 has no threshold — INPUT drives the amount of compression
+      n.comp.threshold.value = -20;
+      n.comp.knee.value = r===4 ? 2 : 8;                        // "all-buttons" mode = hard, aggressive knee
+      n.comp.attack.value = r===4 ? 0.0002 : 0.0002 + (1-p.attack)*0.018;  // hardware: higher knob = FASTER
+      n.comp.release.value = 0.05 + (1-p.release)*0.95;
+      n.comp.ratio.value = [4,8,12,20,20][r] || 4;
+      n.out.gain.value = (0.5 + p.output*1.1) / (1 + p.input*2.2);         // OUTPUT makeup with rough auto gain-compensation
+    }
+  },
+  compLA2A: {
+    name:'LA-2A · Opto Leveler', short:'LA2A', color:'#a8503a',
+    params:[
+      {k:'peak',label:'PEAK RED', def:0.4},
+      {k:'gain',label:'GAIN',     def:0.5},
+      {k:'mode',label:'MODE',     def:0, kind:'switch', opts:['COMP','LIMIT']},
+    ],
+    build(ac){
+      const input=ac.createGain(), comp=ac.createDynamicsCompressor(), warm=ac.createWaveShaper(), out=ac.createGain();
+      warm.curve=tubeCurve(); warm.oversample='2x';
+      input.connect(comp); comp.connect(warm); warm.connect(out);
+      return {input, output:out, comp, out};
+    },
+    apply(ac,i){
+      const p=i.p, n=i._nodes, limit=(p.mode|0)===1;
+      n.comp.threshold.value = -6 - p.peak*32;                  // PEAK REDUCTION lowers the threshold (only real control besides gain)
+      n.comp.knee.value = 24;                                    // soft, gentle opto knee
+      n.comp.ratio.value = limit ? 12 : 3;                       // opto ≈ 3:1, LIMIT mode much steeper
+      n.comp.attack.value = 0.012;                               // slow opto attack (~10 ms)
+      n.comp.release.value = 0.6;                                // slow, program-dependent-ish release
+      n.out.gain.value = 0.5 + p.gain*1.4;
+    }
+  },
+  pultec: {
+    name:'Pultec · EQP-1A', short:'PULTEC', color:'#5f938a',
+    params:[
+      {k:'lb',label:'LOW BOOST', def:0.25},
+      {k:'la',label:'LOW ATTEN', def:0.1},
+      {k:'lf',label:'LOW FREQ',  def:1, kind:'switch', opts:['20','30','60','100']},
+      {k:'hb',label:'HIGH BOOST',def:0.3},
+      {k:'hf',label:'HI FREQ',   def:2, kind:'switch', opts:['3k','4k','5k','8k','10k','12k','16k']},
+      {k:'bw',label:'BANDWIDTH', def:0.4},
+      {k:'ha',label:'HIGH ATTEN',def:0.1},
+    ],
+    build(ac){
+      const input=ac.createGain(), lboost=ac.createBiquadFilter(), lcut=ac.createBiquadFilter(), hpeak=ac.createBiquadFilter(), hcut=ac.createBiquadFilter(), out=ac.createGain();
+      lboost.type='lowshelf'; lcut.type='lowshelf'; hpeak.type='peaking'; hcut.type='highshelf';
+      input.connect(lboost); lboost.connect(lcut); lcut.connect(hpeak); hpeak.connect(hcut); hcut.connect(out);
+      return {input, output:out, lboost, lcut, hpeak, hcut};
+    },
+    apply(ac,i){
+      const p=i.p, n=i._nodes;
+      const lf=[20,30,60,100][p.lf|0], hf=[3000,4000,5000,8000,10000,12000,16000][p.hf|0];
+      n.lboost.frequency.value=lf;      n.lboost.gain.value = p.lb*14;                  // BOOST and...
+      n.lcut.frequency.value=lf*1.4;    n.lcut.gain.value = -p.la*14;                   // ...ATTEN overlap => the famous Pultec low-end curve
+      n.hpeak.frequency.value=hf;       n.hpeak.Q.value = 0.7 + (1-p.bw)*3.5;           // BANDWIDTH -> Q
+      n.hpeak.gain.value = p.hb*16;
+      n.hcut.frequency.value = Math.min(18000, hf*1.2); n.hcut.gain.value = -p.ha*14;
+    }
+  },
+  tape: {
+    name:'Studer · Tape Machine', short:'TAPE', color:'#bf6d2e',
+    params:[
+      {k:'drive', label:'INPUT',  def:0.4},
+      {k:'bias',  label:'BIAS',   def:0.5},
+      {k:'speed', label:'SPEED',  def:1, kind:'switch', opts:['15','30']},
+      {k:'output',label:'OUTPUT', def:0.5},
+    ],
+    build(ac){
+      const input=ac.createGain(), pre=ac.createGain(), shaper=ac.createWaveShaper(), bump=ac.createBiquadFilter(), roll=ac.createBiquadFilter(), out=ac.createGain();
+      bump.type='lowshelf'; roll.type='highshelf';
+      input.connect(pre); pre.connect(shaper); shaper.connect(bump); bump.connect(roll); roll.connect(out);
+      return {input, output:out, pre, shaper, bump, roll, out, _drive:-1};
+    },
+    apply(ac,i){
+      const p=i.p, n=i._nodes;
+      n.pre.gain.value = 1 + p.drive*3;
+      const d = Math.round(p.drive*10)/10;
+      if (n._drive!==d){ n.shaper.curve=tapeCurve(p.drive); n.shaper.oversample='2x'; n._drive=d; }   // rebuild curve only on real change
+      const ips30=(p.speed|0)===1;
+      n.bump.frequency.value = ips30?80:55;  n.bump.gain.value = ips30?1.5:3.2;                        // head-bump: bigger & lower at 15 ips
+      n.roll.frequency.value = ips30?15000:11000; n.roll.gain.value = (0.5-p.bias)*6 - (ips30?1:3);    // HF loss + bias tilt
+      n.out.gain.value = (0.6 + p.output*1.0) / (1 + p.drive*1.2);
+    }
+  },
+  plate: {
+    name:'EMT · Plate Reverb', short:'PLATE', color:'#7a6a9a',
+    params:[
+      {k:'decay',   label:'DECAY',    def:0.45},
+      {k:'predelay',label:'PREDELAY', def:0.2},
+      {k:'tone',    label:'TONE',     def:0.6},
+      {k:'mix',     label:'MIX',      def:0.25},
+    ],
+    build(ac){
+      const input=ac.createGain(), dry=ac.createGain(), pre=ac.createDelay(0.2), conv=ac.createConvolver(), tone=ac.createBiquadFilter(), wet=ac.createGain(), out=ac.createGain();
+      tone.type='lowpass'; tone.frequency.value=8000;
+      input.connect(dry); dry.connect(out);
+      input.connect(pre); pre.connect(conv); conv.connect(tone); tone.connect(wet); wet.connect(out);
+      return {input, output:out, dry, pre, conv, tone, wet, _decay:-1};
+    },
+    apply(ac,i){
+      const p=i.p, n=i._nodes;
+      const dsec = Math.round((0.4 + p.decay*3.5)*10)/10;                 // quantized so the IR is only regenerated occasionally
+      if (n._decay!==dsec){ n.conv.buffer = plateIR(ac, dsec, 0.25); n._decay=dsec; }
+      n.pre.delayTime.value = p.predelay*0.12;                            // 0..120 ms
+      n.tone.frequency.value = 1500 + p.tone*13000;
+      n.wet.gain.value = p.mix*1.1; n.dry.gain.value = 1 - p.mix*0.5;
+    }
+  },
+  delay: {
+    name:'Delay · Tempo Sync', short:'DELAY', color:'#5f7d9a',
+    params:[
+      {k:'time',label:'TIME',    def:2, kind:'switch', opts:['1/4','1/8','1/8.','1/16','1/16.']},
+      {k:'fb',  label:'FEEDBACK',def:0.4},
+      {k:'tone',label:'TONE',    def:0.5},
+      {k:'mix', label:'MIX',     def:0.28},
+    ],
+    build(ac){
+      const input=ac.createGain(), dry=ac.createGain(), dl=ac.createDelay(2.0), fb=ac.createGain(), tone=ac.createBiquadFilter(), wet=ac.createGain(), out=ac.createGain();
+      tone.type='lowpass'; tone.frequency.value=4000;
+      input.connect(dry); dry.connect(out);
+      input.connect(dl); dl.connect(tone); tone.connect(wet); wet.connect(out);
+      tone.connect(fb); fb.connect(dl);                                   // feedback through the damping filter (legal: DelayNode is in the cycle)
+      return {input, output:out, dry, dl, fb, tone, wet};
+    },
+    apply(ac,i){
+      const p=i.p, n=i._nodes, beat=60/state.bpm;
+      const div=[beat, beat/2, beat*0.75, beat/4, beat*0.375][p.time|0] || beat/2;
+      n.dl.delayTime.value = Math.min(1.99, div);
+      n.fb.gain.value = p.fb*0.85;
+      n.tone.frequency.value = 800 + p.tone*10000;
+      n.wet.gain.value = p.mix*1.1; n.dry.gain.value = 1;
+    }
+  },
+};
+const PLUG_ORDER = ['comp1176','compLA2A','pultec','tape','plate','delay'];
+let _plugId = 1;
+function mkPlug(type){ const d = PLUG[type]; const p = {}; for (const pr of d.params) p[pr.k] = pr.def; return { id:_plugId++, type, on:true, p }; }
+// knob params live in knobState under `fx<id>_<key>` so the shared knob widget drives them;
+// switch params live directly in inst.p. This copies the knob values into inst.p before apply().
+function fillParams(inst){ const d = PLUG[inst.type]; if (!d) return; for (const pr of d.params){ if (pr.kind === 'switch') continue; inst.p[pr.k] = knobGet('fx' + inst.id + '_' + pr.k, pr.def); } }
+function fxFindIn(ch, id){ const list = ch === 'master' ? state.rack.master : state.rack[ch]; return list ? list.find(x => x.id === id) : null; }
+
 const state = {
   playing: false, recording: false, mode: 'pattern',
   bpm: 140, tick: -1, pattern: 1, loop: true,   // tick advances BEFORE trigger, so -1 makes the first played step be 0
@@ -173,6 +359,7 @@ const state = {
   faders: [0.82, 0.74, 0.58, 0.66, 0.6, 0.7, 0.55, 0.64, 0.5],
   adsr: [0.2, 0.55, 0.7, 0.4],
   sytrusOsc: 1,
+  sytrusOscOn: [true, true, false, false],   // OSC 1 fundamental, OSC 2 unison, OSC 3 +oct, OSC 4 -oct
   sampStart: 0.18, sampEnd: 0.74,
   pianoNotes: [[12,0,2],[10,2,2],[8,4,2],[7,6,2],[5,8,4],[8,12,2],[10,14,2],[3,8,4],[12,4,2],[6,16,3],[9,20,2],[4,24,4]],
   plClips: [
@@ -196,6 +383,7 @@ const state = {
     piano:    { x: 556, y: 150, w: 912,  h: 420, z: 6 },
     sytrus:   { x: 470, y: 200, w: 576,  h: 372, z: 20 },
     sampler:  { x: 604, y: 474, w: 668,  h: 344, z: 24 },
+    fx:       { x: 520, y: 120, w: 560,  h: 300, z: 26, hidden: true },
   },
   focused: 'sampler', zTop: 24,
   menuOpen: null,
@@ -203,9 +391,23 @@ const state = {
   insMute: [false,false,false,false,false,false,false,false],
   insSolo: [false,false,false,false,false,false,false,false],
   masterMute: false, limiterOn: false, metronome: false, helpOpen: false,
+  // per-channel + master insert racks (series chains of native plugins). Conservative defaults that enhance the demo mix.
+  rack: {
+    0: [mkPlug('tape')],                       // Kick  -> tape glue
+    1: [],                                     // Clap
+    2: [mkPlug('comp1176'), mkPlug('plate')],  // Snare -> 1176 punch + plate
+    3: [],                                     // Hat
+    4: [],                                     // Open Hat
+    5: [],                                     // Perc
+    6: [mkPlug('compLA2A')],                   // Bass  -> opto leveler
+    7: [mkPlug('delay')],                      // Lead  -> tempo delay
+    master: [mkPlug('pultec'), mkPlug('compLA2A')],  // master -> Pultec sweetening + opto bus glue
+  },
+  fxSel: null,          // {ch, id} of the plugin currently open in the editor
+  addMenu: null,        // channel key whose "add plugin" menu is open
 };
 // per-window ui flags
-for (const id in state.windows) Object.assign(state.windows[id], { min: false, max: false, hidden: false, saved: null });
+for (const id in state.windows) Object.assign(state.windows[id], { min: false, max: false, saved: null, hidden: state.windows[id].hidden || false });
 
 let _renderQueued = false;
 function scheduleRender(){ if (_renderQueued) return; _renderQueued = true; requestAnimationFrame(() => { _renderQueued = false; render(); }); }
@@ -215,7 +417,7 @@ function setState(patch){ const p = (typeof patch === 'function') ? patch(state)
    Audio engine — real mixer graph + synth voices + sampler + metering
    ========================================================================= */
 const Eng = {
-  ac: null, master: null, mLow: null, mHigh: null, tone: null, limiter: null, masterAn: null, lfoDepth: null,
+  ac: null, master: null, mLow: null, mHigh: null, mFxIn: null, mFxOut: null, tone: null, limiter: null, masterAn: null, lfoDepth: null,
   inserts: [], chan: [], nb: null, sampBuf: null, load: 0,
   recDest: null, recorder: null, recChunks: [],
   ensure(){
@@ -229,7 +431,8 @@ const Eng = {
       this.tone = this.ac.createBiquadFilter(); this.tone.type = 'lowpass'; this.tone.frequency.value = 20000; this.tone.Q.value = 0.7;
       this.limiter = this.ac.createDynamicsCompressor(); this.limiter.threshold.value = 0; this.limiter.ratio.value = 1; this.limiter.attack.value = 0.003; this.limiter.release.value = 0.15;
       this.masterAn = this.ac.createAnalyser(); this.masterAn.fftSize = 512;
-      this.master.connect(this.mLow); this.mLow.connect(this.mHigh); this.mHigh.connect(this.tone); this.tone.connect(this.limiter); this.limiter.connect(this.masterAn); this.masterAn.connect(this.ac.destination);
+      this.mFxIn = this.ac.createGain(); this.mFxOut = this.ac.createGain();   // master insert-rack splice point
+      this.master.connect(this.mLow); this.mLow.connect(this.mHigh); this.mHigh.connect(this.mFxIn); this.mFxOut.connect(this.tone); this.tone.connect(this.limiter); this.limiter.connect(this.masterAn); this.masterAn.connect(this.ac.destination);
       // automation LFO -> tone cutoff (depth 0 until an Automation clip is active)
       const lfo = this.ac.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 1.2;
       this.lfoDepth = this.ac.createGain(); this.lfoDepth.gain.value = 0;
@@ -239,13 +442,16 @@ const Eng = {
         const hs = this.ac.createBiquadFilter(); hs.type = 'highshelf'; hs.frequency.value = 3200;
         const g  = this.ac.createGain();
         const an = this.ac.createAnalyser(); an.fftSize = 256;
-        ls.connect(hs); hs.connect(g); g.connect(an); an.connect(this.master);
+        const fxIn = this.ac.createGain(), fxOut = this.ac.createGain();          // per-channel insert-rack splice point
+        ls.connect(hs); hs.connect(fxIn); fxOut.connect(g); g.connect(an); an.connect(this.master);
         const cg = this.ac.createGain(); const cp = this.ac.createStereoPanner();
         cg.connect(cp); cp.connect(ls);
-        this.inserts[k] = { ls, hs, g, an, in: ls };
+        this.inserts[k] = { ls, hs, g, an, in: ls, fxIn, fxOut };
         this.chan[k] = { g: cg, p: cp };
       }
       this.buildSample();
+      for (let k = 0; k < 8; k++) this.rebuildRack(k);
+      this.rebuildRack('master');
       this.sync();           // apply initial params once at creation
     }
     if (this.ac.state === 'suspended') this.ac.resume();
@@ -253,6 +459,28 @@ const Eng = {
   },
   // set a param cleanly with a short linear ramp (robust: no setTargetAtTime "stuck at zero" quirk)
   set(param, val, ramp){ const t = this.ac.currentTime; param.cancelScheduledValues(t); param.setValueAtTime(param.value, t); param.linearRampToValueAtTime(val, t + (ramp || 0.02)); },
+  // ---- insert rack ----
+  rackList(key){ return key === 'master' ? state.rack.master : state.rack[key]; },
+  rackIO(key){ return key === 'master' ? { fxIn:this.mFxIn, fxOut:this.mFxOut } : { fxIn:this.inserts[key].fxIn, fxOut:this.inserts[key].fxOut }; },
+  rebuildRack(key){                        // (re)wire fxIn -> [enabled plugins in order] -> fxOut
+    if (!this.ac) return;
+    const ac = this.ac, list = this.rackList(key), io = this.rackIO(key);
+    io.fxIn.disconnect();
+    for (const inst of list){ if (inst._nodes && inst._nodes.output){ try { inst._nodes.output.disconnect(); } catch(e){} } }
+    let prev = io.fxIn;
+    for (const inst of list){
+      const def = PLUG[inst.type]; if (!def) continue;
+      if (!inst._nodes) inst._nodes = def.build(ac);
+      fillParams(inst); def.apply(ac, inst);
+      if (inst.on){ prev.connect(inst._nodes.input); prev = inst._nodes.output; }
+    }
+    prev.connect(io.fxOut);
+  },
+  applyRacks(){                            // push current param values into every built plugin (tempo-sync etc.)
+    if (!this.ac) return;
+    const keys = [0,1,2,3,4,5,6,7,'master'];
+    for (const key of keys){ for (const inst of this.rackList(key)){ if (inst._nodes){ const d = PLUG[inst.type]; if (d){ fillParams(inst); d.apply(this.ac, inst); } } } }
+  },
   sync(){
     if (!this.ac) return;
     const mv = 0.4 * state.faders[0] * knobGet('master', 0.8) * (state.masterMute ? 0 : 1);
@@ -271,6 +499,7 @@ const Eng = {
     // master shelving EQ (MASTER strip's HI/LO knobs) — now wired to a real node instead of hijacking INS 1
     this.set(this.mLow.gain,  (knobGet('eqloM', 0.5) - 0.5) * 24, 0.03);
     this.set(this.mHigh.gain, (knobGet('eqhiM', 0.5) - 0.5) * 24, 0.03);
+    this.applyRacks();     // keep insert plugins in sync (tempo-synced delay, edited params, etc.)
   },
   // automation: sweep the master tone filter while an Automation clip is active
   setAutomation(on){
@@ -317,7 +546,7 @@ const Eng = {
       case 3: noise(0.045, 8000, null); break;
       case 4: noise(0.28, 7000, null); break;
       case 5: tone('triangle', 520, 300, 0.12, v * 0.7); break;
-      case 6: { const bn = [55, 55, 65.41, 73.42]; tone('sawtooth', bn[Math.floor(state.tick / 16) % 4], null, 0.26, v, 600); break; }
+      case 6: { const bn = [55, 55, 65.41, 73.42]; tone('sawtooth', bn[((Math.floor(state.tick / 16) % 4) + 4) % 4], null, 0.26, v, 600); break; }
       case 7: this.leadVoice(v); break;
     }
     if (ci !== 7) this.load += 0.12;
@@ -325,7 +554,7 @@ const Eng = {
   leadVoice(v){                        // Sytrus-driven lead — every knob affects the sound
     const ac = this.ac, t = ac.currentTime, out = this.chan[7].g;
     const ln = [440, 523.25, 659.25, 587.33];
-    const base = ln[state.tick % 4];
+    const base = ln[((state.tick % 4) + 4) % 4];   // positive modulo: preview works while stopped (tick = -1)
     const shapes = ['sine', 'triangle', 'sawtooth', 'square'];
     const type = shapes[Math.min(3, Math.floor(knobGet('osc2', 0.7) * 4))]; // SHAPE -> waveform
     const coarse = Math.round((knobGet('osc0', 0.5) - 0.5) * 24);           // COARSE semis
@@ -356,14 +585,19 @@ const Eng = {
     g.gain.linearRampToValueAtTime(susLvl, dEnd);
     g.gain.setValueAtTime(susLvl, rStart);
     g.gain.exponentialRampToValueAtTime(0.0001, rStart + r);
-    // osc 1
-    const o1 = ac.createOscillator(); o1.type = type; o1.frequency.value = freq; o1.detune.value = fine + pw + this.detune();
-    o1.connect(flt);
-    // osc 2 (MIX): a detuned partner, level scaled by MIX, spread by PW
-    const o2 = ac.createOscillator(); o2.type = type; o2.frequency.value = freq; o2.detune.value = fine - pw + this.detune();
-    const mixG = ac.createGain(); mixG.gain.value = mix * 0.9; o2.connect(mixG); mixG.connect(flt);
+    // Up to 4 stacked oscillators (the OSC 1-4 tabs). OSC1 = fundamental, OSC2 = unison (MIX),
+    // OSC3 = octave up, OSC4 = octave down. PW spreads each osc for width; MIX blends the extras.
+    const OSC_DEF = [ {semi:0, lvl:1}, {semi:0, lvl:mix}, {semi:12, lvl:mix*0.8}, {semi:-12, lvl:mix*0.9} ];
+    const oscs = [];
+    for (let oi = 0; oi < 4; oi++){
+      if (!state.sytrusOscOn[oi]) continue;
+      const od = OSC_DEF[oi], of = freq * Math.pow(2, od.semi/12), spread = (oi % 2 ? -pw : pw);
+      const o = ac.createOscillator(); o.type = type; o.frequency.value = of; o.detune.value = fine + spread + this.detune();
+      const og = ac.createGain(); og.gain.value = od.lvl; o.connect(og); og.connect(flt); oscs.push(o);
+    }
+    if (!oscs.length){ const o = ac.createOscillator(); o.type = type; o.frequency.value = freq; o.detune.value = fine + this.detune(); o.connect(flt); oscs.push(o); }
     flt.connect(g); g.connect(out);
-    o1.start(t); o2.start(t); o1.stop(rStart + r + 0.05); o2.stop(rStart + r + 0.05);
+    for (const o of oscs){ o.start(t); o.stop(rStart + r + 0.05); }
     this.load += 0.16;
   },
   padVoice(bar){                       // Pads track -> sustained triad chord
@@ -455,7 +689,7 @@ const Eng = {
     for (let i = 0; i < len; i++) d[i] = sampSample(i / len);
     this.sampBuf = buf;
   },
-  sampSrc: null, sampInfo: null,
+  sampSrc: null, sampInfo: null, sampGain: null,
   playSample(){
     const ac = this.ensure(); this.stopSample();
     const dur = this.sampBuf.duration;
@@ -479,11 +713,17 @@ const Eng = {
       g.gain.linearRampToValueAtTime(0.0001, t + play);
       src.start(t, s0, s1 - s0);
     }
-    this.sampSrc = src;
+    this.sampSrc = src; this.sampGain = g;
     this.sampInfo = { t0: t, s0, s1, rate, dur, loop: state.loop };
-    src.onended = () => { if (this.sampSrc === src){ this.sampSrc = null; this.sampInfo = null; } };
+    src.onended = () => { if (this.sampSrc === src){ this.sampSrc = null; this.sampInfo = null; this.sampGain = null; } };
   },
-  stopSample(){ if (this.sampSrc){ try { this.sampSrc.stop(); } catch(e){} this.sampSrc = null; this.sampInfo = null; } },
+  stopSample(){
+    if (!this.sampSrc) return;
+    const s = this.sampSrc, g = this.sampGain, t = this.ac.currentTime;
+    if (g){ try { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(0.0001, t + 0.03); } catch(e){} }  // short fade-out: no click
+    try { s.stop(t + 0.05); } catch(e){}
+    this.sampSrc = null; this.sampInfo = null; this.sampGain = null;
+  },
   samplerHeadFrac(){
     if (!this.sampInfo) return state.sampStart;
     const { t0, s0, s1, rate, dur, loop } = this.sampInfo;
@@ -680,7 +920,7 @@ function sytrusPreset(dir){
   state.adsr = p.adsr.slice();
   scheduleRender();
 }
-function sytrusOscTab(n){ setState({ sytrusOsc: n }); }
+function sytrusOscTab(n){ setState(s => { const on = s.sytrusOscOn.slice(); on[n-1] = !on[n-1]; return { sytrusOscOn: on, sytrusOsc: n }; }); }
 // piano edit
 function pianoClick(e){
   const grid = document.getElementById('piano-grid'); if (!grid) return;
@@ -703,6 +943,18 @@ function toggleMasterMute(){ setState(s => ({ masterMute: !s.masterMute })); }
 function toggleLimiter(){ Eng.ensure(); setState(s => ({ limiterOn: !s.limiterOn })); }
 function toggleMetronome(){ Eng.ensure(); setState(s => ({ metronome: !s.metronome })); }
 function toggleHelp(){ setState(s => ({ helpOpen: !s.helpOpen, menuOpen: null })); }
+
+// ---- insert-rack UI handlers ----
+const chKey = (ch) => (ch === 'master' ? 'master' : +ch);          // data attrs arrive as strings; normalize
+function fxTouch(ch){ if (!Eng.ac) Eng.ensure(); else Eng.rebuildRack(ch); }
+function fxOpen(ch, id){ ch = chKey(ch); id = +id; setState(s => ({ fxSel:{ ch, id }, addMenu:null, focused:'fx', zTop:s.zTop+1, windows:{ ...s.windows, fx:{ ...s.windows.fx, hidden:false, min:false, z:s.zTop+1 } } })); }
+function fxBypass(ch, id){ ch = chKey(ch); id = +id; const inst = fxFindIn(ch, id); if (!inst) return; inst.on = !inst.on; fxTouch(ch); scheduleRender(); }
+function fxAddToggle(ch){ ch = chKey(ch); setState(s => ({ addMenu: s.addMenu === ch ? null : ch })); }
+function fxAdd(ch, type){ ch = chKey(ch); (ch === 'master' ? state.rack.master : state.rack[ch]).push(mkPlug(type)); state.addMenu = null; fxTouch(ch); scheduleRender(); }
+function fxRemove(ch, id){ ch = chKey(ch); id = +id; const list = ch === 'master' ? state.rack.master : state.rack[ch]; const i = list.findIndex(x => x.id === id); if (i < 0) return; list.splice(i, 1); if (state.fxSel && state.fxSel.id === id) state.fxSel = null; fxTouch(ch); scheduleRender(); }
+function fxMove(ch, id, dir){ ch = chKey(ch); id = +id; const list = ch === 'master' ? state.rack.master : state.rack[ch]; const i = list.findIndex(x => x.id === id); const j = i + dir; if (i < 0 || j < 0 || j >= list.length) return; const t = list[i]; list[i] = list[j]; list[j] = t; fxTouch(ch); scheduleRender(); }
+function fxSwitch(ch, id, k){ ch = chKey(ch); id = +id; const inst = fxFindIn(ch, id); if (!inst) return; const pr = PLUG[inst.type].params.find(p => p.k === k); inst.p[k] = (((inst.p[k] | 0) + 1) % pr.opts.length); if (!Eng.ac) Eng.ensure(); else Eng.applyRacks(); scheduleRender(); }
+function fxFind(sel){ return sel ? fxFindIn(sel.ch, sel.id) : null; }
 
 // browser leaf: preview a channel voice or audition the sampler
 function browserPreview(code){ Eng.ensure(); if (code === 'samp') Eng.playSample(); else if (code === 'limiter') toggleLimiter(); else if (code === 'metro') toggleMetronome(); else if (code >= 0) Eng.voice(+code, 0.9); }
@@ -847,6 +1099,46 @@ const waveSVG = `<svg width="100%" height="100%" viewBox="0 0 ${WsS} ${HsS}" pre
 const SAMPK = [['VOL','samp_VOL',0.78],['PAN','samp_PAN',0.5],['PITCH','samp_PITCH',0.55],['FADE','samp_FADE',0.3]];
 
 /* =========================================================================
+   Insert-rack UI (mixer slots + plugin faceplate)
+   ========================================================================= */
+function fxSlots(key){
+  const list = key === 'master' ? state.rack.master : state.rack[key];
+  const rows = list.map(inst => {
+    const d = PLUG[inst.type]; const sel = state.fxSel && state.fxSel.ch === key && state.fxSel.id === inst.id;
+    return `<div data-fxopen data-ch="${key}" data-id="${inst.id}" title="${d.name}" style="display:flex; align-items:center; gap:3px; padding:1px 3px; cursor:pointer; overflow:hidden; border-left:3px solid ${d.color}; background:${sel ? 'linear-gradient(180deg,#5a5648,#403c30)' : 'linear-gradient(180deg,#33363a,#2a2d30)'};">`
+      + `<span data-fxbypass data-ch="${key}" data-id="${inst.id}" title="Bypass" style="flex:0 0 5px; width:5px; height:5px; border-radius:50%; background:${inst.on ? d.color : '#242824'}; box-shadow:${inst.on ? '0 0 2px ' + d.color : 'inset 0 1px 1px rgba(0,0,0,.9)'};"></span>`
+      + `<span style="flex:1; font-size:7.5px; font-weight:700; letter-spacing:.2px; color:${inst.on ? '#c6c8c6' : '#70736f'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${d.short}</span></div>`;
+  }).join('');
+  const addOpen = state.addMenu === key;
+  const addDrop = addOpen ? `<div style="position:absolute; left:0; right:0; top:100%; z-index:60; background:linear-gradient(180deg,#3d4043,#313335); border:1px solid #17181a; box-shadow:2px 3px 7px rgba(0,0,0,.55);">${PLUG_ORDER.map(t => `<div data-fxaddpick data-ch="${key}" data-type="${t}" title="${PLUG[t].name}" style="padding:2px 5px; font-size:8px; font-weight:700; color:#c6c8c6; cursor:pointer; border-left:3px solid ${PLUG[t].color}; white-space:nowrap;">${PLUG[t].short}</div>`).join('')}</div>` : '';
+  return `<div style="position:relative; margin:2px 3px 3px;">`
+    + `<div style="display:flex; flex-direction:column; gap:1px; max-height:50px; overflow-y:auto; overflow-x:hidden;">${rows}</div>`
+    + `<div data-fxadd data-ch="${key}" style="margin-top:1px; padding:1px 0; font-size:7.5px; font-weight:700; text-align:center; color:${addOpen ? '#12180c' : '#8faa54'}; cursor:pointer; background:${addOpen ? 'linear-gradient(180deg,#8faa54,#6d8a3c)' : 'linear-gradient(180deg,#33363a,#2a2d30)'}; border:1px solid #1c1e20;">＋ FX</div>`
+    + addDrop + `</div>`;
+}
+function fxFace(sel){
+  const inst = fxFind(sel); if (!inst) return `<div style="padding:24px; text-align:center; color:#8a8d8a; font-size:11px;">Abre un plugin desde una casilla del mixer para editarlo.</div>`;
+  const def = PLUG[inst.type], ch = sel.ch;
+  const chLabel = ch === 'master' ? 'MASTER' : ('INS ' + (ch + 1));
+  const ctrls = def.params.map(pr => {
+    if (pr.kind === 'switch'){
+      const idx = inst.p[pr.k] | 0;
+      return `<div style="display:flex; flex-direction:column; align-items:center; gap:4px;"><div data-fxswitch data-ch="${ch}" data-id="${inst.id}" data-k="${pr.k}" style="min-width:46px; text-align:center; padding:5px 7px; font:11px 'Share Tech Mono',monospace; color:#8fca8f; background:#0a0c0a; border-top:1px solid #050605; border-left:1px solid #050605; border-right:1px solid #2a2e2a; border-bottom:1px solid #2a2e2a; cursor:pointer;">${pr.opts[idx]}</div><span style="font-size:7.5px; color:#9a9d9a; letter-spacing:.3px;">${pr.label}</span></div>`;
+    }
+    return `<div style="display:flex; flex-direction:column; align-items:center; gap:3px;">${knob('fx' + inst.id + '_' + pr.k, pr.def, 42)}<span style="font-size:7.5px; color:#9a9d9a; letter-spacing:.3px;">${pr.label}</span></div>`;
+  }).join('');
+  return `<div style="height:100%; display:flex; flex-direction:column; background:var(--nz),#2c2f2c;">`
+    + `<div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:linear-gradient(180deg,${def.color},${def.color}bb); border-bottom:2px solid rgba(0,0,0,.5); box-shadow:inset 0 1px 0 rgba(255,255,255,.3);">`
+    + `<span style="font-size:13px; font-weight:800; color:#141410; letter-spacing:.5px; text-shadow:0 1px 0 rgba(255,255,255,.25);">${def.name}</span>`
+    + `<span style="font-size:9px; font-weight:700; color:rgba(0,0,0,.55);">${chLabel}</span><div style="flex:1;"></div>`
+    + `<span data-fxbypass data-ch="${ch}" data-id="${inst.id}" style="padding:2px 8px; font-size:9px; font-weight:700; cursor:pointer; color:#141410; background:${inst.on ? 'rgba(20,20,16,.14)' : 'rgba(20,20,16,.5)'}; border:1px solid rgba(0,0,0,.4);">${inst.on ? 'ON' : 'BYP'}</span>`
+    + `<span data-fxmove data-ch="${ch}" data-id="${inst.id}" data-dir="-1" title="Mover antes" style="padding:2px 5px; font-size:10px; cursor:pointer; color:#141410;">◄</span>`
+    + `<span data-fxmove data-ch="${ch}" data-id="${inst.id}" data-dir="1" title="Mover después" style="padding:2px 5px; font-size:10px; cursor:pointer; color:#141410;">►</span>`
+    + `<span data-fxremove data-ch="${ch}" data-id="${inst.id}" title="Quitar plugin" style="padding:2px 7px; font-size:12px; font-weight:800; cursor:pointer; color:#5c1c12;">×</span></div>`
+    + `<div style="flex:1; display:flex; flex-wrap:wrap; align-content:center; justify-content:center; gap:14px 22px; padding:14px;">${ctrls}</div></div>`;
+}
+
+/* =========================================================================
    RENDER (structure only; motion handled by animate())
    ========================================================================= */
 function render(){
@@ -875,7 +1167,7 @@ function render(){
     const bar = `display:flex; align-items:center; justify-content:space-between; height:${barH}px; padding:0 6px; cursor:move; border-bottom:1px solid #17181a; ${barBg}`;
     return { style, bar, txt: foc ? '#efe8d4' : '#c6c8c6', min: w.min };
   };
-  const wins = { playlist: mkWin('playlist', true, 17), mixer: mkWin('mixer', true, 17), rack: mkWin('rack', false, 17), piano: mkWin('piano', false, 18), sytrus: mkWin('sytrus', false, 18), sampler: mkWin('sampler', false, 18) };
+  const wins = { playlist: mkWin('playlist', true, 17), mixer: mkWin('mixer', true, 17), rack: mkWin('rack', false, 17), piano: mkWin('piano', false, 18), sytrus: mkWin('sytrus', false, 18), sampler: mkWin('sampler', false, 18), fx: mkWin('fx', false, 18) };
 
   // meters (initial 0; animate fills)
   const cpuVu = []; for (let i = 0; i < 8; i++){ const col = i > 5 ? AGED.red : (i > 3 ? AGED.mustard : AGED.olive); cpuVu.push({ col, lit: i < 2 }); }
@@ -908,7 +1200,7 @@ function render(){
   // sytrus
   const knobRows = KROWS.map(r => ({ section: r.section, knobs: r.knobs.map(([label, id, def]) => ({ label, html: knob(id, def, 30) })) }));
   const adsrEnv = state.adsr.map((v, i) => ({ label: ['A','D','S','R'][i], thumb: mkFaderThumb(v), i }));
-  const oscTabs = [1,2,3,4].map(n => ({ n, style: `flex:1; text-align:center; padding:3px 0; font-size:8.5px; font-weight:700; cursor:pointer; ` + (n === state.sytrusOsc ? 'color:#12180c; background:linear-gradient(180deg,#c9a63f,#a5842a); border-top:1px solid #e0c366; border-left:1px solid #c9a63f; border-right:1px solid #6a5216; border-bottom:1px solid #5a4512;' : 'color:#9a9d9a; background:linear-gradient(180deg,#4a4e52,#3a3d41); border-top:1px solid #565a5e; border-left:1px solid #4e5256; border-right:1px solid #1c1e20; border-bottom:1px solid #17181a;') }));
+  const oscTabs = [1,2,3,4].map(n => { const on = state.sytrusOscOn[n-1], selBorder = n === state.sytrusOsc ? 'box-shadow:inset 0 0 0 1px rgba(232,224,204,.8);' : ''; return { n, on, style: `flex:1; text-align:center; padding:3px 0; font-size:8.5px; font-weight:700; cursor:pointer; ${selBorder}` + (on ? 'color:#12180c; background:linear-gradient(180deg,#c9a63f,#a5842a); border-top:1px solid #e0c366; border-left:1px solid #c9a63f; border-right:1px solid #6a5216; border-bottom:1px solid #5a4512;' : 'color:#9a9d9a; background:linear-gradient(180deg,#4a4e52,#3a3d41); border-top:1px solid #565a5e; border-left:1px solid #4e5256; border-right:1px solid #1c1e20; border-bottom:1px solid #17181a;') }; });
   const presetName = SYTRUS_PRESETS[_sytrusPreset].name;
   const shapeIdx = Math.min(3, Math.floor(knobGet('osc2', 0.7) * 4));
   const shapeName = SHAPES[shapeIdx].toUpperCase();
@@ -925,7 +1217,7 @@ function render(){
     'Editar': [['Limpiar patrón','clearpat'],['Aleatorizar patrón','randpat'],['Duplicar patrón','duppat']],
     'Añadir': [['Nuevo patrón','addpat'],['Nuevo clip (Drums)','addclip']],
     'Patrones': state.patterns.map((p,i)=>[`${String(i+1).padStart(2,'0')} — ${p.name}`,'pat:'+(i+1)]).concat([['+ Nuevo patrón','addpat']]),
-    'Ver': [['Playlist','win:playlist'],['Channel rack','win:rack'],['Piano roll','win:piano'],['Mixer','win:mixer'],['Sytrus','win:sytrus'],['Sampler','win:sampler']],
+    'Ver': [['Playlist','win:playlist'],['Channel rack','win:rack'],['Piano roll','win:piano'],['Mixer','win:mixer'],['Sytrus','win:sytrus'],['Sampler','win:sampler'],['Editor de plugins','win:fx']],
     'Opciones': [['Metrónomo','metro'],['Loop de sampler','looptog'],['Limiter (master)','limiter']],
     'Herramientas': [['Reset knobs','resetknobs'],['Aleatorizar mezcla','randmix']],
     'Ayuda': [['Atajos de teclado','help']],
@@ -1075,6 +1367,7 @@ function render(){
         ${wins.mixer.min ? '' : `<div style="padding:7px; background:var(--nz),#212320; height:calc(100% - 18px); box-shadow:inset 0 1px 3px rgba(0,0,0,.6); display:flex; gap:5px; overflow-x:auto;">
           ${$for(strips, m => `<div style="${stripBase(m.accent)}">
             <div style="${headBase(m.accent)}">${m.name}</div>
+            ${fxSlots(m.i === 0 ? 'master' : (m.i - 1))}
             <div style="display:flex; justify-content:center; gap:6px; padding:6px 0 4px;">${m.eqHi}${m.eqLo}</div>
             <div style="display:flex; justify-content:center; gap:8px; padding:2px 0 6px;">
               <div style="position:relative; width:13px; height:132px; background:linear-gradient(90deg,#0c0e0c,#1c1e1c 50%,#0c0e0c); border-top:1px solid #060706; border-left:1px solid #060706; border-right:1px solid #2a2c2a; border-bottom:1px solid #2a2c2a;"><div style="position:absolute; left:50%; top:5px; bottom:5px; width:1px; background:#000;"></div><div style="${m.thumb}" data-act="fader" data-i="${m.i}"><div style="position:absolute; left:2px; right:2px; top:50%; height:1px; background:#1c1c1c; box-shadow:0 1px 0 rgba(255,255,255,.4);"></div></div></div>
@@ -1143,14 +1436,24 @@ function render(){
         </div>`}
       </div>`;
 
-  const workspace = `<div style="position:absolute; left:0; top:89px; right:0; bottom:0; background:var(--nz),linear-gradient(180deg,#3f4347,#33363a); box-shadow:inset 0 2px 5px rgba(0,0,0,.35);">${browser}${playlist}${channelRack}${pianoRoll}${mixer}${pluginSytrus}${sampler}</div>`;
+  const fxDef = (() => { const inst = fxFind(state.fxSel); return inst ? PLUG[inst.type] : null; })();
+  const fxWin = `
+      <div style="${wins.fx.style}" data-focus="fx">
+        <div style="${wins.fx.bar}" data-drag="fx">
+          <div style="display:flex; align-items:center; gap:5px;"><div style="width:8px; height:8px; background:${fxDef ? fxDef.color : '#8a8d8a'}; box-shadow:0 0 3px ${fxDef ? fxDef.color : 'transparent'};"></div><span style="font-size:10px; font-weight:700; color:${wins.fx.txt};">Plugin${fxDef ? ' — ' + fxDef.short : ''}</span></div>
+          <div style="display:flex; gap:3px;">${winButtons('fx')}</div>
+        </div>
+        ${wins.fx.min ? '' : `<div style="height:calc(100% - 18px); overflow:hidden;">${fxFace(state.fxSel)}</div>`}
+      </div>`;
+
+  const workspace = `<div style="position:absolute; left:0; top:89px; right:0; bottom:0; background:var(--nz),linear-gradient(180deg,#3f4347,#33363a); box-shadow:inset 0 2px 5px rgba(0,0,0,.35);">${browser}${playlist}${channelRack}${pianoRoll}${mixer}${pluginSytrus}${sampler}${fxWin}</div>`;
 
   const help = state.helpOpen ? `
     <div data-helpclose="1" style="position:absolute; inset:0; z-index:400; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center;">
       <div style="width:420px; background:linear-gradient(180deg,#42454a,#37393c); border-top:1px solid #6a6e63; border-left:1px solid #5c6057; border-right:1px solid #17181a; border-bottom:1px solid #141516; box-shadow:6px 6px 18px rgba(0,0,0,.6);" onclick="event.stopPropagation()">
         <div style="display:flex; align-items:center; justify-content:space-between; height:18px; padding:0 6px; background:linear-gradient(180deg,#6a6250,#4e4838); border-bottom:1px solid #17181a;"><span style="font-size:10px; font-weight:700; color:#efe8d4;">Atajos de teclado</span><span style="${winBtnXCss}" data-helpclose="1">×</span></div>
         <div style="padding:10px 14px; font-size:11px; color:#c6c8c6; line-height:1.9;">
-          ${[['Espacio','Play / Pausa'],['S','Detener'],['R','Grabar salida (WAV)'],['L','Loop del sampler'],['M','Metrónomo'],['1–9','Seleccionar patrón'],['Rueda sobre knob','Ajustar · doble clic = reset'],['Arrastra clip','Mover · borde = redimensionar · doble clic = borrar'],['Doble clic barra de título','Maximizar ventana']].map(([k,d])=>`<div style="display:flex; gap:12px;"><span style="flex:0 0 130px; font-family:'Share Tech Mono',monospace; color:#8fca8f;">${k}</span><span>${d}</span></div>`).join('')}
+          ${[['Espacio','Play / Pausa'],['S','Detener'],['R','Grabar salida (WAV)'],['L','Loop del sampler'],['M','Metrónomo'],['1–9','Seleccionar patrón'],['Rueda sobre knob','Ajustar · doble clic = reset'],['Arrastra clip','Mover · borde = redimensionar · doble clic = borrar'],['Doble clic barra de título','Maximizar ventana'],['Casillas FX (mixer)','Clic = editar · ＋ FX = añadir · punto = bypass'],['OSC 1–4 (Sytrus)','Clic = activar/desactivar oscilador']].map(([k,d])=>`<div style="display:flex; gap:12px;"><span style="flex:0 0 130px; font-family:'Share Tech Mono',monospace; color:#8fca8f;">${k}</span><span>${d}</span></div>`).join('')}
         </div>
       </div>
     </div>` : '';
@@ -1214,10 +1517,18 @@ app.addEventListener('click', (e) => {
   const bp = e.target.closest('[data-bplay]'); if (bp){ browserPreview(bp.getAttribute('data-bplay')); return; }
   const fld = e.target.closest('[data-folder]'); if (fld){ toggleFolder(fld.getAttribute('data-folder')); return; }
   const hc = e.target.closest('[data-helpclose]'); if (hc){ toggleHelp(); return; }
+  // insert-rack UI (check bypass dot before the slot it sits inside)
+  const fbp = e.target.closest('[data-fxbypass]'); if (fbp){ e.stopPropagation(); fxBypass(fbp.getAttribute('data-ch'), fbp.getAttribute('data-id')); return; }
+  const fpick = e.target.closest('[data-fxaddpick]'); if (fpick){ e.stopPropagation(); fxAdd(fpick.getAttribute('data-ch'), fpick.getAttribute('data-type')); return; }
+  const fadd = e.target.closest('[data-fxadd]'); if (fadd){ e.stopPropagation(); fxAddToggle(fadd.getAttribute('data-ch')); return; }
+  const fsw = e.target.closest('[data-fxswitch]'); if (fsw){ e.stopPropagation(); fxSwitch(fsw.getAttribute('data-ch'), fsw.getAttribute('data-id'), fsw.getAttribute('data-k')); return; }
+  const frm = e.target.closest('[data-fxremove]'); if (frm){ e.stopPropagation(); fxRemove(frm.getAttribute('data-ch'), frm.getAttribute('data-id')); return; }
+  const fmv = e.target.closest('[data-fxmove]'); if (fmv){ e.stopPropagation(); fxMove(fmv.getAttribute('data-ch'), fmv.getAttribute('data-id'), +fmv.getAttribute('data-dir')); return; }
+  const fop = e.target.closest('[data-fxopen]'); if (fop){ e.stopPropagation(); fxOpen(fop.getAttribute('data-ch'), fop.getAttribute('data-id')); return; }
   const wact = e.target.closest('[data-winact]');
   if (wact){ e.stopPropagation(); const id = wact.getAttribute('data-win'), a = wact.getAttribute('data-winact'); if (a==='min') winMin(id); else if (a==='max') winMax(id); else winClose(id); return; }
   const pg = e.target.closest('[data-act="pianogrid"]'); if (pg){ pianoClick(e); return; }
-  const a = e.target.closest('[data-act]'); if (!a) { if (state.menuOpen) setState({ menuOpen: null }); return; }
+  const a = e.target.closest('[data-act]'); if (!a) { if (state.menuOpen || state.addMenu != null) setState({ menuOpen: null, addMenu: null }); return; }
   switch (a.getAttribute('data-act')){
     case 'play': togglePlay(); break;
     case 'stop': stop(); break;

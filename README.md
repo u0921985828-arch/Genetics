@@ -20,20 +20,25 @@ automatically by CMake on the first configure — you don't install it yourself.
 - **CMake ≥ 3.22** and a **C++17 compiler**
   - macOS: Xcode Command Line Tools (`xcode-select --install`)
   - Windows: Visual Studio 2022 + "Desktop development with C++"
-  - Linux: `gcc`/`clang` plus the dev libs listed in `build.sh`
+  - Linux: `gcc`/`clang` — the JUCE dev libraries are installed **for you** by
+    `build.sh` (apt / dnf / pacman / zypper).
 - Internet access on the **first** build (to fetch JUCE).
 
-### One command
+### One command — start to finish
 
 ```bash
-# macOS / Linux
-./build.sh
+# macOS / Linux — checks the toolchain, installs Linux deps, fetches JUCE,
+# then configures and builds. Nothing else to set up.
+./build.sh                 # Release  (./build.sh Debug for a debug build)
 
 # Windows
 build.bat
 ```
 
-or manually, on any platform:
+Escape hatches: `CHRONA_SKIP_DEPS=1 ./build.sh` skips the dependency install,
+and `CHRONA_CMAKE_ARGS="-DCHRONA_LTO=OFF" ./build.sh` forwards extra CMake flags.
+
+Or drive CMake yourself on any platform (deps must already be present):
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release

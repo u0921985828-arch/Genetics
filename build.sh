@@ -38,7 +38,7 @@ install_linux_deps() {
 
     if command -v apt-get >/dev/null 2>&1; then
         say "Installing build deps via apt…"
-        $SUDO apt-get update -qq
+        $SUDO apt-get update -qq || warn "apt-get update had warnings (ignored)"
         $SUDO apt-get install -y --no-install-recommends \
             build-essential pkg-config \
             libasound2-dev libx11-dev libxext-dev libxrandr-dev libxinerama-dev \

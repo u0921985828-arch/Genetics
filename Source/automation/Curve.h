@@ -64,7 +64,13 @@ namespace chrona::automation
             points = std::move (pts);
             sort();
             if ((int) points.size() > kMaxPoints)
-                points.resize ((size_t) kMaxPoints);   // never exceed the RT-copy bound
+            {
+                // Bound the RT-copy size but keep the last (highest-x) point so
+                // the x=1 endpoint — which value()'s tail relies on — survives.
+                const Point last = points.back();
+                points.resize ((size_t) (kMaxPoints - 1));
+                points.push_back (last);
+            }
         }
         const std::vector<Point>& getPoints() const { return points; }
         std::vector<Point>& getPointsMutable() { return points; }

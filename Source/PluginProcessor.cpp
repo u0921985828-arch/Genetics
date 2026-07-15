@@ -26,7 +26,9 @@ namespace chrona
         pSmartFade = get (params::id::smartFade);pTrigMode = get (params::id::triggerMode);
         pTrigNote = get (params::id::triggerNote);pGate = get (params::id::gateAmount);
         pDuck = get (params::id::duckAmount);    pDuckAtk = get (params::id::duckAttack);
-        pDuckRel = get (params::id::duckRelease);pScSource = get (params::id::scSource);
+        pDuckRel = get (params::id::duckRelease);
+        pBypass  = get (params::id::bypass);
+        bypassParam = apvts.getParameter (params::id::bypass);pScSource = get (params::id::scSource);
     }
 
     bool ChronaProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -111,7 +113,11 @@ namespace chrona
             trigger.handleMessage (meta.getMessage());
         for (int i = 0; i < buffer.getNumSamples(); ++i) trigger.tick();
 
-        engine.process (buffer, trigger.engaged());
+        // Host soft-bypass folds into the engage flag: disengaging ramps the wet
+        // mix to zero through the engine's click-free smoother → clean dry
+        // passthrough (0 latency, so it is sample-accurate).
+        const bool bypassed = pBypass->load() > 0.5f;
+        engine.process (buffer, trigger.engaged() && ! bypassed);
     }
 
     juce::AudioProcessorEditor* ChronaProcessor::createEditor()

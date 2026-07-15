@@ -66,6 +66,9 @@ namespace chrona::dsp
         engageSmoother.reset (0.0f);
         lastPpqSamples = 0.0; lastBlockSamples = 0; havePrevPpq = false;
         lastProcessedMode = requestedMode;
+        for (auto& b : visWave) b.store (0.0f, std::memory_order_relaxed);
+        visWriteBin.store (0, std::memory_order_relaxed);
+        visBinPeak = 0.0f; visBinCount = 0;
     }
 
     IMode* TemporalEngine::activeMode()
@@ -130,6 +133,9 @@ namespace chrona::dsp
 
         windowSamples = juce::jmin ((double) buffer.getCapacity() - 32.0,
                                     (double) level2.bufferBars * barSamples);
+
+        // one visualiser bin spans this many input samples
+        visSamplesPerBin = juce::jmax (1, (int) (windowSamples / (double) kVisBins));
 
         for (auto& d : declick) d.setTimeMs (level2.antiClickMs);
 
@@ -200,6 +206,18 @@ namespace chrona::dsp
             }
             if (nch == 1) frameIn[1] = frameIn[0];
             buffer.write (frameIn);
+
+            // publish the peak envelope one bin at a time (lock-free, GUI-read)
+            const float visMono = 0.5f * (frameIn[0] + frameIn[1]);
+            visBinPeak = juce::jmax (visBinPeak, std::abs (visMono));
+            if (++visBinCount >= visSamplesPerBin)
+            {
+                const int wb = visWriteBin.load (std::memory_order_relaxed);
+                visWave[(size_t) wb].store (visBinPeak, std::memory_order_relaxed);
+                visWriteBin.store ((wb + 1) % kVisBins, std::memory_order_relaxed);
+                visBinPeak = 0.0f;
+                visBinCount = 0;
+            }
 
             // --- loop clock advance / boundary ---
             bool loopReset = false;

@@ -68,6 +68,17 @@ namespace chrona::dsp
         double getReadDelayNorm()  const { return visDelay.load (std::memory_order_relaxed); }
         const CircularBuffer& getBuffer() const { return buffer; }
 
+        // Lock-free peak-envelope snapshot of the recorded window, published by
+        // the audio thread one bin at a time. The GUI reads these atomics
+        // instead of racing on the ring buffer — no data race, no torn floats.
+        static constexpr int kVisBins = 512;
+        int   getVisBinCount() const { return kVisBins; }
+        int   getVisWriteBin() const { return visWriteBin.load (std::memory_order_relaxed); }
+        float getVisBin (int i) const
+        {
+            return visWave[(size_t) juce::jlimit (0, kVisBins - 1, i)].load (std::memory_order_relaxed);
+        }
+
     private:
         IMode* activeMode();
         void   updateLoopClock (bool playing, double ppqSamples, bool forceResync);
@@ -119,5 +130,12 @@ namespace chrona::dsp
 
         std::atomic<double> visPhase { 0.0 };
         std::atomic<double> visDelay { 0.0 };
+
+        // peak-envelope publisher (audio thread accumulates, GUI reads)
+        std::array<std::atomic<float>, kVisBins> visWave {};
+        std::atomic<int> visWriteBin { 0 };
+        float visBinPeak = 0.0f;
+        int   visBinCount = 0;
+        int   visSamplesPerBin = 64;
     };
 }

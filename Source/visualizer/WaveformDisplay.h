@@ -43,24 +43,27 @@ namespace chrona::visualizer
             }
             g.drawHorizontalLine ((int) b.getCentreY(), b.getX(), b.getRight());
 
-            // waveform of the recorded window (oldest → newest, left → right)
-            const auto& buf = engine.getBuffer();
-            if (! buf.isReady()) return; // storage being (re)allocated — skip this frame
-            const int   pts = juce::jlimit (64, 1024, (int) b.getWidth());
-            const double window = juce::jmin ((double) buf.getCapacity() - 32.0,
-                                              buf.getSampleRate() * 4.0); // ~2 bars @120
-            juce::Path wave;
+            // Peak-envelope of the recorded window (oldest → newest, left →
+            // right), read from the engine's lock-free bin snapshot — no data
+            // race on the audio buffer. The oldest bin is the one about to be
+            // overwritten (visWriteBin).
+            const int   bins  = engine.getVisBinCount();
+            const int   start = engine.getVisWriteBin();
+            const int   pts   = juce::jlimit (64, bins, (int) b.getWidth());
+            juce::Path top, bot;
             for (int i = 0; i < pts; ++i)
             {
-                const double frac = (double) i / (double) (pts - 1);   // 0 oldest, 1 newest
-                const double delay = (1.0 - frac) * window;
-                const float s = juce::jlimit (-1.0f, 1.0f, buf.peekMono (delay));
-                const float x = b.getX() + (float) frac * b.getWidth();
-                const float y = b.getCentreY() - s * b.getHeight() * 0.46f;
-                if (i == 0) wave.startNewSubPath (x, y); else wave.lineTo (x, y);
+                const double frac = (double) i / (double) (pts - 1);        // 0 oldest, 1 newest
+                const int    bin  = (start + (int) (frac * (double) (bins - 1))) % bins;
+                const float  peak = juce::jlimit (0.0f, 1.0f, engine.getVisBin (bin));
+                const float  x    = b.getX() + (float) frac * b.getWidth();
+                const float  h    = peak * b.getHeight() * 0.46f;
+                if (i == 0) { top.startNewSubPath (x, b.getCentreY() - h); bot.startNewSubPath (x, b.getCentreY() + h); }
+                else        { top.lineTo (x, b.getCentreY() - h);          bot.lineTo (x, b.getCentreY() + h); }
             }
             g.setColour (greyLight.withAlpha (0.85f));
-            g.strokePath (wave, juce::PathStrokeType (1.25f));
+            g.strokePath (top, juce::PathStrokeType (1.25f));
+            g.strokePath (bot, juce::PathStrokeType (1.25f));
 
             // playback position marker (read delay maps to x)
             const double delayNorm = juce::jlimit (0.0, 1.0, engine.getReadDelayNorm());

@@ -33,6 +33,8 @@ namespace chrona
         juce::AudioProcessorEditor* createEditor() override;
         bool hasEditor() const override { return true; }
 
+        juce::AudioProcessorParameter* getBypassParameter() const override { return bypassParam; }
+
         const juce::String getName() const override { return "CHRONA"; }
         bool acceptsMidi() const override { return true; }
         bool producesMidi() const override { return false; }
@@ -71,6 +73,8 @@ namespace chrona
         std::atomic<float>* pTrigNote = nullptr; std::atomic<float>* pGate = nullptr;
         std::atomic<float>* pDuck = nullptr; std::atomic<float>* pDuckAtk = nullptr;
         std::atomic<float>* pDuckRel = nullptr; std::atomic<float>* pScSource = nullptr;
+        std::atomic<float>* pBypass = nullptr;
+        juce::AudioProcessorParameter* bypassParam = nullptr;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChronaProcessor)
     };

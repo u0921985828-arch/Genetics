@@ -62,6 +62,9 @@ namespace chrona::params
         layout.add (std::make_unique<APC>   (juce::ParameterID { id::scSource, 1 }, "SC Source",
                                              juce::StringArray { "Off", "Internal (Wet)", "Internal (Dry)" }, 0));
 
+        // Host soft-bypass parameter (reported via getBypassParameter()).
+        layout.add (std::make_unique<APB>   (juce::ParameterID { id::bypass, 1 }, "Bypass", false));
+
         return layout;
     }
 }

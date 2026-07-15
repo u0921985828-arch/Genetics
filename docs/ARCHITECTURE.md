@@ -91,5 +91,6 @@ construction.
   holds it, the audio thread keeps its previous snapshot rather than blocking —
   no priority inversion, and the editor can never realloc a vector the audio
   thread is mid-copy of. Snapshot vectors are pre-reserved so the copy never
-  allocates. The visualiser only reads, and skips frames while the buffer is
-  being (re)allocated (`CircularBuffer::isReady`).
+  allocates. The waveform visualiser reads a **lock-free peak-envelope snapshot**
+  (`std::atomic<float>` bins published one at a time by the audio thread), so it
+  never races on the ring buffer.

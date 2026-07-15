@@ -49,6 +49,9 @@ namespace chrona::params
         inline constexpr auto duckRelease = "duckRelease";   // ms
         inline constexpr auto scSource    = "scSource";      // internal SC source (choice)
 
+        // Host soft-bypass (exposed via AudioProcessor::getBypassParameter).
+        inline constexpr auto bypass = "bypass";
+
         // Which curve/preset drives PAT (custom) mode. Stored separately in
         // the preset ValueTree, not as an automatable float.
     }

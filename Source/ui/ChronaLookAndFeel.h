@@ -47,11 +47,14 @@ namespace chrona::ui
             const float track = juce::jmax (2.0f, radius * 0.14f);
             const float angle = startAngle + pos * (endAngle - startAngle);
 
-            // recessed body
-            g.setColour (bg2);
-            g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre));
+            // recessed body — top-lit radial gradient (matches the UI mock)
+            const auto face = juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre);
+            juce::ColourGradient recess (juce::Colour (0xff3a3a3e), centre.x, centre.y - radius * 0.35f,
+                                         juce::Colour (0xff202024), centre.x, centre.y + radius, true);
+            g.setGradientFill (recess);
+            g.fillEllipse (face);
             g.setColour (greyDark);
-            g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), 1.0f);
+            g.drawEllipse (face, 1.0f);
 
             const float arcR = radius - track * 0.5f - 2.0f;
 
@@ -117,6 +120,7 @@ namespace chrona::ui
             auto bounds = b.getLocalBounds().toFloat().reduced (0.5f);
             auto c = backgroundColour;
             if (shouldDrawButtonAsDown)          c = accentDim;
+            else if (b.getToggleState())         c = accentDim;
             else if (shouldDrawButtonAsHighlighted) c = c.brighter (0.15f);
 
             g.setColour (c);
@@ -124,6 +128,9 @@ namespace chrona::ui
 
             if (b.getToggleState())
             {
+                // accent outline + soft outer glow (matches the mock's active state)
+                g.setColour (accent.withAlpha (0.22f));
+                g.drawRoundedRectangle (bounds.expanded (1.5f), cornerRadius + 1.5f, 3.0f);
                 g.setColour (accent);
                 g.drawRoundedRectangle (bounds, cornerRadius, 1.5f);
             }

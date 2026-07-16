@@ -81,6 +81,12 @@ namespace chrona
                 };
                 addAndMakeVisible (advancedButton);
 
+                bypassButton.setButtonText ("BYP");
+                bypassButton.setClickingTogglesState (true);
+                addAndMakeVisible (bypassButton);
+                bypassAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>
+                                (p.apvts, params::id::bypass, bypassButton);
+
                 addAndMakeVisible (level1);
                 addChildComponent (level2);
             }
@@ -107,6 +113,7 @@ namespace chrona
                 title.setBounds (header.removeFromLeft (150).withTrimmedLeft (16).withTrimmedTop (6).withHeight (26));
                 subtitle.setBounds (16, 30, 200, 14);
                 advancedButton.setBounds (header.removeFromRight (130).reduced (14, 10));
+                bypassButton.setBounds (header.removeFromRight (60).reduced (2, 10));
 
                 level1.setBounds (b.removeFromTop (kLevel1H));
                 if (advancedOpen)
@@ -119,7 +126,8 @@ namespace chrona
             ui::Level1Panel level1;
             ui::Level2Panel level2;
             juce::Label title, subtitle;
-            juce::TextButton advancedButton;
+            juce::TextButton advancedButton, bypassButton;
+            std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
             bool advancedOpen = false;
         };
 

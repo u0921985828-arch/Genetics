@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <algorithm>
+#include <array>
 #include "CircularBuffer.h"
 #include "AntiClick.h"
 #include "../automation/Curve.h"
@@ -276,5 +277,112 @@ namespace chrona::dsp
     private:
         const automation::Curve* timeCurve = nullptr;
         const automation::Curve* volCurve  = nullptr;
+    };
+
+    // ===== Freeze — grab a region into a private buffer and loop it =========
+    //  The shared ring only holds ~2 bars, so a fixed anchor would slide out of
+    //  the window and clamp. Freeze instead captures its slice into its OWN
+    //  buffer (incrementally, O(1)/sample) and loops that indefinitely.
+    class FreezeMode : public IMode
+    {
+    public:
+        const char* name() const override { return "Freeze"; }
+
+        void prepare (double sr, int ch) override
+        {
+            IMode::prepare (sr, ch);
+            capacity = juce::jmax (1024, (int) (sr * 6.0)); // up to ~1 bar @ 40 BPM
+            buf.assign ((size_t) channels, std::vector<float> ((size_t) capacity, 0.0f));
+            reset();
+        }
+        void reset() override { primed = false; filling = false; pos = 0; fillPos = 0; len = 0; }
+
+        void process (const ModeContext& ctx, float* out) override
+        {
+            if (! primed)
+            {
+                len = juce::jlimit (256, capacity, (int) juce::jmax (256.0, ctx.loopLenSamples));
+                filling = true; fillPos = 0; pos = 0; primed = true;
+            }
+
+            const int idx = filling ? fillPos : (pos % len);
+            const float win = SmartFade::gain (idx, len, 0.25f + 0.5f * ctx.smartFade);
+
+            for (int c = 0; c < channels; ++c)
+            {
+                if (filling) buf[(size_t) c][(size_t) fillPos] = ctx.read (c, (double) (ctx.totalWritten - 1));
+                out[c] = buf[(size_t) c][(size_t) idx] * win;
+            }
+
+            if (filling) { if (++fillPos >= len) filling = false; }
+            else         { ++pos; }
+        }
+    private:
+        std::vector<std::vector<float>> buf;
+        int capacity = 0, len = 0, pos = 0, fillPos = 0;
+        bool primed = false, filling = false;
+    };
+
+    // ===== Granular — a cloud of overlapping windowed grains ================
+    class GranularMode : public IMode
+    {
+    public:
+        const char* name() const override { return "Granular"; }
+        void reset() override
+        {
+            for (auto& g : grains) g.active = false;
+            spawnCounter = 0.0;
+            rng.seed (0x6C7261);
+        }
+
+        void process (const ModeContext& ctx, float* out) override
+        {
+            const double L = juce::jmax (1024.0, ctx.windowSamples);
+            // Time → grain size (more Time = finer grains); Depth → density + spread.
+            const double grainLen = juce::jlimit (64.0, L * 0.5,
+                                    (0.01 + 0.14 * (1.0 - (double) ctx.time)) * ctx.sampleRate);
+            const double spawnEvery = juce::jmax (48.0, grainLen * (0.55 - 0.4 * (double) ctx.depth));
+            const double spread = 0.15 + 0.85 * (double) ctx.depth;
+
+            // spawn a grain when due, into a free voice
+            if (spawnCounter <= 0.0)
+            {
+                for (auto& g : grains)
+                {
+                    if (! g.active)
+                    {
+                        const double off = rng.unipolar() * spread * juce::jmax (1.0, L - grainLen - 4.0);
+                        g.active = true; g.pos = 0.0; g.len = grainLen;
+                        g.srcStart = (double) (ctx.totalWritten - 1) - grainLen - off;
+                        break;
+                    }
+                }
+                spawnCounter += spawnEvery;
+            }
+            spawnCounter -= 1.0;
+
+            float acc[2] = { 0.0f, 0.0f };
+            for (auto& g : grains)
+            {
+                if (! g.active) continue;
+                const float env = hann (g.pos / g.len);
+                for (int c = 0; c < channels; ++c)
+                    acc[c] += ctx.read (c, g.srcStart + g.pos) * env;
+                g.pos += 1.0;
+                if (g.pos >= g.len) g.active = false;
+            }
+            for (int c = 0; c < channels; ++c) out[c] = acc[c] * 0.6f;
+        }
+    private:
+        static float hann (double x)
+        {
+            constexpr double kTwoPi = 6.283185307179586;
+            return 0.5f - 0.5f * (float) std::cos (kTwoPi * juce::jlimit (0.0, 1.0, x));
+        }
+        struct Grain { bool active = false; double pos = 0.0, len = 0.0, srcStart = 0.0; };
+        static constexpr int kVoices = 6;
+        std::array<Grain, kVoices> grains {};
+        double spawnCounter = 0.0;
+        Lcg rng;
     };
 }

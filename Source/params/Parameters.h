@@ -59,14 +59,18 @@ namespace chrona::params
     // -- Enumerations mirrored by the DSP dispatcher ------------------------
     enum class Mode
     {
+        // Freeze/Granular are APPENDED after Custom to keep existing choice
+        // indices (0..8) stable for backward-compatible session recall.
         Half = 0, Double, Reverse, TapeStop, Stutter, BeatRepeat, Vinyl, Glitch, Custom,
+        Freeze, Granular,
         NumModes
     };
 
     inline juce::StringArray modeNames()
     {
         return { "Half", "Double", "Reverse", "Tape Stop",
-                 "Stutter", "Beat Repeat", "Vinyl", "Glitch", "Time Warp" };
+                 "Stutter", "Beat Repeat", "Vinyl", "Glitch", "Time Warp",
+                 "Freeze", "Granular" };
     }
 
     inline juce::StringArray syncDivisions()

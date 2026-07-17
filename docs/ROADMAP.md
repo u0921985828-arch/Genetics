@@ -5,16 +5,16 @@ disturbing existing subsystems. Each is a new `IMode` and/or a new visualiser,
 reusing the shared `CircularBuffer`, `AutomationEngine`, preset and UI plumbing.
 
 ## Near term
-- **Freeze** — latch the ring contents and loop indefinitely (a `SpeedMode`
-  variant with speed 0 and a captured anchor). Trivial addition.
+- **Freeze** — ✅ shipped. `FreezeMode` captures its slice into a private
+  buffer and loops it indefinitely (independent of the 2-bar ring window).
 - **Sidechain input bus** — expose the internal sidechain as a real side bus
   (add a bus to `makeBuses()`, feed `EnvelopeFollower` from it).
 - **Sample-accurate MIDI trigger** — split blocks at note events instead of the
   current per-block engage evaluation.
 
 ## Mid term
-- **Granular** — a `GranularMode : IMode` that scatters grains read from the
-  ring; grain params ride the same Time/Depth macros and the curve engine.
+- **Granular** — ✅ shipped. `GranularMode` scatters a cloud of Hann-windowed
+  grains from the ring; Time sets grain size, Depth sets density + spread.
 - **Spectral time-stretch** — an FFT phase-vocoder mode; the buffer already
   provides the history, add an analysis/synthesis stage behind a new mode.
 

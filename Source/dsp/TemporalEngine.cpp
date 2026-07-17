@@ -14,6 +14,8 @@ namespace chrona::dsp
         modes[(size_t) M::Vinyl]     = std::make_unique<VinylMode>();
         modes[(size_t) M::Glitch]    = std::make_unique<GlitchMode>();
         modes[(size_t) M::Custom]    = std::make_unique<CustomMode>();
+        modes[(size_t) M::Freeze]    = std::make_unique<FreezeMode>();
+        modes[(size_t) M::Granular]  = std::make_unique<GranularMode>();
     }
 
     void TemporalEngine::prepare (double sr, int numChannels, int /*maxBlock*/)

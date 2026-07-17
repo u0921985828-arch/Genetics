@@ -48,15 +48,32 @@ namespace chrona::dsp
         float  env = 0.0f;
     };
 
-    // Texture: drive-dependent asymmetric soft saturation. At texture=0 this is
-    // transparent; higher values add harmonic grit for the vinyl/tape flavour.
-    inline float saturate (float x, float amount)
+    // Texture saturation with first-order antiderivative anti-aliasing (ADAA,
+    // Parker/Zavalishin): the tanh nonlinearity is evaluated through its
+    // antiderivative so most of the harmonic aliasing is removed WITHOUT
+    // oversampling (O(1)/sample, no sample-rate change). Stateful (needs the
+    // previous input), so one instance per channel.
+    class ADAASaturator
     {
-        if (amount <= 0.0f) return x;
-        const float drive = 1.0f + amount * 6.0f;
-        const float y = std::tanh (x * drive) / std::tanh (drive);
-        return x + amount * (y - x);
-    }
+    public:
+        void reset() { x1 = 0.0f; }
+        inline float process (float x, float amount)
+        {
+            if (amount <= 0.0f) { x1 = x; return x; }
+            const float a = 1.0f + amount * 6.0f;          // drive
+            const float d = x - x1;
+            float y;
+            if (std::abs (d) > 1.0e-4f) y = (antideriv (x, a) - antideriv (x1, a)) / d;
+            else                        y = shape (0.5f * (x + x1), a);
+            x1 = x;
+            return x + amount * (y - x);
+        }
+    private:
+        // g(x) = tanh(a·x)/tanh(a) ; G(x) = ∫g = ln(cosh(a·x)) / (a·tanh(a))
+        static inline float shape (float x, float a)     { return std::tanh (a * x) / std::tanh (a); }
+        static inline float antideriv (float x, float a) { return std::log (std::cosh (a * x)) / (a * std::tanh (a)); }
+        float x1 = 0.0f;
+    };
 
     // Simple state-variable-ish tilt filter used by Texture to darken/brighten.
     class TiltFilter

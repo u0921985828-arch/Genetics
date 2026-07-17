@@ -112,6 +112,7 @@ namespace chrona::dsp
         // post chain
         std::array<DeclickRamp, 2> declick;
         std::array<TiltFilter, 2>  tilt;
+        std::array<ADAASaturator, 2> satAA;   // anti-aliased Texture saturation
         std::array<EnvelopeFollower, 2> scEnv;
         Space space;
         Lcg   crackleRng;

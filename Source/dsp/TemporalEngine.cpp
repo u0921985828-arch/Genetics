@@ -60,6 +60,7 @@ namespace chrona::dsp
         for (auto& m : modes) if (m) m->reset();
         for (auto& d : declick) d.arm (0.0f);
         for (auto& t : tilt) t.reset();
+        for (auto& s : satAA) s.reset();
         for (auto& e : scEnv) e.reset();
         space.reset();
         loopPos = 0.0; loopIndex = 0; anchorAbs = 0; currentLoopLen = 0.0;
@@ -166,6 +167,15 @@ namespace chrona::dsp
         IMode* mode = activeMode();
         const bool isCustom = (requestedMode == params::Mode::Custom);
 
+        // Modes that read faster than 1× (pitch up) alias with cheap interpolation
+        // — force the band-limited sinc reader for anti-imaging regardless of the
+        // Quality setting.
+        const bool repitchUp = (requestedMode == params::Mode::Double
+                             || requestedMode == params::Mode::Glitch);
+        const params::Quality effQuality = repitchUp
+            ? (params::Quality) juce::jmax ((int) level2.quality, (int) params::Quality::Sinc)
+            : level2.quality;
+
         // Only the Custom mode needs the curves — refresh its snapshots without
         // ever blocking the audio thread (keeps the previous snapshot on the
         // rare block where the editor holds the lock).
@@ -257,7 +267,7 @@ namespace chrona::dsp
             mc.sampleRate = sampleRate;
             mc.samplesPerBeat = automation->getSamplesPerBeat();
             mc.windowSamples = windowSamples;
-            mc.quality = level2.quality;
+            mc.quality = effQuality;
 
             mode->process (mc, frameWet);
 
@@ -274,7 +284,7 @@ namespace chrona::dsp
             {
                 for (int c = 0; c < nch; ++c)
                 {
-                    float s = saturate (frameWet[c], mTexture * 0.8f);
+                    float s = satAA[(size_t) c].process (frameWet[c], mTexture * 0.8f);
                     s = tilt[(size_t) c].process (s, (mTexture - 0.5f) * 0.6f);
                     frameWet[c] = s;
                 }

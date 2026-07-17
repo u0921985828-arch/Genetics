@@ -23,7 +23,10 @@ namespace chrona::ui
             if (auto* param = state.getParameter (paramID))
                 slider.setDoubleClickReturnValue (true,
                     (double) param->convertFrom0to1 (param->getDefaultValue()));
-            slider.setWantsKeyboardFocus (false);
+            slider.setWantsKeyboardFocus (true);
+            slider.setTitle (caption);                 // accessible name (screen readers)
+            slider.setHelpText (caption + " control");
+            setTitle (caption);
             addAndMakeVisible (slider);
 
             // Auto-pick a readout style from the parameter's range: a 0..1 (or

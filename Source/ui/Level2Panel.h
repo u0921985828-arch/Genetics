@@ -155,6 +155,7 @@ namespace chrona::ui
         void addCombo (LabeledCombo& lc, const char* id, const juce::StringArray& items, const juce::String& cap)
         {
             lc.box.addItemList (items, 1);
+            lc.box.setTitle (cap);                 // accessible name
             addAndMakeVisible (lc.box);
             lc.label.setText (cap, juce::dontSendNotification);
             lc.label.setFont (theme::labelFont (11.0f));

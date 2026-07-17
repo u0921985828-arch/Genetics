@@ -1,0 +1,82 @@
+name: Release
+
+# Tag a version (e.g. v0.1.0) to build, (optionally) sign, package and publish.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxext-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libxrender-dev \
+            libfreetype6-dev libfontconfig1-dev
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCHRONA_COPY_AFTER_BUILD=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      # --- macOS: codesign + notarize + .pkg (only if signing secrets exist) ---
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERT_ID:   ${{ secrets.MACOS_CERT_ID }}   # "Developer ID Application: …"
+          MACOS_INST_ID:   ${{ secrets.MACOS_INSTALLER_ID }} # "Developer ID Installer: …"
+          AC_TEAM_ID:      ${{ secrets.AC_TEAM_ID }}
+          AC_PROFILE:      ${{ secrets.AC_NOTARY_PROFILE }} # notarytool keychain profile
+        run: bash scripts/package-macos.sh build
+
+      - name: Package Windows (Inno Setup)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe"
+          if (Test-Path $iscc) { & $iscc packaging/windows/CHRONA.iss }
+          else { Write-Host "Inno Setup not installed on runner — zipping raw artifacts instead"
+                 Compress-Archive build/CHRONA_artefacts/Release/VST3/* CHRONA-Windows-VST3.zip }
+
+      - name: Collect artifacts
+        run: |
+          cmake -E make_directory dist
+          # copy whatever formats exist for this OS (ignore missing)
+          bash -c 'shopt -s nullglob; \
+            cp -r build/CHRONA_artefacts/Release/VST3/*.vst3 dist/ 2>/dev/null || true; \
+            cp -r build/CHRONA_artefacts/Release/AU/*.component dist/ 2>/dev/null || true; \
+            cp -r *.pkg *.zip dist/ 2>/dev/null || true' || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CHRONA-${{ matrix.os }}
+          path: dist/**
+          if-no-files-found: ignore
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: all }
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: all/**/*
+          generate_release_notes: true

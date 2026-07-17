@@ -123,7 +123,8 @@ namespace chrona::dsp
         wasPlaying = playing;
     }
 
-    void TemporalEngine::process (juce::AudioBuffer<float>& audio, bool engaged)
+    void TemporalEngine::process (juce::AudioBuffer<float>& audio, bool engaged,
+                                  const float* scMono, int scNum)
     {
         jassert (automation != nullptr);
         const int numSamples = audio.getNumSamples();
@@ -331,7 +332,10 @@ namespace chrona::dsp
             float duckGain = 1.0f;
             if (level2.scSource != 0 && level2.duck > 0.0001f)
             {
-                const float src = (level2.scSource == 1) ? frameWet[0] : frameIn[0];
+                float src;
+                if (level2.scSource == 3 && scMono != nullptr && n < scNum) src = scMono[n]; // External
+                else if (level2.scSource == 1)                             src = frameWet[0]; // Wet
+                else                                                       src = frameIn[0];  // Dry / fallback
                 const float e = scEnv[0].process (src);
                 duckGain = 1.0f - level2.duck * juce::jmin (1.0f, e * 4.0f);
             }

@@ -6,8 +6,9 @@ namespace chrona
     juce::AudioProcessor::BusesProperties ChronaProcessor::makeBuses()
     {
         return BusesProperties()
-            .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-            .withOutput ("Output", juce::AudioChannelSet::stereo(), true);
+            .withInput  ("Input",      juce::AudioChannelSet::stereo(), true)
+            .withInput  ("Sidechain",  juce::AudioChannelSet::stereo(), false) // optional external SC
+            .withOutput ("Output",     juce::AudioChannelSet::stereo(), true);
     }
 
     ChronaProcessor::ChronaProcessor()
@@ -36,7 +37,16 @@ namespace chrona
         const auto& out = layouts.getMainOutputChannelSet();
         if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
             return false;
-        return layouts.getMainInputChannelSet() == out;
+        if (layouts.getMainInputChannelSet() != out)
+            return false;
+
+        // Optional sidechain: disabled, mono or stereo are all fine.
+        const auto sc = layouts.getChannelSet (true, 1);
+        if (! sc.isDisabled()
+            && sc != juce::AudioChannelSet::mono()
+            && sc != juce::AudioChannelSet::stereo())
+            return false;
+        return true;
     }
 
     void ChronaProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -46,6 +56,7 @@ namespace chrona
         engine.prepare (sampleRate, ch, samplesPerBlock);
         engine.setAutomation (&automation);
         trigger.prepare (sampleRate);
+        scMono.assign ((size_t) juce::jmax (1, samplesPerBlock), 0.0f);
     }
 
     void ChronaProcessor::pullParameters()
@@ -105,19 +116,62 @@ namespace chrona
             }
         }
         automation.updateTransport (tinfo);
+        const double spb = automation.getSamplesPerBeat();
 
-        // ---- MIDI trigger: engage flag evaluated per block (event-accurate
-        //      enough for a performance effect; sample-accurate arm is applied
-        //      inside the engine's engage smoother).
-        for (const auto meta : midi)
-            trigger.handleMessage (meta.getMessage());
-        for (int i = 0; i < buffer.getNumSamples(); ++i) trigger.tick();
-
-        // Host soft-bypass folds into the engage flag: disengaging ramps the wet
-        // mix to zero through the engine's click-free smoother → clean dry
-        // passthrough (0 latency, so it is sample-accurate).
         const bool bypassed = pBypass->load() > 0.5f;
-        engine.process (buffer, trigger.engaged() && ! bypassed);
+        const int  numSamples = buffer.getNumSamples();
+
+        // ---- external sidechain → mono scratch (only when SC Source = External
+        //      and the optional SC bus is actually connected) ----
+        const float* scPtr = nullptr;
+        if ((int) pScSource->load() == 3)
+        {
+            if (auto* scBusObj = getBus (true, 1); scBusObj != nullptr && scBusObj->isEnabled())
+            {
+                auto sc = getBusBuffer (buffer, true, 1);
+                const int scCh = sc.getNumChannels();
+                if (scCh > 0)
+                {
+                    const int nn = juce::jmin (numSamples, sc.getNumSamples());
+                    for (int n = 0; n < nn; ++n)
+                    {
+                        float s = 0.0f;
+                        for (int c = 0; c < scCh; ++c) s += sc.getReadPointer (c)[n];
+                        scMono[(size_t) n] = s / (float) scCh;
+                    }
+                    for (int n = nn; n < numSamples; ++n) scMono[(size_t) n] = 0.0f;
+                    scPtr = scMono.data();
+                }
+            }
+        }
+
+        // ---- sample-accurate MIDI trigger: split the block at trigger-note
+        //      events so engage toggles exactly on the event sample ----
+        auto mainBuf = getBusBuffer (buffer, false, 0);
+        auto* const* mainPtrs = mainBuf.getArrayOfWritePointers();
+        const int mainCh = mainBuf.getNumChannels();
+
+        auto runSeg = [&] (int start, int len)
+        {
+            if (len <= 0) return;
+            juce::AudioBuffer<float> sub (mainPtrs, mainCh, start, len);
+            for (int i = 0; i < len; ++i) trigger.tick();
+            automation::TransportInfo ts = tinfo;
+            ts.ppqPosition = tinfo.ppqPosition + (double) start / juce::jmax (1.0, spb);
+            automation.updateTransport (ts);
+            engine.process (sub, trigger.engaged() && ! bypassed,
+                            scPtr != nullptr ? scPtr + start : nullptr, len);
+        };
+
+        int segStart = 0;
+        for (const auto meta : midi)
+        {
+            const int pos = juce::jlimit (0, numSamples, meta.samplePosition);
+            if (pos > segStart) runSeg (segStart, pos - segStart);
+            trigger.handleMessage (meta.getMessage());   // applied exactly here
+            segStart = pos;
+        }
+        runSeg (segStart, numSamples - segStart);
     }
 
     juce::AudioProcessorEditor* ChronaProcessor::createEditor()

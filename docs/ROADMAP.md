@@ -7,10 +7,10 @@ reusing the shared `CircularBuffer`, `AutomationEngine`, preset and UI plumbing.
 ## Near term
 - **Freeze** — ✅ shipped. `FreezeMode` captures its slice into a private
   buffer and loops it indefinitely (independent of the 2-bar ring window).
-- **Sidechain input bus** — expose the internal sidechain as a real side bus
-  (add a bus to `makeBuses()`, feed `EnvelopeFollower` from it).
-- **Sample-accurate MIDI trigger** — split blocks at note events instead of the
-  current per-block engage evaluation.
+- **Sidechain input bus** — ✅ shipped. Optional stereo SC bus; SC Source =
+  External feeds the ducker's envelope from it.
+- **Sample-accurate MIDI trigger** — ✅ shipped. Blocks are split at trigger-note
+  events so engage toggles on the exact sample.
 
 ## Mid term
 - **Granular** — ✅ shipped. `GranularMode` scatters a cloud of Hann-windowed

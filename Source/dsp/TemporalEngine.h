@@ -61,7 +61,10 @@ namespace chrona::dsp
         void setAutomation (automation::AutomationEngine* a) { automation = a; }
 
         // Process one interleaved-by-JUCE buffer. `engaged` gates the effect.
-        void process (juce::AudioBuffer<float>& buffer, bool engaged);
+        // `scMono`/`scNum` optionally supply an external sidechain (mono, aligned
+        // to the buffer) used by the ducker when SC Source = External.
+        void process (juce::AudioBuffer<float>& buffer, bool engaged,
+                      const float* scMono = nullptr, int scNum = 0);
 
         // --- visualiser feed (read from message thread) ---------------------
         double getPlayheadPhase()  const { return visPhase.load (std::memory_order_relaxed); }

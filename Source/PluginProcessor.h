@@ -61,6 +61,8 @@ namespace chrona
         static BusesProperties makeBuses();
         void pullParameters();
 
+        std::vector<float> scMono; // mono external-sidechain scratch (per block)
+
         // cached atomic pointers to avoid string lookups on the audio thread
         std::atomic<float>* pTime = nullptr; std::atomic<float>* pDepth = nullptr;
         std::atomic<float>* pMix = nullptr;  std::atomic<float>* pTexture = nullptr;

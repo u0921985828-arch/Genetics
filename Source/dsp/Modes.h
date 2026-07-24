@@ -18,6 +18,7 @@ namespace chrona::dsp
         void seed (uint32_t v) { s = v ? v : 0x9E3779B9u; }
         inline uint32_t next() { s = s * 1664525u + 1013904223u; return s; }
         inline float unipolar() { return (float) (next() >> 8) / 16777216.0f; } // 0..1
+        inline float bip() { return unipolar() * 2.0f - 1.0f; }                 // -1..1
         inline int   range (int n) { return n > 0 ? (int) (next() % (uint32_t) n) : 0; }
     };
 
@@ -351,9 +352,16 @@ namespace chrona::dsp
                 {
                     if (! g.active)
                     {
-                        const double off = rng.unipolar() * spread * juce::jmax (1.0, L - grainLen - 4.0);
-                        g.active = true; g.pos = 0.0; g.len = grainLen;
-                        g.srcStart = (double) (ctx.totalWritten - 1) - grainLen - off;
+                        // per-grain pitch (±½ octave × depth), stereo pan, reverse
+                        const double detune = rng.bip() * spread * 0.5;
+                        g.rate = std::pow (2.0, detune);
+                        const double span = grainLen * g.rate;
+                        const double off = rng.unipolar() * spread * juce::jmax (1.0, L - span - 4.0);
+                        g.active = true; g.pos = 0.0; g.len = grainLen; g.span = span;
+                        g.srcStart = (double) (ctx.totalWritten - 1) - span - off;
+                        g.dir = (rng.unipolar() < 0.25 * (double) ctx.depth) ? -1.0 : 1.0;
+                        const float pan = 0.25f * juce::MathConstants<float>::pi * (rng.bip() * (float) spread + 1.0f);
+                        g.gL = std::cos (pan); g.gR = std::sin (pan);
                         break;
                     }
                 }
@@ -366,8 +374,12 @@ namespace chrona::dsp
             {
                 if (! g.active) continue;
                 const float env = hann (g.pos / g.len);
-                for (int c = 0; c < channels; ++c)
-                    acc[c] += ctx.read (c, g.srcStart + g.pos) * env;
+                const double srcPos = (g.dir > 0.0) ? (g.srcStart + g.pos * g.rate)
+                                                    : (g.srcStart + g.span - g.pos * g.rate);
+                const float s = (channels == 2) ? 0.5f * (ctx.read (0, srcPos) + ctx.read (1, srcPos))
+                                                : ctx.read (0, srcPos);
+                if (channels == 2) { acc[0] += s * env * g.gL; acc[1] += s * env * g.gR; }
+                else                 acc[0] += s * env;
                 g.pos += 1.0;
                 if (g.pos >= g.len) g.active = false;
             }
@@ -379,7 +391,8 @@ namespace chrona::dsp
             constexpr double kTwoPi = 6.283185307179586;
             return 0.5f - 0.5f * (float) std::cos (kTwoPi * juce::jlimit (0.0, 1.0, x));
         }
-        struct Grain { bool active = false; double pos = 0.0, len = 0.0, srcStart = 0.0; };
+        struct Grain { bool active = false; double pos = 0.0, len = 0.0, srcStart = 0.0;
+                       double rate = 1.0, span = 0.0, dir = 1.0; float gL = 0.707f, gR = 0.707f; };
         static constexpr int kVoices = 6;
         std::array<Grain, kVoices> grains {};
         double spawnCounter = 0.0;

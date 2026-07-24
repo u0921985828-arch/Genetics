@@ -56,23 +56,30 @@ namespace chrona::dsp
     class ADAASaturator
     {
     public:
-        void reset() { x1 = 0.0f; }
+        void reset() { x1 = 0.0f; dcX1 = 0.0f; dcY1 = 0.0f; }
         inline float process (float x, float amount)
         {
-            if (amount <= 0.0f) { x1 = x; return x; }
-            const float a = 1.0f + amount * 6.0f;          // drive
+            if (amount <= 0.0f) { x1 = x; dcX1 = x; dcY1 = x; return x; }
+            const float a = 1.0f + amount * 6.0f;      // drive
+            const float b = 0.15f * amount;            // asymmetry bias → even harmonics (tube-like)
+
             const float d = x - x1;
             float y;
-            if (std::abs (d) > 1.0e-4f) y = (antideriv (x, a) - antideriv (x1, a)) / d;
-            else                        y = shape (0.5f * (x + x1), a);
+            if (std::abs (d) > 1.0e-4f) y = (antideriv (x, a, b) - antideriv (x1, a, b)) / d;
+            else                        y = shape (0.5f * (x + x1), a, b);
             x1 = x;
-            return x + amount * (y - x);
+
+            const float sat = x + amount * (y - x);
+            // DC blocker — the asymmetry bias adds a small offset; remove it.
+            const float out = sat - dcX1 + 0.9995f * dcY1;
+            dcX1 = sat; dcY1 = out;
+            return out;
         }
     private:
-        // g(x) = tanh(a·x)/tanh(a) ; G(x) = ∫g = ln(cosh(a·x)) / (a·tanh(a))
-        static inline float shape (float x, float a)     { return std::tanh (a * x) / std::tanh (a); }
-        static inline float antideriv (float x, float a) { return std::log (std::cosh (a * x)) / (a * std::tanh (a)); }
-        float x1 = 0.0f;
+        // asymmetric soft clip: g(x)=tanh(a·(x+b))/tanh(a) ; G=∫g=ln(cosh(a·(x+b)))/(a·tanh(a))
+        static inline float shape (float x, float a, float b)     { return std::tanh (a * (x + b)) / std::tanh (a); }
+        static inline float antideriv (float x, float a, float b) { return std::log (std::cosh (a * (x + b))) / (a * std::tanh (a)); }
+        float x1 = 0.0f, dcX1 = 0.0f, dcY1 = 0.0f;
     };
 
     // Simple state-variable-ish tilt filter used by Texture to darken/brighten.

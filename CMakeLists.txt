@@ -22,7 +22,14 @@ option(CHRONA_BUILD_STANDALONE "Build the Standalone target" ON)
 # Installing into the system plug-in folders after each build is convenient
 # locally but breaks sandboxed CI / validator machines — off by default there.
 option(CHRONA_COPY_AFTER_BUILD "Copy the plugin into the user plug-in folders after build" ON)
+option(CHRONA_WEBVIEW "Use the HTML/JS WebView editor instead of the native UI" OFF)
 set(CHRONA_JUCE_TAG "8.0.4" CACHE STRING "JUCE git tag to fetch")
+
+# WebView needs WebView2 on Windows; only pull it in when the option is on.
+set(CHRONA_WV2 "")
+if(CHRONA_WEBVIEW)
+    set(CHRONA_WV2 NEEDS_WEBVIEW2 TRUE)
+endif()
 
 include(FetchContent)
 FetchContent_Declare(
@@ -52,6 +59,7 @@ juce_add_plugin(CHRONA
     NEEDS_MIDI_INPUT        TRUE          # MIDI trigger system
     NEEDS_MIDI_OUTPUT       FALSE
     IS_MIDI_EFFECT          FALSE
+    ${CHRONA_WV2}
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD ${CHRONA_COPY_AFTER_BUILD}
     VST3_CATEGORIES         "Fx" "Delay" "Modulation"
@@ -78,8 +86,26 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" PREFIX "Source" FILES ${C
 # ---------------------------------------------------------------------------
 #  JUCE module config
 # ---------------------------------------------------------------------------
+if(CHRONA_WEBVIEW)
+    target_compile_definitions(CHRONA PUBLIC JUCE_WEB_BROWSER=1 CHRONA_WEBVIEW=1)
+    juce_add_binary_data(ChronaWebData SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/WebUI/index.html"
+        "${CMAKE_CURRENT_SOURCE_DIR}/WebUI/style.css"
+        "${CMAKE_CURRENT_SOURCE_DIR}/WebUI/app.js"
+        "${juce_SOURCE_DIR}/modules/juce_gui_extra/native/javascript/index.js")
+    target_link_libraries(CHRONA PRIVATE ChronaWebData)
+    # Linux WebView backend needs GTK3 + WebKitGTK headers/libs on the target.
+    if(UNIX AND NOT APPLE)
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(CHRONA_WEB REQUIRED IMPORTED_TARGET gtk+-3.0)
+        pkg_search_module(CHRONA_WK REQUIRED IMPORTED_TARGET webkit2gtk-4.1 webkit2gtk-4.0)
+        target_link_libraries(CHRONA PRIVATE PkgConfig::CHRONA_WEB PkgConfig::CHRONA_WK)
+    endif()
+else()
+    target_compile_definitions(CHRONA PUBLIC JUCE_WEB_BROWSER=0)
+endif()
+
 target_compile_definitions(CHRONA PUBLIC
-    JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0

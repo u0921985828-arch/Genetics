@@ -1,5 +1,9 @@
 #include "PluginProcessor.h"
-#include "PluginEditor.h"
+#if CHRONA_WEBVIEW
+ #include "WebEditor.h"
+#else
+ #include "PluginEditor.h"
+#endif
 
 namespace chrona
 {
@@ -176,7 +180,11 @@ namespace chrona
 
     juce::AudioProcessorEditor* ChronaProcessor::createEditor()
     {
+       #if CHRONA_WEBVIEW
+        return new WebEditor (*this);
+       #else
         return new ChronaEditor (*this);
+       #endif
     }
 
     void ChronaProcessor::getStateInformation (juce::MemoryBlock& dest)

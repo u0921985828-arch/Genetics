@@ -61,7 +61,11 @@ Useful options:
 `-DCHRONA_BUILD_STANDALONE=OFF`, `-DCHRONA_JUCE_TAG=8.0.4`,
 `-DCHRONA_COPY_AFTER_BUILD=OFF` (don't install into system plug-in folders — use
 on CI), `-DCHRONA_BUILD_TESTS=ON -DCHRONA_SANITIZE=ON` (build the ASan+UBSan
-stress test), `-DCHRONA_TSAN=ON` (ThreadSanitizer build).
+stress test), `-DCHRONA_TSAN=ON` (ThreadSanitizer build),
+`-DCHRONA_WEBVIEW=ON` (use the HTML/JS **WebView** editor from `WebUI/` instead
+of the native UI — needs a system WebView: WebView2 on Windows, WebKitGTK+GTK3
+on Linux `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev`; the native UI is
+the default and dependency-free).
 
 CMake is the single source of truth for this project — it drives the plug-in
 build, the CI/validator flow, and the sanitizer/test targets. Any IDE that opens

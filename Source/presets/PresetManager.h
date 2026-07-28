@@ -3,6 +3,8 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <functional>
 #include <vector>
+#include <algorithm>
+#include <utility>
 #include "../automation/AutomationEngine.h"
 
 namespace chrona::presets
@@ -103,17 +105,15 @@ namespace chrona::presets
 
         bool load (const juce::String& name)
         {
-            // user preset first, then factory
-            auto file = userDir.getChildFile (juce::File::createLegalFileName (name) + ".chrona");
-            if (file.existsAsFile())
-            {
-                if (auto xml = juce::XmlDocument::parse (file))
-                {
-                    applyState (juce::ValueTree::fromXml (*xml));
-                    currentName = name;
-                    return true;
-                }
-            }
+            // user / bank preset first (matched by display name), then factory
+            for (const auto& e : userPresets())
+                if (e.first == name)
+                    if (auto xml = juce::XmlDocument::parse (e.second))
+                    {
+                        applyState (juce::ValueTree::fromXml (*xml));
+                        currentName = name;
+                        return true;
+                    }
             for (const auto& f : factory)
                 if (f.name == name) { applyState (f.state); currentName = name; return true; }
             return false;
@@ -128,12 +128,13 @@ namespace chrona::presets
             }
         }
 
+        // User + factory-bank presets. Banks are immediate subfolders of the
+        // preset directory, e.g. "Halftime Heavy / Amber Signal". Root-level
+        // user presets keep their plain name.
         juce::StringArray getUserPresetNames() const
         {
             juce::StringArray names;
-            for (const auto& f : userDir.findChildFiles (juce::File::findFiles, false, "*.chrona"))
-                names.add (f.getFileNameWithoutExtension());
-            names.sort (true);
+            for (const auto& e : userPresets()) names.add (e.first);
             return names;
         }
 
@@ -150,7 +151,34 @@ namespace chrona::presets
     private:
         struct FactoryPreset { juce::String name; juce::ValueTree state; };
 
-        void refresh() { /* hook for caching directory listings if needed */ }
+        // Invalidate the on-disk preset cache (rebuilt lazily on next access).
+        void refresh() { userCacheValid = false; }
+
+        // Display name for a preset file: "Bank / Name" for a file inside a
+        // bank subfolder, plain "Name" for a file at the preset-dir root.
+        juce::String displayName (const juce::File& f) const
+        {
+            const auto base   = f.getFileNameWithoutExtension();
+            const auto parent = f.getParentDirectory();
+            return (parent == userDir) ? base : (parent.getFileName() + " / " + base);
+        }
+
+        // Lazily-built, sorted cache of every on-disk preset (recursive, so it
+        // includes factory banks shipped as subfolders). Avoids re-walking the
+        // tree on every preset-browser interaction.
+        const std::vector<std::pair<juce::String, juce::File>>& userPresets() const
+        {
+            if (! userCacheValid)
+            {
+                userCache.clear();
+                for (const auto& f : userDir.findChildFiles (juce::File::findFiles, true, "*.chrona"))
+                    userCache.emplace_back (displayName (f), f);
+                std::sort (userCache.begin(), userCache.end(),
+                           [] (const auto& a, const auto& b) { return a.first.compareNatural (b.first) < 0; });
+                userCacheValid = true;
+            }
+            return userCache;
+        }
 
         // Build factory presets purely from parameter tweaks so they always
         // stay valid against the current parameter layout.
@@ -164,6 +192,8 @@ namespace chrona::presets
         automation::AutomationEngine& automation;
         juce::File userDir;
         juce::String currentName { "Init" };
+        mutable std::vector<std::pair<juce::String, juce::File>> userCache;
+        mutable bool userCacheValid = false;
         std::vector<FactoryPreset> factory;
     };
 }

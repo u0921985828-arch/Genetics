@@ -72,6 +72,14 @@ combo in the native UI). **A/B** keeps two independent snapshots so you can
 compare two settings; tweak A, click B, compare. Save your own from the native
 UI's **Save**.
 
+### Preset banks
+CHRONA ships **20 libraries × 40 presets** (see `presets/`). Each library has a
+distinct identity (Halftime Heavy, Glitch Circuits, Tape Nostalgia, Frozen
+Cathedrals, Granular Clouds, …) and appears in the browser grouped as
+`Bank / Preset`. The Windows installer seeds them automatically; on macOS/Linux
+run `scripts/install-presets.sh` (or copy the bank folders into the CHRONA
+preset directory — see `presets/README.md`).
+
 ---
 
 ## Tips

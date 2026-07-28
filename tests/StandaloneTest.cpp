@@ -295,6 +295,39 @@ int main()
         else std::printf ("NOTE [sidechain]: layout not accepted, skipped\n");
     }
 
+    // 5) Factory-bank presets (if seeded into the user preset dir): load a
+    //    spread of them and verify each still produces finite, bounded audio.
+    {
+        const auto names = proc.presets.getUserPresetNames();
+        if (! names.isEmpty())
+        {
+            juce::AudioProcessor::BusesLayout st;
+            st.inputBuses.add  (juce::AudioChannelSet::stereo());
+            st.inputBuses.add  (juce::AudioChannelSet::disabled());
+            st.outputBuses.add (juce::AudioChannelSet::stereo());
+            proc.setBusesLayout (st);
+            proc.prepareToPlay (48000.0, 256);
+            juce::MidiBuffer midi;
+            const int step = juce::jmax (1, names.size() / 24);
+            int loaded = 0;
+            for (int idx = 0; idx < names.size(); idx += step)
+            {
+                proc.presets.load (names[idx]);
+                ++loaded;
+                for (int blk = 0; blk < 4; ++blk)
+                {
+                    juce::AudioBuffer<float> buf (2, 256);
+                    for (int c = 0; c < 2; ++c)
+                        for (int n = 0; n < 256; ++n) buf.setSample (c, n, rng.bip() * 0.5f);
+                    proc.processBlock (buf, midi);
+                    checkFinite (buf, "bankpreset");
+                }
+            }
+            std::printf ("NOTE [banks]: loaded %d of %d on-disk presets, audio clean\n", loaded, names.size());
+        }
+        else std::printf ("NOTE [banks]: no on-disk banks found (dir not seeded), skipped\n");
+    }
+
     if (failures == 0) { std::printf ("ALL TESTS PASSED\n"); return 0; }
     std::printf ("%d FAILURES\n", failures);
     return 1;

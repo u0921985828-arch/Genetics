@@ -9,49 +9,43 @@ const MACROS = [
   ["texture", "Texture"], ["space", "Space"], ["width", "Width"],
 ];
 
-// Geometry of the machined knob (viewBox 0 0 100 100).
+// Geometry of the knob (viewBox 0 0 100 100).
 const A0 = -135, A1 = 135;                 // sweep, degrees
 const rad = (d) => (d - 90) * Math.PI / 180;
 const polar = (cx, cy, r, deg) => [cx + r * Math.cos(rad(deg)), cy + r * Math.sin(rad(deg))];
 const arcPath = (cx, cy, r, a, b) => {
   const [x0, y0] = polar(cx, cy, r, a), [x1, y1] = polar(cx, cy, r, b);
-  return `M ${x0} ${y0} A ${r} ${r} 0 ${b - a > 180 ? 1 : 0} 1 ${x1} ${y1}`;
+  return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${b - a > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
 };
 
-// SVG defs (gradients) shared by every knob — injected once.
+// Shared SVG defs — one vivid gradient (cyan → blue → violet), injected once.
 const DEFS = `
   <defs>
     <linearGradient id="arcGrad" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0" stop-color="#2f5fd6"/><stop offset="0.6" stop-color="#5e95ff"/>
-      <stop offset="1" stop-color="#57d6ff"/>
+      <stop offset="0" stop-color="#4fd6ff"/>
+      <stop offset="0.5" stop-color="#5b8cff"/>
+      <stop offset="1" stop-color="#9b6bff"/>
     </linearGradient>
-    <radialGradient id="capGrad" cx="42%" cy="34%" r="72%">
-      <stop offset="0" stop-color="#33383f"/><stop offset="62%" stop-color="#22262c"/>
-      <stop offset="100%" stop-color="#151820"/>
+    <radialGradient id="capGrad" cx="50%" cy="38%" r="70%">
+      <stop offset="0" stop-color="#20242c"/>
+      <stop offset="100%" stop-color="#14171d"/>
     </radialGradient>
     <linearGradient id="capHi" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="rgba(255,255,255,.18)"/>
-      <stop offset="0.4" stop-color="rgba(255,255,255,0)"/>
+      <stop offset="0" stop-color="rgba(255,255,255,.10)"/>
+      <stop offset="0.45" stop-color="rgba(255,255,255,0)"/>
     </linearGradient>
   </defs>`;
 
-const TICKS = 21;
-
+// A clean, flat knob: a thin track, a gradient value arc, a flat cap and a
+// single glowing bead + slim pointer. No ticks, no bevels.
 function knobSVG() {
-  let ticks = "";
-  for (let i = 0; i < TICKS; i++) {
-    const a = A0 + (A1 - A0) * i / (TICKS - 1);
-    const [x0, y0] = polar(50, 50, 45, a), [x1, y1] = polar(50, 50, 40, a);
-    ticks += `<line class="tick" data-i="${i}" x1="${x0.toFixed(2)}" y1="${y0.toFixed(2)}" x2="${x1.toFixed(2)}" y2="${y1.toFixed(2)}"/>`;
-  }
   return `<svg viewBox="0 0 100 100">${DEFS}
-    <g>${ticks}</g>
-    <path class="arc-bg" d="${arcPath(50, 50, 33, A0, A1)}"/>
-    <path class="arc" d="${arcPath(50, 50, 33, A0, A0)}"/>
-    <circle class="cap-face" cx="50" cy="50" r="25"/>
-    <circle class="cap-ring" cx="50" cy="50" r="21"/>
-    <circle class="cap-hi" cx="50" cy="50" r="25"/>
-    <line class="ptr" x1="50" y1="50" x2="50" y2="30"/>
+    <path class="arc-bg" d="${arcPath(50, 50, 39, A0, A1)}"/>
+    <path class="arc" d="${arcPath(50, 50, 39, A0, A0)}"/>
+    <circle class="cap-face" cx="50" cy="50" r="28"/>
+    <circle class="cap-hi" cx="50" cy="50" r="28"/>
+    <line class="ptr" x1="50" y1="30" x2="50" y2="16"/>
+    <circle class="bead" cx="50" cy="11" r="3.4"/>
   </svg>`;
 }
 
@@ -69,26 +63,21 @@ for (const [id, label] of MACROS) {
   const dial = el.querySelector(".dial");
   const arc  = el.querySelector(".arc");
   const ptr  = el.querySelector(".ptr");
-  const tickEls = el.querySelectorAll(".tick");
+  const bead = el.querySelector(".bead");
   const val  = el.querySelector(".val");
   knobRoot.appendChild(el);
 
   const render = () => {
     const v = Math.min(1, Math.max(0, state.getNormalisedValue()));
     const a = A0 + (A1 - A0) * v;
-    arc.setAttribute("d", arcPath(50, 50, 33, A0, Math.max(A0 + 0.01, a)));
-    const [px, py] = polar(50, 50, 20, a);
-    ptr.setAttribute("x2", px.toFixed(2));
-    ptr.setAttribute("y2", py.toFixed(2));
-    tickEls.forEach((t, i) => t.classList.toggle("lit", i / (TICKS - 1) <= v + 1e-6));
-    let txt = "";
-    if (state.properties && typeof state.properties.end === "number") {
-      const raw = state.getScaledValue ? state.getScaledValue() : null;
-      txt = raw != null ? fmt(raw) : Math.round(v * 100) + "%";
-    } else txt = Math.round(v * 100) + "%";
-    val.textContent = txt;
+    arc.setAttribute("d", arcPath(50, 50, 39, A0, Math.max(A0 + 0.01, a)));
+    const [ox, oy] = polar(50, 50, 30, a), [ix, iy] = polar(50, 50, 16, a);
+    ptr.setAttribute("x1", ox.toFixed(2)); ptr.setAttribute("y1", oy.toFixed(2));
+    ptr.setAttribute("x2", ix.toFixed(2)); ptr.setAttribute("y2", iy.toFixed(2));
+    const [bx, by] = polar(50, 50, 39, a);
+    bead.setAttribute("cx", bx.toFixed(2)); bead.setAttribute("cy", by.toFixed(2));
+    val.textContent = Math.round(v * 100) + "%";
   };
-  const fmt = (x) => (Math.abs(x) >= 100 ? x.toFixed(0) : Math.abs(x) >= 10 ? x.toFixed(1) : x.toFixed(2));
 
   state.valueChangedEvent.addListener(render);
   render();
@@ -202,7 +191,6 @@ requestAnimationFrame(fit);
 let model = { bins: [], phase: 0, delay: 0 };
 window.__JUCE__.backend.addEventListener("vis", (e) => {
   model = e;
-  // derive I/O levels from the buffer envelope (peak of the visible window)
   let peak = 0;
   for (const b of (model.bins || [])) { const a = Math.abs(b); if (a > peak) peak = a; }
   mOut = Math.max(peak, mOut * 0.86);
@@ -217,35 +205,37 @@ function draw() {
   if (!w || !h) return;
   ctx.clearRect(0, 0, w, h);
 
-  // baseline grid
-  ctx.strokeStyle = "rgba(255,255,255,.045)"; ctx.lineWidth = 1;
-  for (let i = 1; i < 8; i++) { const x = (w * i / 8) | 0; ctx.beginPath(); ctx.moveTo(x, 4); ctx.lineTo(x, h - 4); ctx.stroke(); }
-  ctx.strokeStyle = "rgba(255,255,255,.07)";
+  // faint centre line only — keep it clean
+  ctx.strokeStyle = "rgba(255,255,255,.05)"; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(w, mid); ctx.stroke();
 
   const bins = model.bins || [];
   const n = bins.length;
   if (n > 1) {
-    const amp = h * 0.42;
+    const amp = h * 0.44;
     const X = (i) => w * i / (n - 1);
     const Yt = (i) => mid - (bins[i] || 0) * amp;
     const Yb = (i) => mid + (bins[i] || 0) * amp;
 
-    // filled body (top mirror to bottom)
-    const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0.0, "rgba(98,176,255,.34)");
-    grad.addColorStop(0.5, "rgba(61,123,255,.10)");
-    grad.addColorStop(1.0, "rgba(98,176,255,.34)");
+    // vivid gradient body (cyan → blue → violet), left-to-right
+    const g = ctx.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0.0, "rgba(79,214,255,.26)");
+    g.addColorStop(0.5, "rgba(91,140,255,.20)");
+    g.addColorStop(1.0, "rgba(155,107,255,.26)");
     ctx.beginPath();
     ctx.moveTo(0, mid);
     for (let i = 0; i < n; i++) ctx.lineTo(X(i), Yt(i));
     for (let i = n - 1; i >= 0; i--) ctx.lineTo(X(i), Yb(i));
     ctx.closePath();
-    ctx.fillStyle = grad; ctx.fill();
+    ctx.fillStyle = g; ctx.fill();
 
-    // crisp edges
-    ctx.lineWidth = 1.4; ctx.strokeStyle = "#8fc0ff";
-    ctx.shadowColor = "rgba(61,123,255,.5)"; ctx.shadowBlur = 6;
+    // bright gradient edge with glow
+    const ge = ctx.createLinearGradient(0, 0, w, 0);
+    ge.addColorStop(0.0, "#6fe0ff");
+    ge.addColorStop(0.5, "#7ba6ff");
+    ge.addColorStop(1.0, "#b58bff");
+    ctx.lineWidth = 1.6; ctx.strokeStyle = ge;
+    ctx.shadowColor = "rgba(120,150,255,.55)"; ctx.shadowBlur = 8;
     for (const Y of [Yt, Yb]) {
       ctx.beginPath();
       for (let i = 0; i < n; i++) i ? ctx.lineTo(X(i), Y(i)) : ctx.moveTo(X(i), Y(i));
@@ -254,12 +244,12 @@ function draw() {
     ctx.shadowBlur = 0;
   }
 
-  // read-head (delay position) — bright accent line + glow
+  // read-head — thin bright accent line + bead
   const px = w * (1 - Math.min(1, model.delay || 0) * 0.6);
-  ctx.strokeStyle = "#62b0ff"; ctx.lineWidth = 1.6;
-  ctx.shadowColor = "#62b0ff"; ctx.shadowBlur = 10;
-  ctx.beginPath(); ctx.moveTo(px, 2); ctx.lineTo(px, h - 2); ctx.stroke();
+  ctx.strokeStyle = "rgba(179,139,255,.9)"; ctx.lineWidth = 1.4;
+  ctx.shadowColor = "rgba(155,107,255,.8)"; ctx.shadowBlur = 10;
+  ctx.beginPath(); ctx.moveTo(px, 6); ctx.lineTo(px, h - 6); ctx.stroke();
   ctx.shadowBlur = 0;
-  ctx.fillStyle = "#62b0ff";
-  ctx.beginPath(); ctx.arc(px, mid, 2.4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#c9a8ff";
+  ctx.beginPath(); ctx.arc(px, mid, 2.6, 0, Math.PI * 2); ctx.fill();
 }

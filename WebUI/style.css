@@ -1,34 +1,34 @@
 /* ==========================================================================
    CHRONA — WebView front-end styling
-   A boutique-grade dark instrument face: layered depth, machined knobs,
-   lit accents and a restrained, disciplined type system.
+   Clean, modern, "loud but not loaded": flat dark surfaces, generous space,
+   one vivid cyan→blue→violet accent gradient, and a single hero visualiser.
    ========================================================================== */
 
 :root{
-  /* surfaces (darkest → raised) — deeper, cooler, more tonal separation */
-  --bg:      #0a0b0e;
-  --panel:   #14161b;
-  --panel-2: #181b21;
-  --raise:   #232830;
-  --line:    #2c313a;
-  --line-2:  #3a404a;
+  /* surfaces — near-black, flat, minimal separation */
+  --bg:      #0b0c0f;
+  --panel:   #101216;
+  --raise:   #171a20;
+  --line:    #23262e;
+  --line-2:  #30343d;
 
   /* ink */
-  --ink:     #f0f3f8;
-  --ink-2:   #b3b9c4;
-  --ink-3:   #757b85;
-  --ink-4:   #4d525b;
+  --ink:     #f3f5f9;
+  --ink-2:   #b7bcc6;
+  --ink-3:   #767b85;
+  --ink-4:   #4a4f58;
 
-  /* accent + signal — richer electric blue with a cyan lift */
-  --accent:  #3f7dff;
-  --accent-2:#5e95ff;
-  --led:     #6fb6ff;
-  --cyan:    #57d6ff;
-  --good:    #46d39a;
-  --hot:     #ff5a52;
+  /* accent gradient + signal */
+  --a1:  #4fd6ff;   /* cyan  */
+  --a2:  #5b8cff;   /* blue  */
+  --a3:  #9b6bff;   /* violet*/
+  --accent: #5b8cff;
+  --grad: linear-gradient(90deg, var(--a1), var(--a2) 55%, var(--a3));
+  --good:  #46d39a;
+  --hot:   #ff5a52;
 
-  --radius:  11px;
-  --radius-s: 8px;
+  --radius:  14px;
+  --radius-s: 10px;
   --font: "Inter", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
 }
@@ -41,217 +41,180 @@ html,body{
   -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
   user-select:none; -webkit-user-select:none;
 }
-
-/* fine film grain over everything, extremely subtle */
-.grain{
-  position:fixed; inset:0; z-index:9; pointer-events:none; opacity:.035;
-  mix-blend-mode:overlay;
-  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-}
+.grain{display:none}                    /* keep it clean — no texture noise */
 
 /* ---- app shell ---------------------------------------------------------- */
 .app{
   display:flex; flex-direction:column; height:100%;
-  padding:15px; gap:13px;
+  padding:20px 22px; gap:18px;
   background:
-    radial-gradient(120% 75% at 50% -12%, #191c24 0%, var(--bg) 58%),
-    radial-gradient(140% 120% at 50% 120%, #0e1015 0%, transparent 55%),
+    radial-gradient(90% 55% at 50% -8%, rgba(91,140,255,.06) 0%, transparent 60%),
     var(--bg);
-}
-/* soft inner vignette for depth */
-.app::after{
-  content:""; position:fixed; inset:0; z-index:8; pointer-events:none;
-  box-shadow:inset 0 0 160px 20px rgba(0,0,0,.55);
 }
 
 /* ---- title bar ---------------------------------------------------------- */
 .bar{
   display:flex; align-items:center; justify-content:space-between;
-  padding:10px 14px;
-  background:linear-gradient(180deg,var(--panel-2),var(--panel));
-  border:1px solid var(--line); border-radius:var(--radius);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.04), 0 2px 10px rgba(0,0,0,.35);
+  padding:2px 2px 4px;
 }
-.brand{display:flex; align-items:center; gap:12px}
+.brand{display:flex; align-items:center; gap:13px}
 .logo{
-  width:30px; height:30px; border-radius:8px; position:relative; flex:none;
-  background:radial-gradient(circle at 35% 30%, #4b86ff, #1b3f9e 70%, #10245c);
-  box-shadow:0 0 0 1px rgba(98,176,255,.35), 0 0 18px -4px var(--accent),
-             inset 0 1px 1px rgba(255,255,255,.35);
+  width:30px; height:30px; border-radius:9px; position:relative; flex:none;
+  background:var(--grad);
+  box-shadow:0 0 22px -4px rgba(91,140,255,.7);
 }
 .logo::after{
-  content:""; position:absolute; inset:0; border-radius:8px;
-  background:conic-gradient(from 210deg, transparent 0 40%, rgba(255,255,255,.25) 55%, transparent 70%);
-  mix-blend-mode:screen;
+  content:""; position:absolute; inset:0; border-radius:9px;
+  background:linear-gradient(180deg, rgba(255,255,255,.28), transparent 55%);
 }
 .brand-txt h1{
-  margin:0; font-size:17px; font-weight:800; letter-spacing:.30em;
-  background:linear-gradient(180deg,#fff,#c3c9d4);
-  -webkit-background-clip:text; background-clip:text; color:transparent;
+  margin:0; font-size:18px; font-weight:800; letter-spacing:.34em; color:#fff;
 }
 .brand-txt p{
-  margin:2px 0 0; font-size:8.5px; letter-spacing:.34em; text-transform:uppercase;
+  margin:3px 0 0; font-size:8.5px; letter-spacing:.36em; text-transform:uppercase;
   color:var(--ink-3);
 }
 
 /* preset browser */
 .preset{
   display:flex; align-items:center; gap:2px;
-  background:var(--bg); border:1px solid var(--line);
-  border-radius:var(--radius-s); padding:3px;
-  box-shadow:inset 0 1px 3px rgba(0,0,0,.5);
+  background:var(--panel); border:1px solid var(--line);
+  border-radius:var(--radius-s); padding:4px;
 }
 .preset .nav{
   appearance:none; border:0; cursor:pointer; color:var(--ink-2);
-  background:transparent; width:26px; height:26px; border-radius:6px;
+  background:transparent; width:28px; height:28px; border-radius:7px;
   font-size:16px; line-height:1; transition:background .12s,color .12s;
 }
 .preset .nav:hover{background:var(--raise); color:var(--ink)}
 .preset-name{
-  min-width:120px; text-align:center; font-size:12px; letter-spacing:.08em;
-  color:var(--ink); padding:0 8px; font-variant:small-caps;
+  min-width:140px; text-align:center; font-size:12.5px; letter-spacing:.06em;
+  color:var(--ink); padding:0 10px; font-weight:600;
 }
 
 .bar-right{display:flex; align-items:center; gap:12px}
 .ab{
-  display:flex; background:var(--bg); border:1px solid var(--line);
-  border-radius:var(--radius-s); overflow:hidden; box-shadow:inset 0 1px 2px rgba(0,0,0,.5);
+  display:flex; background:var(--panel); border:1px solid var(--line);
+  border-radius:var(--radius-s); overflow:hidden; padding:2px;
 }
 .ab .seg{
-  padding:6px 12px; font-size:11px; font-weight:700; letter-spacing:.12em;
-  color:var(--ink-3); cursor:pointer; transition:color .12s,background .12s;
+  padding:5px 13px; font-size:11px; font-weight:700; letter-spacing:.12em;
+  color:var(--ink-3); cursor:pointer; border-radius:7px; transition:color .12s,background .12s;
 }
-.ab .seg.on{
-  color:#fff;
-  background:linear-gradient(180deg,var(--accent-2),var(--accent));
-  box-shadow:0 0 14px -4px var(--accent);
-}
+.ab .seg.on{ color:#fff; background:var(--grad); box-shadow:0 0 16px -5px var(--accent); }
 
 .power{
-  display:flex; align-items:center; gap:8px; cursor:pointer;
-  background:linear-gradient(180deg,var(--raise),var(--panel));
-  border:1px solid var(--line); border-radius:var(--radius-s);
-  padding:7px 12px; color:var(--ink-2); font-size:10px; letter-spacing:.16em; font-weight:700;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+  display:flex; align-items:center; gap:9px; cursor:pointer;
+  background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-s);
+  padding:8px 14px; color:var(--ink-2); font-size:10px; letter-spacing:.18em; font-weight:700;
 }
 .power .led{
   width:9px; height:9px; border-radius:50%; flex:none;
-  background:radial-gradient(circle at 35% 30%, #7fd0ff, var(--accent));
-  box-shadow:0 0 10px -1px var(--accent), 0 0 0 1px rgba(0,0,0,.4);
-  transition:filter .15s, opacity .15s;
+  background:var(--a2);
+  box-shadow:0 0 12px 0 rgba(91,140,255,.9);
+  transition:opacity .15s, background .15s, box-shadow .15s;
 }
-/* .on == bypassed → dim the whole face */
-.power.on .led{background:#3a3f47; box-shadow:0 0 0 1px rgba(0,0,0,.4); opacity:.6}
+.power.on .led{background:#3a3f47; box-shadow:none; opacity:.6}
 .power.on{color:var(--ink-4)}
 
 /* ---- hero stage --------------------------------------------------------- */
 .stage{
-  display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:stretch;
-  min-height:150px; flex:1 1 auto;
+  display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:stretch;
+  min-height:170px; flex:1 1 auto;
 }
 .scope-wrap{
   position:relative; display:flex; flex-direction:column;
-  background:linear-gradient(180deg,#0b0c0f,#101217);
+  background:radial-gradient(120% 130% at 50% 0%, #12141a 0%, #0c0d11 70%);
   border:1px solid var(--line); border-radius:var(--radius);
-  padding:10px 12px; overflow:hidden;
-  box-shadow:inset 0 0 0 1px rgba(0,0,0,.4), inset 0 2px 20px rgba(0,0,0,.6);
+  padding:14px 16px; overflow:hidden;
 }
 .scope-top{
   display:flex; justify-content:space-between; align-items:center;
-  font-size:9px; letter-spacing:.24em; color:var(--ink-3); margin-bottom:6px;
+  font-size:9px; letter-spacing:.26em; color:var(--ink-3); margin-bottom:8px;
 }
-.scope-top #scopeMode{color:var(--accent-2); font-weight:700}
+.scope-top #scopeMode{
+  font-weight:800; letter-spacing:.16em;
+  background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent;
+}
 .scope{flex:1 1 auto; width:100%; display:block; min-height:0}
 .scope-ticks{
   display:flex; justify-content:space-between;
-  font-size:8px; letter-spacing:.2em; color:var(--ink-4); margin-top:5px;
+  font-size:8px; letter-spacing:.2em; color:var(--ink-4); margin-top:6px;
   font-family:var(--mono);
 }
 
-/* I/O meters */
+/* I/O meters — flat capsules */
 .meter{
-  display:flex; flex-direction:column; align-items:center; gap:8px;
-  padding:10px 8px; width:44px;
-  background:linear-gradient(180deg,var(--panel-2),var(--panel));
-  border:1px solid var(--line); border-radius:var(--radius);
+  display:flex; flex-direction:column; align-items:center; gap:9px;
+  padding:12px 9px; width:42px;
+  background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
 }
-.m-lbl{font-size:8px; letter-spacing:.18em; color:var(--ink-3)}
+.m-lbl{font-size:8px; letter-spacing:.2em; color:var(--ink-3)}
 .m-bar{
-  position:relative; flex:1 1 auto; width:8px; border-radius:5px;
-  background:var(--bg); box-shadow:inset 0 0 0 1px rgba(0,0,0,.5);
+  position:relative; flex:1 1 auto; width:7px; border-radius:5px;
+  background:#0a0b0e; box-shadow:inset 0 0 0 1px rgba(255,255,255,.03);
   overflow:hidden;
 }
 .m-bar i{
   position:absolute; left:0; right:0; bottom:0; height:0%;
-  background:linear-gradient(180deg,var(--hot) 0%, #ffd44a 18%, var(--good) 45%, #2e9e73 100%);
+  background:linear-gradient(180deg,var(--hot) 0%, #ffd44a 18%, var(--good) 46%, #2e9e73 100%);
   transition:height .05s linear;
 }
 
 /* ---- panels ------------------------------------------------------------- */
 .panel{
-  background:linear-gradient(180deg,var(--panel-2),var(--panel));
-  border:1px solid var(--line); border-radius:var(--radius);
-  padding:14px 18px 18px;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.035), 0 3px 14px rgba(0,0,0,.35);
+  background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+  padding:16px 22px 22px;
 }
 .panel-head{
-  font-size:9.5px; letter-spacing:.3em; color:var(--ink-3);
-  margin-bottom:14px; display:flex; align-items:center; gap:11px;
+  font-size:9.5px; letter-spacing:.32em; color:var(--ink-3);
+  margin-bottom:16px; display:flex; align-items:center; gap:12px;
 }
 .panel-head::after{content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--line),transparent)}
 
-/* macro knobs */
-.knobs{display:grid; grid-template-columns:repeat(6,1fr); gap:10px}
+/* macro knobs — flat, minimal */
+.knobs{display:grid; grid-template-columns:repeat(6,1fr); gap:12px}
 @media(max-width:640px){.knobs{grid-template-columns:repeat(3,1fr)}}
-.knob{display:flex; flex-direction:column; align-items:center; gap:11px; padding:6px 2px}
-.knob .cap{font-size:9.5px; letter-spacing:.18em; color:var(--ink-3); text-transform:uppercase}
+.knob{display:flex; flex-direction:column; align-items:center; gap:13px; padding:4px 2px}
+.knob .cap{font-size:9.5px; letter-spacing:.2em; color:var(--ink-3); text-transform:uppercase}
 .knob .val{
-  font-size:13px; font-weight:700; color:var(--ink);
+  font-size:14px; font-weight:700; color:var(--ink);
   font-variant-numeric:tabular-nums; letter-spacing:.02em;
 }
-.dial{
-  width:78px; height:78px; cursor:ns-resize; touch-action:none;
-  position:relative; display:block;
-  filter:drop-shadow(0 4px 8px rgba(0,0,0,.45));
-}
-.dial svg{display:block; width:100%; height:100%}
-.dial .tick{stroke:var(--line-2); stroke-width:1.4}
-.dial .tick.lit{stroke:var(--led)}
-.dial .arc-bg{fill:none; stroke:var(--line); stroke-width:3.6; stroke-linecap:round}
-.dial .arc{fill:none; stroke:url(#arcGrad); stroke-width:3.6; stroke-linecap:round;
-  filter:drop-shadow(0 0 6px rgba(63,125,255,.6))}
-.dial .cap-face{fill:url(#capGrad); stroke:#090a0d; stroke-width:1}
-.dial .cap-ring{fill:none; stroke:rgba(255,255,255,.06); stroke-width:1}
+.dial{width:80px; height:80px; cursor:ns-resize; touch-action:none; position:relative; display:block}
+.dial svg{display:block; width:100%; height:100%; overflow:visible}
+.dial .arc-bg{fill:none; stroke:var(--line); stroke-width:3; stroke-linecap:round}
+.dial .arc{fill:none; stroke:url(#arcGrad); stroke-width:3; stroke-linecap:round}
+.dial .cap-face{fill:url(#capGrad); stroke:#0a0b0e; stroke-width:1}
 .dial .cap-hi{fill:url(#capHi)}
-.dial .ptr{stroke:#f4f7fc; stroke-width:2.4; stroke-linecap:round;
-  filter:drop-shadow(0 0 3px rgba(111,182,255,.5))}
+.dial .ptr{stroke:var(--ink-2); stroke-width:2.4; stroke-linecap:round}
+.dial .bead{fill:#cfe4ff; filter:drop-shadow(0 0 5px rgba(91,140,255,.9))}
 
-/* mode grid */
-.modes{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}
+/* mode grid — flat tiles, gradient only on the active one */
+.modes{display:grid; grid-template-columns:repeat(4,1fr); gap:11px}
 @media(max-width:640px){.modes{grid-template-columns:repeat(3,1fr)}}
 .mode{
-  display:flex; flex-direction:column; align-items:center; gap:8px;
-  padding:13px 6px 12px; cursor:pointer;
-  background:linear-gradient(180deg,var(--raise),var(--panel));
-  border:1px solid var(--line); border-radius:var(--radius-s);
-  color:var(--ink-2); font-size:10.5px; letter-spacing:.05em; text-align:center;
-  transition:transform .1s, border-color .12s, color .12s, box-shadow .15s;
+  display:flex; flex-direction:column; align-items:center; gap:9px;
+  padding:15px 6px 13px; cursor:pointer;
+  background:var(--raise); border:1px solid var(--line); border-radius:var(--radius-s);
+  color:var(--ink-2); font-size:11px; letter-spacing:.04em; text-align:center;
+  transition:transform .1s, border-color .12s, color .12s, background .15s;
 }
 .mode:hover{transform:translateY(-1px); border-color:var(--line-2); color:var(--ink)}
 .mode svg{width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.7;
-  stroke-linecap:round; stroke-linejoin:round; opacity:.8}
+  stroke-linecap:round; stroke-linejoin:round; opacity:.75}
 .mode.on{
-  color:#fff; border-color:var(--accent);
-  background:linear-gradient(180deg,#1b3168,#14294f);
-  box-shadow:0 0 0 1px var(--accent), 0 0 20px -6px var(--accent), inset 0 1px 0 rgba(255,255,255,.06);
+  color:#fff; border-color:transparent;
+  background:linear-gradient(180deg, rgba(91,140,255,.22), rgba(155,107,255,.14)), var(--raise);
+  box-shadow:inset 0 0 0 1px rgba(120,150,255,.55), 0 0 22px -8px rgba(120,150,255,.8);
 }
-.mode.on svg{opacity:1; stroke:var(--led)}
+.mode.on svg{opacity:1; stroke:#bcd2ff}
 
 /* ---- footer ------------------------------------------------------------- */
 .status{
   display:flex; justify-content:space-between; align-items:center;
-  font-size:9px; letter-spacing:.14em; color:var(--ink-4);
-  font-family:var(--mono); padding:0 4px;
+  font-size:9px; letter-spacing:.16em; color:var(--ink-4);
+  font-family:var(--mono); padding:0 2px;
 }
 #statusR{color:var(--ink-3)}
 

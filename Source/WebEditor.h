@@ -47,8 +47,8 @@ namespace chrona
 
             setResizable (true, true);
             if (auto* c = getConstrainer())
-                c->setSizeLimits (780, 710, 1600, 1240);
-            setSize (880, 810);
+                c->setSizeLimits (780, 780, 1600, 1320);
+            setSize (880, 890);
             startTimerHz (30);
         }
 

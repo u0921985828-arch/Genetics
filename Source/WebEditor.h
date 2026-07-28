@@ -46,7 +46,9 @@ namespace chrona
             web->goToURL (juce::WebBrowserComponent::getResourceProviderRoot() + "index.html");
 
             setResizable (true, true);
-            setSize (760, 420);
+            if (auto* c = getConstrainer())
+                c->setSizeLimits (760, 660, 1600, 1200);
+            setSize (880, 760);
             startTimerHz (30);
         }
 

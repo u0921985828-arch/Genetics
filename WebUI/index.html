@@ -7,17 +7,57 @@
   <title>CHRONA</title>
 </head>
 <body>
-  <div class="hdr">
-    <div class="brand"><h1>CHRONA</h1><span>temporal manipulation</span></div>
-    <div class="hdr-right">
-      <div class="chip" id="bypass">BYP</div>
-    </div>
-  </div>
+  <div class="grain" aria-hidden="true"></div>
 
-  <div class="body">
-    <canvas id="scope" class="scope"></canvas>
-    <div class="knobs" id="knobs"></div>
-    <div class="modes" id="modes"></div>
+  <div class="app">
+    <!-- title bar -->
+    <header class="bar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <div class="brand-txt">
+          <h1>CHRONA</h1>
+          <p>Temporal Manipulation</p>
+        </div>
+      </div>
+
+      <div class="preset" title="Preset">
+        <button class="nav" id="prev" aria-label="Previous preset">‹</button>
+        <div class="preset-name" id="presetName">Init</div>
+        <button class="nav" id="next" aria-label="Next preset">›</button>
+      </div>
+
+      <div class="bar-right">
+        <div class="ab"><span class="seg on">A</span><span class="seg">B</span></div>
+        <button class="power" id="bypass" aria-pressed="false" title="Bypass">
+          <span class="led"></span><span class="lbl">POWER</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- hero: buffer visualiser flanked by I/O meters -->
+    <section class="stage">
+      <div class="meter" id="meterIn"><span class="m-lbl">IN</span><div class="m-bar"><i></i></div></div>
+      <div class="scope-wrap">
+        <div class="scope-top"><span>BUFFER</span><span id="scopeMode">HALF</span></div>
+        <canvas id="scope" class="scope"></canvas>
+        <div class="scope-ticks"><span>−2 BARS</span><span>NOW</span></div>
+      </div>
+      <div class="meter" id="meterOut"><span class="m-lbl">OUT</span><div class="m-bar"><i></i></div></div>
+    </section>
+
+    <!-- macros -->
+    <section class="panel">
+      <div class="panel-head">MACROS</div>
+      <div class="knobs" id="knobs"></div>
+    </section>
+
+    <!-- modes -->
+    <section class="panel">
+      <div class="panel-head">MODE</div>
+      <div class="modes" id="modes"></div>
+    </section>
+
+    <footer class="status"><span id="statusL">Ready</span><span id="statusR">CHRONA · v0.1</span></footer>
   </div>
 
   <script type="module" src="app.js"></script>

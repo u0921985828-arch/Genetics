@@ -1,8 +1,11 @@
 // CHRONA WebView front-end
 // Binds the six macros, mode selector and bypass to the plug-in's APVTS
-// parameters via the JUCE 8 relay API, and renders the buffer visualiser and
+// parameters via the JUCE 8 relay API, drives the preset browser and A/B
+// compare through native functions, and renders the buffer visualiser and
 // I/O meters from the "vis" events the processor pushes each frame.
 import * as Juce from "./juce/index.js";
+
+const native = (name) => Juce.getNativeFunction(name);
 
 const MACROS = [
   ["time", "Time"], ["depth", "Depth"], ["mix", "Mix"],
@@ -170,6 +173,30 @@ bypassEl.onclick = () => bypassState.setValue(!bypassState.getValue());
 bypassState.valueChangedEvent.addListener(syncBypass);
 syncBypass();
 
+// ---- preset browser -------------------------------------------------------
+const presetName = document.getElementById("presetName");
+const statusR = document.getElementById("statusR");
+const presetPrev = native("presetPrev"), presetNext = native("presetNext");
+document.getElementById("prev").onclick = () => presetPrev();
+document.getElementById("next").onclick = () => presetNext();
+window.__JUCE__.backend.addEventListener("preset", (e) => {
+  if (e && e.name) presetName.textContent = e.name;
+  if (statusR && typeof e.index === "number" && e.count)
+    statusR.textContent = `CHRONA · ${e.index + 1}/${e.count}`;
+});
+
+// ---- A/B compare ----------------------------------------------------------
+const abSelect = native("abSelect");
+const abSegs = document.querySelectorAll(".ab .seg");
+abSegs.forEach((seg, i) => { seg.onclick = () => abSelect(i); });
+window.__JUCE__.backend.addEventListener("ab", (e) => {
+  const s = e && typeof e.slot === "number" ? e.slot : 0;
+  abSegs.forEach((seg, i) => seg.classList.toggle("on", i === s));
+});
+
+// tell the backend the page is ready so it pushes initial preset + A/B state
+if (Juce.getNativeFunction) native("uiReady")();
+
 // ---- I/O meters -----------------------------------------------------------
 const meterIn  = document.querySelector("#meterIn .m-bar i");
 const meterOut = document.querySelector("#meterOut .m-bar i");
@@ -188,13 +215,12 @@ function fit() {
 window.addEventListener("resize", fit);
 requestAnimationFrame(fit);
 
-let model = { bins: [], phase: 0, delay: 0 };
+let model = { bins: [], phase: 0, delay: 0, inLvl: 0, outLvl: 0 };
 window.__JUCE__.backend.addEventListener("vis", (e) => {
   model = e;
-  let peak = 0;
-  for (const b of (model.bins || [])) { const a = Math.abs(b); if (a > peak) peak = a; }
-  mOut = Math.max(peak, mOut * 0.86);
-  mIn  = Math.max(peak * 0.92, mIn * 0.9);
+  // real, independent input/output levels from the processor (smoothed)
+  mIn  = Math.max(model.inLvl  || 0, mIn  * 0.85);
+  mOut = Math.max(model.outLvl || 0, mOut * 0.85);
   setMeter(meterIn, Math.min(1, mIn));
   setMeter(meterOut, Math.min(1, mOut));
   draw();
@@ -244,7 +270,12 @@ function draw() {
     ctx.shadowBlur = 0;
   }
 
-  // read-head — thin bright accent line + bead
+  // pattern playhead (phase) — faint sweeping marker
+  const phx = w * Math.min(1, Math.max(0, model.phase || 0));
+  ctx.strokeStyle = "rgba(120,150,255,.28)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(phx, 4); ctx.lineTo(phx, h - 4); ctx.stroke();
+
+  // read-head (delay position) — thin bright accent line + bead
   const px = w * (1 - Math.min(1, model.delay || 0) * 0.6);
   ctx.strokeStyle = "rgba(179,139,255,.9)"; ctx.lineWidth = 1.4;
   ctx.shadowColor = "rgba(155,107,255,.8)"; ctx.shadowBlur = 10;

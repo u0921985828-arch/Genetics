@@ -13,8 +13,9 @@ namespace chrona
     //
     //  Enabled with -DCHRONA_WEBVIEW=ON. The six macros, the mode selector and
     //  bypass bind to the same APVTS parameters through JUCE relays; the buffer
-    //  visualiser is pushed to the page as "vis" events. The native editor
-    //  remains the default (dependency-free) UI.
+    //  visualiser + I/O levels are pushed to the page as "vis" events. The
+    //  preset browser and A/B compare are wired through native functions to the
+    //  real PresetManager, so the WebUI is a full front-end, not a mockup.
     // ========================================================================
     class WebEditor : public juce::AudioProcessorEditor,
                       private juce::Timer
@@ -23,12 +24,22 @@ namespace chrona
         explicit WebEditor (ChronaProcessor& p)
             : juce::AudioProcessorEditor (p), proc (p)
         {
-            auto options = juce::WebBrowserComponent::Options{}
+            using WB = juce::WebBrowserComponent;
+            auto options = WB::Options{}
                 .withNativeIntegrationEnabled()
                 .withResourceProvider ([this] (const auto& url) { return provide (url); })
                 .withOptionsFrom (timeR).withOptionsFrom (depthR).withOptionsFrom (mixR)
                 .withOptionsFrom (textureR).withOptionsFrom (spaceR).withOptionsFrom (widthR)
-                .withOptionsFrom (modeR).withOptionsFrom (bypassR);
+                .withOptionsFrom (modeR).withOptionsFrom (bypassR)
+                .withNativeFunction (juce::Identifier ("uiReady"),
+                    [this] (const juce::Array<juce::var>&, auto complete) { pushPreset(); pushAB(); complete (juce::var()); })
+                .withNativeFunction (juce::Identifier ("presetNext"),
+                    [this] (const juce::Array<juce::var>&, auto complete) { stepPreset (1);  complete (juce::var()); })
+                .withNativeFunction (juce::Identifier ("presetPrev"),
+                    [this] (const juce::Array<juce::var>&, auto complete) { stepPreset (-1); complete (juce::var()); })
+                .withNativeFunction (juce::Identifier ("abSelect"),
+                    [this] (const juce::Array<juce::var>& a, auto complete)
+                    { abSelect (a.isEmpty() ? 0 : (int) a[0]); complete (juce::var()); });
 
             web = std::make_unique<juce::WebBrowserComponent> (options);
             addAndMakeVisible (*web);
@@ -42,6 +53,10 @@ namespace chrona
             widthA   = std::make_unique<juce::WebSliderParameterAttachment>     (*param (params::id::width),   widthR);
             modeA    = std::make_unique<juce::WebComboBoxParameterAttachment>   (*param (params::id::mode),    modeR);
             bypassA  = std::make_unique<juce::WebToggleButtonParameterAttachment>(*param (params::id::bypass), bypassR);
+
+            // A/B slots start as two copies of the current state.
+            slot[0] = proc.presets.captureState();
+            slot[1] = slot[0];
 
             web->goToURL (juce::WebBrowserComponent::getResourceProviderRoot() + "index.html");
 
@@ -76,12 +91,63 @@ namespace chrona
             return std::nullopt;
         }
 
+        // --- preset browser -------------------------------------------------
+        juce::StringArray allPresetNames() const
+        {
+            juce::StringArray n = proc.presets.getFactoryNames();
+            n.addArray (proc.presets.getUserPresetNames());
+            return n;
+        }
+        void loadPresetByIndex (int i)
+        {
+            const auto names = allPresetNames();
+            if (names.isEmpty()) return;
+            const int count = names.size();
+            presetIndex = ((i % count) + count) % count;
+            const int nFactory = proc.presets.getFactoryNames().size();
+            if (presetIndex < nFactory) proc.presets.loadFactory (presetIndex);
+            else                        proc.presets.load (names[presetIndex]);
+            pushPreset();
+        }
+        void stepPreset (int d) { loadPresetByIndex (presetIndex + d); }
+        void pushPreset()
+        {
+            if (web == nullptr) return;
+            auto* o = new juce::DynamicObject();
+            o->setProperty ("name",  proc.presets.getCurrentName());
+            o->setProperty ("index", presetIndex);
+            o->setProperty ("count", allPresetNames().size());
+            web->emitEventIfBrowserIsVisible ("preset", juce::var (o));
+        }
+
+        // --- A/B compare ----------------------------------------------------
+        void abSelect (int s)
+        {
+            s = juce::jlimit (0, 1, s);
+            if (s != activeSlot)
+            {
+                slot[(size_t) activeSlot] = proc.presets.captureState(); // stash current
+                proc.presets.applyState (slot[(size_t) s]);              // recall the other
+                activeSlot = s;
+            }
+            pushAB();
+        }
+        void pushAB()
+        {
+            if (web == nullptr) return;
+            auto* o = new juce::DynamicObject();
+            o->setProperty ("slot", activeSlot);
+            web->emitEventIfBrowserIsVisible ("ab", juce::var (o));
+        }
+
         void timerCallback() override
         {
             if (web == nullptr) return;
             auto* obj = new juce::DynamicObject();
             obj->setProperty ("phase", proc.engine.getPlayheadPhase());
             obj->setProperty ("delay", proc.engine.getReadDelayNorm());
+            obj->setProperty ("inLvl",  proc.engine.getInLevel());
+            obj->setProperty ("outLvl", proc.engine.getOutLevel());
 
             const int total = proc.engine.getVisBinCount();
             const int wb    = proc.engine.getVisWriteBin();
@@ -104,6 +170,10 @@ namespace chrona
         std::unique_ptr<juce::WebSliderParameterAttachment>      timeA, depthA, mixA, textureA, spaceA, widthA;
         std::unique_ptr<juce::WebComboBoxParameterAttachment>    modeA;
         std::unique_ptr<juce::WebToggleButtonParameterAttachment> bypassA;
+
+        int presetIndex = 0;
+        juce::ValueTree slot[2];
+        int activeSlot = 0;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WebEditor)
     };

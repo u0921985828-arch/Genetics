@@ -74,6 +74,8 @@ namespace chrona::dsp
         for (auto& s : satAA) s.reset();
         for (auto& e : scEnv) e.reset();
         space.reset();
+        cracklePop[0] = cracklePop[1] = 0.0f;
+        crackleLP[0] = crackleLP[1] = 0.0f; rumbleLP = 0.0f;
         loopPos = 0.0; loopIndex = 0; anchorAbs = 0; currentLoopLen = 0.0;
         wasPlaying = false; humanizeGain = 1.0f;
         lastWet = { { 0.0f, 0.0f } };
@@ -82,6 +84,8 @@ namespace chrona::dsp
         lastProcessedMode = requestedMode;
         for (auto& b : visWave) b.store (0.0f, std::memory_order_relaxed);
         visWriteBin.store (0, std::memory_order_relaxed);
+        visIn.store (0.0f, std::memory_order_relaxed);
+        visOut.store (0.0f, std::memory_order_relaxed);
         visBinPeak = 0.0f; visBinCount = 0;
     }
 
@@ -222,6 +226,8 @@ namespace chrona::dsp
         const double phaseInc  = automation->phaseIncrementPerSample();
         double lastCustomPhase = basePhase;
 
+        float blkInPeak = 0.0f, blkOutPeak = 0.0f;   // I/O meters
+
         for (int n = 0; n < numSamples; ++n)
         {
             // --- smoothed macros ---
@@ -242,6 +248,7 @@ namespace chrona::dsp
             }
             if (nch == 1) frameIn[1] = frameIn[0];
             buffer.write (frameIn);
+            blkInPeak = juce::jmax (blkInPeak, std::abs (frameIn[0]), std::abs (frameIn[1]));
 
             // publish the peak envelope one bin at a time (lock-free, GUI-read)
             const float visMono = 0.5f * (frameIn[0] + frameIn[1]);
@@ -320,9 +327,19 @@ namespace chrona::dsp
                 }
                 if (requestedMode == params::Mode::Vinyl)
                 {
-                    const float crackle = (crackleRng.unipolar() < 0.002f * mTexture)
-                                            ? (crackleRng.unipolar() - 0.5f) * mTexture * 0.5f : 0.0f;
-                    for (int c = 0; c < nch; ++c) frameWet[c] += crackle;
+                    // Faint low-passed rumble bed (shared), then per-channel dust:
+                    // sparse pops that DECAY and are low-passed into short filtered
+                    // ticks — analog surface noise, not a 1-sample digital click.
+                    rumbleLP += 0.02f * (crackleRng.bip() * 0.5f - rumbleLP);
+                    const float rumble = rumbleLP * 0.12f * mTexture;
+                    for (int c = 0; c < nch; ++c)
+                    {
+                        if (crackleRng.unipolar() < 0.0016f * mTexture)
+                            cracklePop[c] = (crackleRng.unipolar() - 0.5f) * mTexture;
+                        crackleLP[(size_t) c] += 0.4f * (cracklePop[c] - crackleLP[(size_t) c]);
+                        cracklePop[c] *= 0.55f;                       // fast pop envelope
+                        frameWet[c] += crackleLP[(size_t) c] * 0.9f + rumble;
+                    }
                 }
             }
 
@@ -379,7 +396,9 @@ namespace chrona::dsp
                 const float dry = frameIn[c];
                 const float wet = frameWet[c] * duckGain;
                 const float outv = dry * (1.0f - wetMix) + wet * wetMix;
-                ch[c][n] = std::isfinite (outv) ? safetyCeiling (outv) : 0.0f; // ceiling + never emit NaN/Inf
+                const float safe = std::isfinite (outv) ? safetyCeiling (outv) : 0.0f; // ceiling + never emit NaN/Inf
+                ch[c][n] = safe;
+                blkOutPeak = juce::jmax (blkOutPeak, std::abs (safe));
             }
 
             if (isCustom && ! t.isPlaying) automation->advanceFreePhase();
@@ -390,6 +409,10 @@ namespace chrona::dsp
                         std::memory_order_relaxed);
         visDelay.store (windowSamples > 0.0 ? (buffer.getTotalWritten() - 1 - anchorAbs) / windowSamples : 0.0,
                         std::memory_order_relaxed);
+
+        // I/O meter envelopes: instant attack, smooth release across segments/blocks
+        visIn.store  (juce::jmax (blkInPeak,  visIn.load  (std::memory_order_relaxed) * 0.82f), std::memory_order_relaxed);
+        visOut.store (juce::jmax (blkOutPeak, visOut.load (std::memory_order_relaxed) * 0.82f), std::memory_order_relaxed);
 
         // remember where the playhead was so we can spot a locate next block
         lastPpqSamples = ppqSamples;

@@ -82,6 +82,11 @@ namespace chrona::dsp
             return visWave[(size_t) juce::jlimit (0, kVisBins - 1, i)].load (std::memory_order_relaxed);
         }
 
+        // Independent input / output peak levels (running envelope) for the
+        // I/O meters — the audio thread is the only writer.
+        float getInLevel()  const { return visIn.load  (std::memory_order_relaxed); }
+        float getOutLevel() const { return visOut.load (std::memory_order_relaxed); }
+
     private:
         IMode* activeMode();
         void   updateLoopClock (bool playing, double ppqSamples, bool forceResync);
@@ -119,6 +124,10 @@ namespace chrona::dsp
         std::array<EnvelopeFollower, 2> scEnv;
         Space space;
         Lcg   crackleRng;
+        // Vinyl surface noise: enveloped, low-passed pops + faint rumble
+        float cracklePop[2] = { 0.0f, 0.0f };
+        float crackleLP[2]  = { 0.0f, 0.0f };
+        float rumbleLP = 0.0f;
 
         OnePole engageSmoother;
         OnePole gateSmooth;
@@ -134,6 +143,8 @@ namespace chrona::dsp
 
         std::atomic<double> visPhase { 0.0 };
         std::atomic<double> visDelay { 0.0 };
+        std::atomic<float>  visIn  { 0.0f };
+        std::atomic<float>  visOut { 0.0f };
 
         // peak-envelope publisher (audio thread accumulates, GUI reads)
         std::array<std::atomic<float>, kVisBins> visWave {};

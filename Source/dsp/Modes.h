@@ -158,24 +158,35 @@ namespace chrona::dsp
                 sliceLen = std::min (sliceLen, ctx.windowSamples * 0.5);
 
             const double posInSlice = std::fmod (ctx.localSamples, sliceLen);
-            const double sliceStart = (double) ctx.anchorAbs - sliceLen;
-            const double srcAbs = sliceStart + posInSlice;
-
             const float win = SmartFade::gain ((int) posInSlice, (int) sliceLen, ctx.smartFade);
 
-            // Beat Repeat fades successive repeats by Depth.
-            float rg = 1.0f;
+            // Per-repeat variation makes Beat Repeat evolve instead of hammering
+            // one identical slice: Depth fades each repeat and, stochastically,
+            // re-pitches (½× / 2×) or reverses it. Stutter stays clean (rate 1).
+            double rate = 1.0; bool rev = false; float rg = 1.0f;
             if (kind == BeatRepeat && ctx.depth > 0.0f)
             {
                 const int rep = (int) (ctx.localSamples / sliceLen);
                 rg = std::pow (1.0f - 0.18f * ctx.depth, (float) rep);
+                rng.seed ((uint32_t) (ctx.anchorAbs / 64 + rep * 2654435761u));
+                const float rr = rng.unipolar();
+                if      (rr < 0.15f * ctx.depth) rate = 2.0;
+                else if (rr < 0.28f * ctx.depth) rate = 0.5;
+                rev = rng.unipolar() < 0.20f * ctx.depth;
             }
 
+            // Origin sits far enough back that a pitched-up (rate>1) read stays
+            // inside the recorded window instead of running into the live edge.
+            const double base = (double) ctx.anchorAbs - sliceLen * rate;
+            const double f = rev ? (sliceLen - posInSlice) : posInSlice;
+            const double srcAbs = base + f * rate;
+
             for (int c = 0; c < channels; ++c)
-                out[c] = ctx.read (c, srcAbs) * win * rg;
+                out[c] = ctx.read (c, srcAbs, rate) * win * rg;
         }
     private:
         Kind kind;
+        Lcg  rng;
     };
 
     // ===== Vinyl (wow/flutter + near-live playback) =========================
@@ -313,31 +324,75 @@ namespace chrona::dsp
             buf.assign ((size_t) channels, std::vector<float> ((size_t) capacity, 0.0f));
             reset();
         }
-        void reset() override { primed = false; filling = false; pos = 0; fillPos = 0; len = 0; }
+        void reset() override
+        {
+            primed = false; filling = false; fillPos = 0; len = 0;
+            posA = 0.0; posB = 0.0; drift = 0.0;
+        }
 
         void process (const ModeContext& ctx, float* out) override
         {
             if (! primed)
             {
                 len = juce::jlimit (256, capacity, (int) juce::jmax (256.0, ctx.loopLenSamples));
-                filling = true; fillPos = 0; pos = 0; primed = true;
+                filling = true; fillPos = 0; primed = true;
+                posA = 0.0; posB = len * 0.5;   // second player half a period out
+                drift = 0.0;
             }
 
-            const int idx = filling ? fillPos : (pos % len);
-            const float win = SmartFade::gain (idx, len, 0.25f + 0.5f * ctx.smartFade);
+            if (filling)
+            {
+                // still capturing — pass the captured sample through with edge fade
+                const float win = SmartFade::gain (fillPos, len, 0.25f + 0.5f * ctx.smartFade);
+                for (int c = 0; c < channels; ++c)
+                {
+                    buf[(size_t) c][(size_t) fillPos] = ctx.read (c, (double) (ctx.totalWritten - 1));
+                    out[c] = buf[(size_t) c][(size_t) fillPos] * win;
+                }
+                if (++fillPos >= len) filling = false;
+                return;
+            }
+
+            // --- bloom playback: two Hann-windowed players offset half a period
+            //     (constant-power overlap → no seam) with a tiny detune + slow
+            //     drift so the frozen region evolves instead of combing. ---
+            const float detune = 0.002f * ctx.depth;        // ±0.2% * Depth
+            const double rA = 1.0 - (double) detune;
+            const double rB = 1.0 + (double) detune;
+            const double dl = (double) len;
+            const double slow = 0.5 + 0.5 * std::sin (drift); // 0..1 slow crossfade tilt
 
             for (int c = 0; c < channels; ++c)
             {
-                if (filling) buf[(size_t) c][(size_t) fillPos] = ctx.read (c, (double) (ctx.totalWritten - 1));
-                out[c] = buf[(size_t) c][(size_t) idx] * win;
+                const float a = fracRead (c, posA) * hannPos (posA, dl);
+                const float b = fracRead (c, posB) * hannPos (posB, dl);
+                // slow tilt subtly favours one layer then the other for movement
+                out[c] = a * (float) (0.6 + 0.4 * slow) + b * (float) (0.6 + 0.4 * (1.0 - slow));
             }
 
-            if (filling) { if (++fillPos >= len) filling = false; }
-            else         { ++pos; }
+            posA += rA; if (posA >= dl) posA -= dl;
+            posB += rB; if (posB >= dl) posB -= dl;
+            drift += 0.15 / juce::jmax (1.0, ctx.sampleRate) * 6.2831853; // ~0.15 Hz
+            if (drift > 6.2831853) drift -= 6.2831853;
         }
     private:
+        float fracRead (int c, double p) const
+        {
+            const auto& b = buf[(size_t) c];
+            const int L = len;
+            int i0 = (int) p; if (i0 >= L) i0 -= L; if (i0 < 0) i0 += L;
+            int i1 = i0 + 1; if (i1 >= L) i1 -= L;
+            const float f = (float) (p - std::floor (p));
+            return b[(size_t) i0] * (1.0f - f) + b[(size_t) i1] * f;
+        }
+        static float hannPos (double p, double L)
+        {
+            constexpr double kTwoPi = 6.283185307179586;
+            return 0.5f - 0.5f * (float) std::cos (kTwoPi * juce::jlimit (0.0, 1.0, p / juce::jmax (1.0, L)));
+        }
         std::vector<std::vector<float>> buf;
-        int capacity = 0, len = 0, pos = 0, fillPos = 0;
+        int capacity = 0, len = 0, fillPos = 0;
+        double posA = 0.0, posB = 0.0, drift = 0.0;
         bool primed = false, filling = false;
     };
 
@@ -387,6 +442,7 @@ namespace chrona::dsp
             spawnCounter -= 1.0;
 
             float acc[2] = { 0.0f, 0.0f };
+            float wsum = 0.0f;    // summed grain-window energy for overlap normalisation
             for (auto& g : grains)
             {
                 if (! g.active) continue;
@@ -397,10 +453,14 @@ namespace chrona::dsp
                                                 : ctx.read (0, srcPos, g.rate);
                 if (channels == 2) { acc[0] += s * env * g.gL; acc[1] += s * env * g.gR; }
                 else                 acc[0] += s * env;
+                wsum += env;
                 g.pos += 1.0;
                 if (g.pos >= g.len) g.active = false;
             }
-            for (int c = 0; c < channels; ++c) out[c] = acc[c] * 0.6f;
+            // Normalise by the active overlap (sqrt keeps a fuller-than-RMS cloud)
+            // so dense/sparse settings hold a steady level instead of pumping.
+            const float norm = 1.0f / std::max (1.0f, std::sqrt (wsum));
+            for (int c = 0; c < channels; ++c) out[c] = acc[c] * norm;
         }
     private:
         static float hann (double x)
@@ -410,7 +470,7 @@ namespace chrona::dsp
         }
         struct Grain { bool active = false; double pos = 0.0, len = 0.0, srcStart = 0.0;
                        double rate = 1.0, span = 0.0, dir = 1.0; float gL = 0.707f, gR = 0.707f; };
-        static constexpr int kVoices = 6;
+        static constexpr int kVoices = 24;   // dense enough for a lush cloud
         std::array<Grain, kVoices> grains {};
         double spawnCounter = 0.0;
         Lcg rng;

@@ -83,6 +83,10 @@ namespace chrona
 
         void resized() override { if (web) web->setBounds (getLocalBounds()); }
 
+        // After a host state load, tell the page to re-pull preset + curves (the
+        // "preset" event handler in app.js reloads the curve editor).
+        void refreshAfterStateLoad() { pushPreset(); pushAB(); }
+
     private:
         std::optional<juce::WebBrowserComponent::Resource> provide (const juce::String& url)
         {

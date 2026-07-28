@@ -21,7 +21,7 @@ namespace chrona::midi
     class MidiTriggerSystem
     {
     public:
-        void prepare (double sampleRate) { sr = sampleRate; reset(); }
+        void prepare (double sampleRate) { sr = sampleRate; setMinMomentaryMs (100.0); reset(); }
 
         void reset()
         {
@@ -49,6 +49,12 @@ namespace chrona::midi
             }
             else if (m.isNoteOff() && m.getNoteNumber() == triggerNote)
             {
+                noteHeld = false;
+            }
+            else if (m.isAllNotesOff() || m.isAllSoundOff())
+            {
+                // Hosts often send CC 123/120 on stop/panic instead of an
+                // explicit note-off — clear the hold so the effect can't stick.
                 noteHeld = false;
             }
         }

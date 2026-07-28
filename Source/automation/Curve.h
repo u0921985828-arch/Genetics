@@ -62,6 +62,16 @@ namespace chrona::automation
         void setPoints (std::vector<Point> pts)
         {
             points = std::move (pts);
+            // Single sanitising choke-point for ALL callers (incl. the WebView
+            // JSON bridge, which otherwise passes values straight through): clamp
+            // to range and neutralise any non-finite field so out-of-range gains
+            // never reach the DSP and a NaN x can't break the sort comparator.
+            for (auto& p : points)
+            {
+                p.x     = std::isfinite (p.x)     ? juce::jlimit (0.0f, 1.0f, p.x)      : 0.0f;
+                p.y     = std::isfinite (p.y)     ? juce::jlimit (0.0f, 1.0f, p.y)      : 0.0f;
+                p.curve = std::isfinite (p.curve) ? juce::jlimit (-1.0f, 1.0f, p.curve) : 0.0f;
+            }
             sort();
             if ((int) points.size() > kMaxPoints)
             {
@@ -156,8 +166,11 @@ namespace chrona::automation
 
         void sort()
         {
-            std::sort (points.begin(), points.end(),
-                       [] (const Point& l, const Point& r) { return l.x < r.x; });
+            // STABLE sort: step curves encode a vertical edge as two coincident-x
+            // points whose intended shape depends on their relative order. A
+            // non-stable sort can swap equal-x points and turn a hold into a ramp.
+            std::stable_sort (points.begin(), points.end(),
+                              [] (const Point& l, const Point& r) { return l.x < r.x; });
         }
 
         std::vector<Point> points { { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f } };

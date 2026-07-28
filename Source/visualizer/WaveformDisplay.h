@@ -21,9 +21,15 @@ namespace chrona::visualizer
             setOpaque (true);
         }
 
-        void visibilityChanged() override
+        // Drive the 60 Hz timer from BOTH visibility and hierarchy changes:
+        // becoming visible via an ANCESTOR (e.g. the ADVANCED panel opening)
+        // sends parentHierarchyChanged, not visibilityChanged — without this the
+        // waveform never starts animating and shows a frozen frame.
+        void visibilityChanged()      override { updateTimerState(); }
+        void parentHierarchyChanged() override { updateTimerState(); }
+        void updateTimerState()
         {
-            if (isShowing()) startTimerHz (60);
+            if (isShowing()) { if (! isTimerRunning()) startTimerHz (60); }
             else             stopTimer();
         }
 

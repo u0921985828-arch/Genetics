@@ -72,13 +72,26 @@ namespace chrona::dsp
             const float sat = x + amount * (y - x);
             // DC blocker — the asymmetry bias adds a small offset; remove it.
             const float out = sat - dcX1 + 0.9995f * dcY1;
+            // Belt-and-suspenders: a pathologically hot input must never latch a
+            // non-finite value into the DC-blocker state (which would then feed
+            // NaN forever). The stable log-cosh below makes this unreachable for
+            // finite input, but guard anyway and fall back to clean passthrough.
+            if (! std::isfinite (out)) { dcX1 = x; dcY1 = x; return x; }
             dcX1 = sat; dcY1 = out;
             return out;
         }
     private:
+        // Numerically-stable log(cosh(z)) = |z| + log1p(exp(-2|z|)) - ln2. The
+        // naïve std::cosh overflows to +Inf for z ≳ 89 (float), so a hot input
+        // to the plain formula produced Inf → NaN and killed the wet path.
+        static inline float logcosh (float z) noexcept
+        {
+            const float az = std::abs (z);
+            return az + std::log1p (std::exp (-2.0f * az)) - 0.6931472f; // ln2
+        }
         // asymmetric soft clip: g(x)=tanh(a·(x+b))/tanh(a) ; G=∫g=ln(cosh(a·(x+b)))/(a·tanh(a))
         static inline float shape (float x, float a, float b)     { return std::tanh (a * (x + b)) / std::tanh (a); }
-        static inline float antideriv (float x, float a, float b) { return std::log (std::cosh (a * (x + b))) / (a * std::tanh (a)); }
+        static inline float antideriv (float x, float a, float b) { return logcosh (a * (x + b)) / (a * std::tanh (a)); }
         float x1 = 0.0f, dcX1 = 0.0f, dcY1 = 0.0f;
     };
 

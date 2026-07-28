@@ -54,6 +54,19 @@ namespace chrona::presets
             if ((int) root.getProperty ("version", kStateVersion) > kStateVersion)
                 return;
 
+            // Reset everything to defaults FIRST so a preset that omits a value
+            // (e.g. an older file predating a newly-added parameter, or a missing
+            // curve) recalls the default rather than keeping the pre-load value.
+            for (int i = 0; i < apvts.state.getNumChildren(); ++i)
+            {
+                const auto child = apvts.state.getChild (i);
+                if (child.hasType ("PARAM"))
+                    if (auto* p = apvts.getParameter (child.getProperty ("id").toString()))
+                        p->setValueNotifyingHost (p->getDefaultValue());
+            }
+            { automation::Curve t; t.setFlat (0.0f); automation.publishTimeCurve   (t); }
+            { automation::Curve v; v.setFlat (1.0f); automation.publishVolumeCurve (v); }
+
             // APVTS is the first non-curve child.
             for (int i = 0; i < root.getNumChildren(); ++i)
             {

@@ -18,7 +18,7 @@ namespace chrona::presets
                                               const Curve& timeC, const Curve& volC) const
     {
         juce::ValueTree root ("CHRONA");
-        root.setProperty ("version", 1, nullptr);
+        root.setProperty ("version", kStateVersion, nullptr);
 
         auto params = apvts.copyState();   // current values as a starting point
         setParams (params);

@@ -51,7 +51,7 @@ namespace chrona::dsp
         inline float read (int ch, double srcAbs, double readRate = 1.0) const
         {
             double delay = (double) (totalWritten - 1) - srcAbs;
-            delay = std::clamp (delay, kReadGuard, windowSamples);
+            delay = std::clamp (delay, kReadGuard, std::max (kReadGuard, windowSamples)); // hi>=lo always
             return buffer->read (ch, delay, quality, readRate);
         }
     };

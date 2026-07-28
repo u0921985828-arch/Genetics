@@ -53,7 +53,7 @@ namespace chrona::ui
             addCombo (bufferBox,  P::bufferBars, juce::StringArray { "1 Bar", "2 Bars" },        "BUFFER");
             addCombo (qualityBox, P::quality,    juce::StringArray { "Linear", "Hermite", "Sinc" }, "QUALITY");
             addCombo (trigBox,    P::triggerMode,juce::StringArray { "Hold", "Latch", "Momentary" }, "TRIGGER");
-            addCombo (scBox,      P::scSource,   juce::StringArray { "Off", "Wet", "Dry" },      "SIDECHAIN");
+            addCombo (scBox,      P::scSource,   juce::StringArray { "Off", "Wet", "Dry", "External" }, "SIDECHAIN");
 
             // snap toggle
             snapButton.setButtonText ("SNAP");

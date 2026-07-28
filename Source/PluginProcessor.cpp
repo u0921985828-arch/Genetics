@@ -163,12 +163,16 @@ namespace chrona
         auto runSeg = [&] (int start, int len)
         {
             if (len <= 0) return;
+            // Sample the engage state at the segment START, before advancing the
+            // momentary timers — reading it after the tick loop drained the
+            // counter, truncating the tail of a Momentary gesture by a segment.
+            const bool eng = trigger.engaged();
             juce::AudioBuffer<float> sub (mainPtrs, mainCh, start, len);
             for (int i = 0; i < len; ++i) trigger.tick();
             automation::TransportInfo ts = tinfo;
             ts.ppqPosition = tinfo.ppqPosition + (double) start / juce::jmax (1.0, spb);
             automation.updateTransport (ts);
-            engine.process (sub, trigger.engaged() && ! bypassed,
+            engine.process (sub, eng && ! bypassed,
                             scPtr != nullptr ? scPtr + start : nullptr, len);
         };
 
@@ -203,6 +207,17 @@ namespace chrona
     {
         if (auto xml = getXmlFromBinary (data, size))
             presets.applyState (juce::ValueTree::fromXml (*xml));
+
+        // Reseed an open editor's curve view; without this it keeps drawing the
+        // pre-load curve and a subsequent edit silently overwrites the loaded one.
+        juce::MessageManager::callAsync ([this]
+        {
+           #if CHRONA_WEBVIEW
+            if (auto* ed = dynamic_cast<WebEditor*> (getActiveEditor()))    ed->refreshAfterStateLoad();
+           #else
+            if (auto* ed = dynamic_cast<ChronaEditor*> (getActiveEditor())) ed->refreshAfterStateLoad();
+           #endif
+        });
     }
 }
 

@@ -44,6 +44,11 @@ namespace chrona::automation
         }
 
         static constexpr int kMaxPoints = 512;
+        // The audio thread copies a published curve into a snapshot reserved to
+        // kMaxPoints, so the master's hard cap must not exceed it — else the RT
+        // copy could reallocate.
+        static_assert (Curve::kMaxPoints <= kMaxPoints,
+                       "Curve point cap must not exceed the RT snapshot reserve");
 
         void prepare (double sr)
         {
@@ -62,7 +67,7 @@ namespace chrona::automation
             transport = t;
             sampleRate = t.sampleRate;
 
-            beatsPerBar   = (double) t.numerator * (4.0 / (double) t.denominator);
+            beatsPerBar   = (double) t.numerator * (4.0 / (double) juce::jmax (1, t.denominator));
             patternBeats  = beatsPerBar * (double) bufferBars;
             warpBeats     = beatsPerBar * warpBars;                 // Time-Warp cycle
             samplesPerBeat = (60.0 / juce::jmax (1.0, t.bpm)) * sampleRate;

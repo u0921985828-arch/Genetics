@@ -31,6 +31,11 @@ namespace chrona
 
         ~ChronaEditor() override { setLookAndFeel (nullptr); }
 
+        // Called (async, message thread) after the host loads plugin state, so an
+        // open curve editor reseeds instead of showing — and then re-publishing —
+        // the previous curve over the freshly-loaded automation.
+        void refreshAfterStateLoad() { if (content) content->refreshCurves(); }
+
         void resized() override
         {
             // Derive zoom from the actual editor width vs the logical width so
@@ -121,6 +126,9 @@ namespace chrona
             }
 
             bool advancedIsOpen() const { return advancedOpen; }
+
+            // Reseed the curve editors from the engine after a host state load.
+            void refreshCurves() { level2.refreshCurves(); }
 
         private:
             ui::Level1Panel level1;

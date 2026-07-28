@@ -243,6 +243,58 @@ int main()
         }
     }
 
+    // 4) Mono layout + external-sidechain paths (previously untested).
+    {
+        // -- mono in/out, sidechain disabled --
+        juce::AudioProcessor::BusesLayout mono;
+        mono.inputBuses.add  (juce::AudioChannelSet::mono());
+        mono.inputBuses.add  (juce::AudioChannelSet::disabled());
+        mono.outputBuses.add (juce::AudioChannelSet::mono());
+        if (proc.setBusesLayout (mono))
+        {
+            proc.prepareToPlay (48000.0, 256);
+            juce::MidiBuffer midi;
+            for (int mode = 0; mode < (int) chrona::params::Mode::NumModes; ++mode)
+            {
+                if (auto* mp = proc.apvts.getParameter (chrona::params::id::mode))
+                    mp->setValueNotifyingHost (mp->convertTo0to1 ((float) mode));
+                for (int blk = 0; blk < 8; ++blk)
+                {
+                    juce::AudioBuffer<float> buf (1, 256);
+                    for (int n = 0; n < 256; ++n) buf.setSample (0, n, rng.bip() * 0.5f);
+                    proc.processBlock (buf, midi);
+                    checkFinite (buf, "mono");
+                }
+            }
+        }
+        else std::printf ("NOTE [mono]: layout not accepted, skipped\n");
+
+        // -- stereo main + external stereo sidechain, ducker engaged --
+        juce::AudioProcessor::BusesLayout sc;
+        sc.inputBuses.add  (juce::AudioChannelSet::stereo());
+        sc.inputBuses.add  (juce::AudioChannelSet::stereo());
+        sc.outputBuses.add (juce::AudioChannelSet::stereo());
+        if (proc.setBusesLayout (sc))
+        {
+            proc.prepareToPlay (48000.0, 256);
+            setParam (chrona::params::id::scSource,   1.0f);  // choice 3 = External
+            setParam (chrona::params::id::duckAmount, 0.6f);
+            juce::MidiBuffer midi;
+            const int totalCh = juce::jmax (proc.getTotalNumInputChannels(), proc.getTotalNumOutputChannels());
+            for (int blk = 0; blk < 16; ++blk)
+            {
+                juce::AudioBuffer<float> buf (totalCh, 256);
+                for (int c = 0; c < totalCh; ++c)
+                    for (int n = 0; n < 256; ++n) buf.setSample (c, n, rng.bip() * 0.5f);
+                proc.processBlock (buf, midi);
+                checkFinite (buf, "sidechain");
+            }
+            setParam (chrona::params::id::scSource,   0.0f);
+            setParam (chrona::params::id::duckAmount, 0.0f);
+        }
+        else std::printf ("NOTE [sidechain]: layout not accepted, skipped\n");
+    }
+
     if (failures == 0) { std::printf ("ALL TESTS PASSED\n"); return 0; }
     std::printf ("%d FAILURES\n", failures);
     return 1;

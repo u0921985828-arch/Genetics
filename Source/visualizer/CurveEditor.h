@@ -37,9 +37,14 @@ namespace chrona::visualizer
             repaint();
         }
 
-        void visibilityChanged() override
+        // Also react to hierarchy changes so the playhead animates when the
+        // ADVANCED panel (an ancestor) opens — visibilityChanged alone misses it.
+        void visibilityChanged()      override { updateTimerState(); }
+        void parentHierarchyChanged() override { updateTimerState(); }
+        void updateTimerState()
         {
-            if (isShowing()) startTimerHz (60); else stopTimer();
+            if (isShowing()) { if (! isTimerRunning()) startTimerHz (60); }
+            else             stopTimer();
         }
 
         void paint (juce::Graphics& g) override

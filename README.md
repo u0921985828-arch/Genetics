@@ -65,7 +65,11 @@ stress test), `-DCHRONA_TSAN=ON` (ThreadSanitizer build),
 `-DCHRONA_WEBVIEW=ON` (use the HTML/JS **WebView** editor from `WebUI/` instead
 of the native UI — needs a system WebView: WebView2 on Windows, WebKitGTK+GTK3
 on Linux `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev`; the native UI is
-the default and dependency-free).
+the default and dependency-free). The WebView editor is full-featured: six
+macro knobs, the mode grid, a preset-bank dropdown, A/B compare, live I/O
+meters, the buffer visualiser with playhead, a Randomize dice, and — in Time
+Warp mode — an editable **Time/Volume curve editor** with node/bend handles
+and a Warp **Rate** selector.
 
 CMake is the single source of truth for this project — it drives the plug-in
 build, the CI/validator flow, and the sanitizer/test targets. Any IDE that opens

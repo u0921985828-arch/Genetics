@@ -38,11 +38,11 @@ mkdir -p "$ROOT/Library/Audio/Plug-Ins/VST3" "$ROOT/Library/Audio/Plug-Ins/Compo
 [ -e "$AU" ]   && cp -R "$AU"   "$ROOT/Library/Audio/Plug-Ins/Components/"
 
 if [ -n "${MACOS_INST_ID:-}" ]; then
-  pkgbuild --root "$ROOT" --identifier com.chrona.pkg --version "${VERSION:-0.1.0}" \
+  pkgbuild --root "$ROOT" --identifier com.artifacts.chrona.pkg --version "${VERSION:-1.0.0}" \
            --install-location / --sign "$MACOS_INST_ID" "$PKG"
 else
   echo "!! MACOS_INSTALLER_ID unset — building unsigned pkg"
-  pkgbuild --root "$ROOT" --identifier com.chrona.pkg --version "${VERSION:-0.1.0}" \
+  pkgbuild --root "$ROOT" --identifier com.artifacts.chrona.pkg --version "${VERSION:-1.0.0}" \
            --install-location / "$PKG"
 fi
 

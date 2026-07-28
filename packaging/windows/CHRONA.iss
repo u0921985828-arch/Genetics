@@ -3,8 +3,8 @@
 ; Sign the resulting installer separately with signtool if you have a cert.
 
 #define AppName "CHRONA"
-#define AppVersion "0.1.0"
-#define Publisher "Anonymous"
+#define AppVersion "1.0.0"
+#define Publisher "ARTiFACTS"
 
 [Setup]
 AppName={#AppName}

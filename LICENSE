@@ -1,0 +1,32 @@
+CHRONA — LICENSE (PLACEHOLDER — NOT YET FINAL)
+==============================================
+
+Copyright © 2026 ARTiFACTS. All rights reserved.
+
+⚠️  THIS IS A PLACEHOLDER. Choose and drop in a real license before you
+    distribute a build publicly. The choice is constrained by JUCE (below).
+
+--------------------------------------------------------------------------
+How JUCE constrains this choice
+--------------------------------------------------------------------------
+CHRONA is built with the JUCE framework (https://juce.com). JUCE is dual
+licensed. Your distribution license MUST be consistent with the JUCE license
+you build under:
+
+  • JUCE under GPLv3  → the binary you ship must also be GPLv3 (you may sell
+    it, but you must offer the corresponding source). If you go this route,
+    replace this file with the standard GPLv3 text (https://www.gnu.org/licenses/gpl-3.0.txt)
+    and keep JUCE_DISPLAY_SPLASH_SCREEN as required by that license tier.
+
+  • JUCE commercial license (Indie / Pro / paid)  → you may ship CHRONA as a
+    closed-source proprietary product under your own EULA. If you go this
+    route, replace this file with your proprietary EULA (a starting template
+    is in EULA.txt) and keep proof of your JUCE license.
+
+Until you pick one, do NOT publish a public binary: shipping a splash-free,
+closed build without a paid JUCE license violates the JUCE GPL terms.
+
+--------------------------------------------------------------------------
+Third-party components
+--------------------------------------------------------------------------
+See THIRDPARTY.md for the components CHRONA depends on and their licenses.

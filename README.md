@@ -55,7 +55,7 @@ cmake --build build --config Release -j
 
 On macOS the bundles are also copied into `~/Library/Audio/Plug-Ins`
 automatically (`COPY_PLUGIN_AFTER_BUILD`). Rescan in your DAW and load **CHRONA**
-(manufacturer *Anonymous*).
+(manufacturer *ARTiFACTS*).
 
 Useful options:
 `-DCHRONA_BUILD_STANDALONE=OFF`, `-DCHRONA_JUCE_TAG=8.0.4`,
@@ -110,7 +110,8 @@ Six macro knobs and a mode grid:
 - **Width** – stereo width
 
 Modes: **Half · Double · Reverse · Tape Stop · Stutter · Beat Repeat · Vinyl ·
-Glitch** (plus **Time Warp** — the curve-driven mode for the Level-2 editor).
+Glitch · Freeze · Granular** (plus **Time Warp** — the curve-driven mode for
+the Level-2 editor). See [`docs/MANUAL.md`](docs/MANUAL.md) for the full guide.
 
 ### Level 2 — Advanced (drops down via **ADVANCED**)
 - Editable **Time** and **Volume** curves (click to add, drag to move, double

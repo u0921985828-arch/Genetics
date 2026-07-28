@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.22)
 #  visualizer / MIDI / rendering are separated into independent units.
 # ============================================================================
 
-project(CHRONA VERSION 0.1.0 LANGUAGES C CXX)
+project(CHRONA VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -49,12 +49,13 @@ if(CHRONA_BUILD_STANDALONE)
 endif()
 
 juce_add_plugin(CHRONA
-    COMPANY_NAME            "Anonymous"
-    BUNDLE_ID               "audio.chrona.chrona"
-    PLUGIN_MANUFACTURER_CODE Anon
+    COMPANY_NAME            "ARTiFACTS"
+    BUNDLE_ID               "com.artifacts.chrona"
+    PLUGIN_MANUFACTURER_CODE Artf
     PLUGIN_CODE             Chrn
     FORMATS                 ${CHRONA_FORMATS}
     PRODUCT_NAME            "CHRONA"
+    DESCRIPTION             "Temporal-manipulation effect"
     IS_SYNTH                FALSE
     NEEDS_MIDI_INPUT        TRUE          # MIDI trigger system
     NEEDS_MIDI_OUTPUT       FALSE

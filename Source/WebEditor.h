@@ -39,7 +39,12 @@ namespace chrona
                     [this] (const juce::Array<juce::var>&, auto complete) { stepPreset (-1); complete (juce::var()); })
                 .withNativeFunction (juce::Identifier ("abSelect"),
                     [this] (const juce::Array<juce::var>& a, auto complete)
-                    { abSelect (a.isEmpty() ? 0 : (int) a[0]); complete (juce::var()); });
+                    { abSelect (a.isEmpty() ? 0 : (int) a[0]); complete (juce::var()); })
+                .withNativeFunction (juce::Identifier ("getCurves"),
+                    [this] (const juce::Array<juce::var>&, auto complete) { complete (curvesVar()); })
+                .withNativeFunction (juce::Identifier ("setCurve"),
+                    [this] (const juce::Array<juce::var>& a, auto complete)
+                    { if (a.size() >= 2) applyCurveFromJs (a[0].toString(), a[1]); complete (juce::var()); });
 
             web = std::make_unique<juce::WebBrowserComponent> (options);
             addAndMakeVisible (*web);
@@ -138,6 +143,44 @@ namespace chrona
             auto* o = new juce::DynamicObject();
             o->setProperty ("slot", activeSlot);
             web->emitEventIfBrowserIsVisible ("ab", juce::var (o));
+        }
+
+        // --- Time / Volume curve editor bridge -----------------------------
+        static juce::var curveToVar (const automation::Curve& c)
+        {
+            juce::Array<juce::var> arr;
+            for (const auto& p : c.getPoints())
+            {
+                auto* o = new juce::DynamicObject();
+                o->setProperty ("x", p.x); o->setProperty ("y", p.y); o->setProperty ("c", p.curve);
+                arr.add (juce::var (o));
+            }
+            return arr;
+        }
+        juce::var curvesVar()
+        {
+            auto* o = new juce::DynamicObject();
+            o->setProperty ("time", curveToVar (proc.automation.snapshotTimeCurve()));
+            o->setProperty ("vol",  curveToVar (proc.automation.snapshotVolumeCurve()));
+            return juce::var (o);
+        }
+        void applyCurveFromJs (const juce::String& which, const juce::var& pts)
+        {
+            std::vector<automation::Point> v;
+            if (auto* arr = pts.getArray())
+            {
+                v.reserve ((size_t) arr->size());
+                for (const auto& e : *arr)
+                    v.push_back ({ (float) (double) e.getProperty ("x", 0.0),
+                                   (float) (double) e.getProperty ("y", 0.0),
+                                   (float) (double) e.getProperty ("c", 0.0) });
+            }
+            if (v.size() < 2) return;                       // need at least the two endpoints
+            automation::Curve c;
+            c.reserve (automation::Curve::kMaxPoints);
+            c.setPoints (std::move (v));
+            if (which == "vol") proc.automation.publishVolumeCurve (c);
+            else                proc.automation.publishTimeCurve (c);
         }
 
         void timerCallback() override

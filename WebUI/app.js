@@ -197,6 +197,110 @@ window.__JUCE__.backend.addEventListener("ab", (e) => {
 // tell the backend the page is ready so it pushes initial preset + A/B state
 if (Juce.getNativeFunction) native("uiReady")();
 
+// ---- Time-curve editor (Time Warp mode) -----------------------------------
+// An editable breakpoint curve laid over the buffer: click to add, drag to
+// move, double-click to delete. Bound to the plug-in's Time automation curve.
+const scopeWrap = document.querySelector(".scope-wrap");
+const curveEl = document.createElement("div");
+curveEl.className = "curve";
+curveEl.innerHTML =
+  `<div class="curve-head">TIME CURVE<span>click add · drag move · dbl-click delete</span></div>
+   <svg class="curve-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+     <defs><linearGradient id="cvGrad" x1="0" y1="0" x2="1" y2="0">
+       <stop offset="0" stop-color="#4fd6ff"/><stop offset="0.5" stop-color="#5b8cff"/>
+       <stop offset="1" stop-color="#9b6bff"/></linearGradient></defs>
+     <g class="cv-grid"></g>
+     <path class="cv-fill"/><path class="cv-line"/><g class="cv-nodes"></g>
+   </svg>`;
+scopeWrap.appendChild(curveEl);
+const cvSvg   = curveEl.querySelector(".curve-svg");
+const cvFill  = curveEl.querySelector(".cv-fill");
+const cvLine  = curveEl.querySelector(".cv-line");
+const cvNodes = curveEl.querySelector(".cv-nodes");
+const cvGrid  = curveEl.querySelector(".cv-grid");
+{
+  let g = "";
+  for (let i = 1; i < 16; i++) { const x = (i / 16 * 1000).toFixed(1); g += `<line x1="${x}" y1="0" x2="${x}" y2="1000"/>`; }
+  for (let j = 1; j < 4; j++) { const y = (j / 4 * 1000).toFixed(1); g += `<line x1="0" y1="${y}" x2="1000" y2="${y}"/>`; }
+  cvGrid.innerHTML = g;
+}
+
+let curve = [{ x: 0, y: 0, c: 0 }, { x: 1, y: 0, c: 0 }];
+const setCurveNative = native("setCurve");
+const NS = "http://www.w3.org/2000/svg";
+const SX = (x) => x * 1000, SY = (y) => (1 - y) * 1000;
+
+let curvePushT = 0;
+function pushCurve() {
+  clearTimeout(curvePushT);
+  curvePushT = setTimeout(() => setCurveNative("time", curve.map(p => ({ x: p.x, y: p.y, c: p.c || 0 }))), 20);
+}
+function redrawCurve() {
+  curve.sort((a, b) => a.x - b.x);
+  let d = `M ${SX(curve[0].x)} ${SY(curve[0].y)}`;
+  for (let i = 1; i < curve.length; i++) d += ` L ${SX(curve[i].x)} ${SY(curve[i].y)}`;
+  cvLine.setAttribute("d", d);
+  cvFill.setAttribute("d", d + ` L 1000 1000 L 0 1000 Z`);
+  cvNodes.innerHTML = "";
+  curve.forEach((p, i) => {
+    const c = document.createElementNS(NS, "circle");
+    c.setAttribute("cx", SX(p.x)); c.setAttribute("cy", SY(p.y)); c.setAttribute("r", 13);
+    c.dataset.i = i; cvNodes.appendChild(c);
+  });
+}
+const toNorm = (e) => {
+  const r = cvSvg.getBoundingClientRect();
+  return {
+    x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+    y: Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height)),
+  };
+};
+const snapX = (x, e) => e && e.altKey ? x : Math.round(x * 16) / 16;
+
+let dragIdx = -1;
+cvSvg.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  const t = e.target;
+  if (t.tagName === "circle") { dragIdx = +t.dataset.i; }
+  else {
+    const p = toNorm(e);
+    curve.push({ x: snapX(p.x, e), y: p.y, c: 0 });
+    curve.sort((a, b) => a.x - b.x);
+    dragIdx = curve.findIndex(q => q.x === snapX(p.x, e) && q.y === p.y);
+    redrawCurve(); pushCurve();
+  }
+  cvSvg.setPointerCapture(e.pointerId);
+});
+cvSvg.addEventListener("pointermove", (e) => {
+  if (dragIdx < 0) return;
+  const p = toNorm(e), endpoint = (dragIdx === 0 || dragIdx === curve.length - 1);
+  curve[dragIdx].y = p.y;
+  if (!endpoint) curve[dragIdx].x = snapX(p.x, e);
+  redrawCurve(); pushCurve();
+});
+const endDrag = () => { dragIdx = -1; };
+cvSvg.addEventListener("pointerup", endDrag);
+cvSvg.addEventListener("pointercancel", endDrag);
+cvSvg.addEventListener("dblclick", (e) => {
+  if (e.target.tagName !== "circle") return;
+  const i = +e.target.dataset.i;
+  if (i === 0 || i === curve.length - 1) return;   // keep endpoints
+  curve.splice(i, 1); redrawCurve(); pushCurve();
+});
+
+function showCurve(on) { curveEl.classList.toggle("show", on); scopeWrap.classList.toggle("editing", on); }
+function syncCurveVisibility() { showCurve(modeState.getChoiceIndex() === 8); }
+modeState.valueChangedEvent.addListener(syncCurveVisibility);
+
+if (Juce.getNativeFunction) {
+  native("getCurves")().then((c) => {
+    if (c && Array.isArray(c.time) && c.time.length >= 2)
+      curve = c.time.map(p => ({ x: +p.x, y: +p.y, c: +p.c || 0 }));
+    redrawCurve();
+  }).catch(() => redrawCurve());
+} else redrawCurve();
+syncCurveVisibility();
+
 // ---- I/O meters -----------------------------------------------------------
 const meterIn  = document.querySelector("#meterIn .m-bar i");
 const meterOut = document.querySelector("#meterOut .m-bar i");

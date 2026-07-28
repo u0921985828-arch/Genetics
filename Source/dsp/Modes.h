@@ -34,6 +34,7 @@ namespace chrona::dsp
         double    loopLenSamples = 0.0;
         bool      loopReset    = false;
         double    phase        = 0.0;  // pattern phase 0..1 (Custom mode)
+        double    phaseInc     = 0.0;  // phase advance per sample (Custom mode)
         float     time = 0.5f, depth = 1.0f;
         float     smartFade = 0.5f;    // slice edge fade shape
         double    sampleRate = 44100.0;
@@ -41,11 +42,17 @@ namespace chrona::dsp
         double    windowSamples = 0.0;
         params::Quality quality = params::Quality::Hermite;
 
-        inline float read (int ch, double srcAbs) const
+        // Right-hand interpolation reach: sinc fetches up to center+4, Hermite
+        // up to +2. Holding every read at least this far behind the write head
+        // guarantees no tap ever crosses the live edge into stale, pre-wrap
+        // audio (which would splice previous-lap samples into the newest frame).
+        static constexpr double kReadGuard = 4.0;
+
+        inline float read (int ch, double srcAbs, double readRate = 1.0) const
         {
             double delay = (double) (totalWritten - 1) - srcAbs;
-            delay = std::clamp (delay, 0.0, windowSamples);
-            return buffer->read (ch, delay, quality);
+            delay = std::clamp (delay, kReadGuard, windowSamples);
+            return buffer->read (ch, delay, quality, readRate);
         }
     };
 
@@ -80,15 +87,15 @@ namespace chrona::dsp
             const double local = ctx.localSamples;
             const double a = (double) ctx.anchorAbs;
 
-            double srcAbs;
+            double srcAbs, rate;
             switch (kind)
             {
-                case Half:    srcAbs = (a - L)       + 0.5 * local; break;
-                case Double:  srcAbs = (a - 2.0 * L) + 2.0 * local; break;
-                case Reverse: default: srcAbs = a - local;          break;
+                case Half:    srcAbs = (a - L)       + 0.5 * local; rate = 0.5; break;
+                case Double:  srcAbs = (a - 2.0 * L) + 2.0 * local; rate = 2.0; break;
+                case Reverse: default: srcAbs = a - local;          rate = 1.0; break;
             }
             for (int c = 0; c < channels; ++c)
-                out[c] = ctx.read (c, srcAbs);
+                out[c] = ctx.read (c, srcAbs, rate);
         }
     private:
         Kind kind;
@@ -115,7 +122,7 @@ namespace chrona::dsp
             const double speed = std::pow (1.0 - t, 1.0 + 2.0 * ctx.depth);
 
             for (int c = 0; c < channels; ++c)
-                out[c] = ctx.read (c, srcAbs);
+                out[c] = ctx.read (c, srcAbs, juce::jmax (1.0, speed));
 
             srcAbs += speed; // advance once per frame
         }
@@ -247,7 +254,7 @@ namespace chrona::dsp
             const float win = SmartFade::gain ((int) posInSlice, (int) baseSlice,
                                                0.15f + 0.5f * ctx.smartFade);
             for (int c = 0; c < channels; ++c)
-                out[c] = ctx.read (c, srcAbs) * win * curGate;
+                out[c] = ctx.read (c, srcAbs, (double) curSpeed) * win * curGate;
         }
     private:
         Lcg rng;
@@ -272,8 +279,18 @@ namespace chrona::dsp
             const float vy = volCurve  ? volCurve->value  ((float) ctx.phase) : 1.0f;
             const double delay = (double) ty * ctx.windowSamples;
             const double srcAbs = (double) (ctx.totalWritten - 1) - delay;
+
+            // Instantaneous read rate = |d(srcAbs)/dn| = |1 - window·dty/dn|.
+            // A steep downward time-curve reads the buffer fast (pitch up) and
+            // would alias — feed the rate to the sinc reader so it band-limits.
+            double rate = 1.0;
+            if (timeCurve && ctx.phaseInc > 0.0)
+            {
+                const float ty2 = timeCurve->value ((float) std::fmod (ctx.phase + ctx.phaseInc, 1.0));
+                rate = std::abs (1.0 - ctx.windowSamples * (double) (ty2 - ty));
+            }
             for (int c = 0; c < channels; ++c)
-                out[c] = ctx.read (c, srcAbs) * vy;
+                out[c] = ctx.read (c, srcAbs, rate) * vy;
         }
     private:
         const automation::Curve* timeCurve = nullptr;
@@ -376,8 +393,8 @@ namespace chrona::dsp
                 const float env = hann (g.pos / g.len);
                 const double srcPos = (g.dir > 0.0) ? (g.srcStart + g.pos * g.rate)
                                                     : (g.srcStart + g.span - g.pos * g.rate);
-                const float s = (channels == 2) ? 0.5f * (ctx.read (0, srcPos) + ctx.read (1, srcPos))
-                                                : ctx.read (0, srcPos);
+                const float s = (channels == 2) ? 0.5f * (ctx.read (0, srcPos, g.rate) + ctx.read (1, srcPos, g.rate))
+                                                : ctx.read (0, srcPos, g.rate);
                 if (channels == 2) { acc[0] += s * env * g.gL; acc[1] += s * env * g.gR; }
                 else                 acc[0] += s * env;
                 g.pos += 1.0;

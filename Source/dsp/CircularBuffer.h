@@ -63,8 +63,9 @@ namespace chrona::dsp
 
         // Read channel `c` at `delaySamples` behind the *current* write head,
         // using the requested interpolation quality. delaySamples may be
-        // fractional; 0 == the sample just written.
-        inline float read (int c, double delaySamples, params::Quality q) const
+        // fractional; 0 == the sample just written. `readRate` is the source-read
+        // speed (>1 = pitch up); the sinc reader uses it to anti-alias.
+        inline float read (int c, double delaySamples, params::Quality q, double readRate = 1.0) const
         {
             // Position of the just-written sample is (writeIndex - 1).
             const double pos = (double) (writeIndex - 1) - delaySamples;
@@ -79,7 +80,7 @@ namespace chrona::dsp
             switch (q)
             {
                 case params::Quality::Linear:  return interp::linear  (at, wrapPos (pos));
-                case params::Quality::Sinc:    return interp::sinc8   (at, wrapPos (pos));
+                case params::Quality::Sinc:    return interp::sinc8   (at, wrapPos (pos), readRate);
                 case params::Quality::Hermite:
                 default:                       return interp::hermite (at, wrapPos (pos));
             }

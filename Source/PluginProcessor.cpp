@@ -128,7 +128,11 @@ namespace chrona
         // ---- external sidechain → mono scratch (only when SC Source = External
         //      and the optional SC bus is actually connected) ----
         const float* scPtr = nullptr;
-        if ((int) pScSource->load() == 3)
+        // A host may (against spec) deliver a block larger than the prepared
+        // maximum. `scMono` is sized to that maximum, so clamp every write to
+        // its capacity — never index past it (was a heap overflow).
+        const int scCap = (int) scMono.size();
+        if ((int) pScSource->load() == 3 && numSamples <= scCap)
         {
             if (auto* scBusObj = getBus (true, 1); scBusObj != nullptr && scBusObj->isEnabled())
             {

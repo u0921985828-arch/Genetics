@@ -47,13 +47,21 @@ namespace chrona::dsp::interp
         return ((a * f - b) * f + c) * f + x0;
     }
 
-    // Precomputed Blackman-windowed sinc, 8 taps, no oversampling table needed
-    // at runtime — computed directly. Reserved for the HQ path.
+    // Blackman-windowed sinc, 8 taps, computed directly (no runtime table).
+    //
+    //  `readRate` is the instantaneous source-read speed: when a mode reads the
+    //  buffer faster than 1× (pitch up), the naive kernel's stopband sits at the
+    //  source Nyquist and everything above output-Nyquist/readRate folds back as
+    //  aliasing. Scaling the sinc argument by cutoff = min(1, 1/readRate) turns
+    //  the kernel into a decimation low-pass whose cutoff tracks the read rate,
+    //  so 2× reads are band-limited to Nyquist/2 before resampling. At
+    //  readRate ≤ 1 (cutoff 1) this is the exact original windowed sinc.
     template <typename Fetch>
-    inline float sinc8 (Fetch&& at, double pos)
+    inline float sinc8 (Fetch&& at, double pos, double readRate = 1.0)
     {
         const auto center = (long) std::floor (pos);
         const double frac = pos - (double) center;
+        const double cutoff = readRate > 1.0 ? 1.0 / readRate : 1.0;
 
         constexpr int taps = 8;
         constexpr int half = taps / 2;
@@ -62,13 +70,14 @@ namespace chrona::dsp::interp
         for (int k = -half + 1; k <= half; ++k)
         {
             const double x = (double) k - frac;
+            const double t = cutoff * x;             // cutoff-scaled sinc argument
             double s;
-            if (std::abs (x) < 1.0e-7)
+            if (std::abs (t) < 1.0e-7)
                 s = 1.0;
             else
             {
-                const double px = kPi * x;
-                s = std::sin (px) / px;
+                const double pt = kPi * t;
+                s = std::sin (pt) / pt;
             }
             // Blackman window across the tap span.
             const double n = (double) (k + half - 1);

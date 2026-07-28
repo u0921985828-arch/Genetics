@@ -2,6 +2,17 @@
 
 namespace chrona::dsp
 {
+    // Transparent safety ceiling: linear below ±0.98, a soft tanh knee above it
+    // so stacked stages (Granular + Space + Texture drive) can never hard-clip
+    // to a harsh 0 dBFS wall. Inaudible on normal-level signal.
+    static inline float safetyCeiling (float x) noexcept
+    {
+        constexpr float t = 0.98f, k = 1.0f - t;
+        if (x >  t) return  t + k * std::tanh ((x - t) / k);
+        if (x < -t) return -t + k * std::tanh ((x + t) / k);
+        return x;
+    }
+
     TemporalEngine::TemporalEngine()
     {
         using M = params::Mode;
@@ -168,11 +179,15 @@ namespace chrona::dsp
         IMode* mode = activeMode();
         const bool isCustom = (requestedMode == params::Mode::Custom);
 
-        // Modes that read faster than 1× (pitch up) alias with cheap interpolation
-        // — force the band-limited sinc reader for anti-imaging regardless of the
-        // Quality setting.
+        // Modes that can read faster than 1× (pitch up) alias with cheap
+        // interpolation — force the rate-adaptive sinc reader for anti-imaging
+        // regardless of the Quality setting. Granular (per-grain up-pitch) and
+        // Custom (steep down-slopes read fast) were previously missed and ran
+        // through Hermite; they alias without this.
         const bool repitchUp = (requestedMode == params::Mode::Double
-                             || requestedMode == params::Mode::Glitch);
+                             || requestedMode == params::Mode::Glitch
+                             || requestedMode == params::Mode::Granular
+                             || requestedMode == params::Mode::Custom);
         const params::Quality effQuality = repitchUp
             ? (params::Quality) juce::jmax ((int) level2.quality, (int) params::Quality::Sinc)
             : level2.quality;
@@ -198,6 +213,14 @@ namespace chrona::dsp
 
         float frameIn[2]  = { 0.0f, 0.0f };
         float frameWet[2] = { 0.0f, 0.0f };
+
+        // Snapshot the Custom-mode base phase ONCE. blockStartPhase() returns the
+        // live freePhase, which advanceFreePhase() mutates per sample below —
+        // reading it inside the loop double-counted the increment (2× speed) and
+        // jumped backward each block. Sample n = basePhase + n·inc, single speed.
+        const double basePhase = automation->blockStartPhase();
+        const double phaseInc  = automation->phaseIncrementPerSample();
+        double lastCustomPhase = basePhase;
 
         for (int n = 0; n < numSamples; ++n)
         {
@@ -250,9 +273,14 @@ namespace chrona::dsp
             }
 
             // --- pattern phase for custom + visualiser ---
-            const double phase = isCustom ? std::fmod (automation->blockStartPhase()
-                                                       + (double) n * automation->phaseIncrementPerSample(), 1.0)
+            const double phase = isCustom ? std::fmod (basePhase + (double) n * phaseInc, 1.0)
                                           : (loopPos / juce::jmax (1.0, currentLoopLen));
+
+            // Custom curves are discontinuous at the pattern wrap (curve end vs
+            // start) — arm the declick so the read-position jump doesn't click.
+            if (isCustom && phase < lastCustomPhase)
+                for (int c = 0; c < nch; ++c) declick[(size_t) c].arm (lastWet[(size_t) c]);
+            lastCustomPhase = phase;
 
             // --- run mode ---
             ModeContext mc;
@@ -263,6 +291,7 @@ namespace chrona::dsp
             mc.loopLenSamples = currentLoopLen;
             mc.loopReset = loopReset;
             mc.phase = phase;
+            mc.phaseInc = phaseInc;
             mc.time = mTime; mc.depth = mDepth;
             mc.smartFade = level2.smartFade;
             mc.sampleRate = sampleRate;
@@ -350,7 +379,7 @@ namespace chrona::dsp
                 const float dry = frameIn[c];
                 const float wet = frameWet[c] * duckGain;
                 const float outv = dry * (1.0f - wetMix) + wet * wetMix;
-                ch[c][n] = std::isfinite (outv) ? outv : 0.0f; // never emit NaN/Inf
+                ch[c][n] = std::isfinite (outv) ? safetyCeiling (outv) : 0.0f; // ceiling + never emit NaN/Inf
             }
 
             if (isCustom && ! t.isPlaying) automation->advanceFreePhase();

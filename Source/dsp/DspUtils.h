@@ -82,22 +82,32 @@ namespace chrona::dsp
         float x1 = 0.0f, dcX1 = 0.0f, dcY1 = 0.0f;
     };
 
-    // Simple state-variable-ish tilt filter used by Texture to darken/brighten.
+    // Gentle tilt filter used by Texture to darken/brighten around a fixed
+    // ~700 Hz pivot. The pivot is sample-rate-independent (was a raw 0.15
+    // coefficient that drifted up in frequency at higher SR), and the tilt gain
+    // is halved and capped so brightening can't add a harsh, unbounded top.
     class TiltFilter
     {
     public:
-        void prepare (double sampleRate) { sr = sampleRate; reset(); }
+        void prepare (double sampleRate)
+        {
+            sr = sampleRate;
+            constexpr double kPivotHz = 700.0, kTwoPi = 6.283185307179586;
+            coeff = (float) (1.0 - std::exp (-kTwoPi * kPivotHz / std::max (8000.0, sr)));
+            reset();
+        }
         void reset() { lp = 0.0f; }
         // tilt in [-1,1]: negative darkens (boosts lows), positive brightens.
         inline float process (float x, float tilt)
         {
-            const float cutoff = 0.15f; // fixed pivot, cheap
-            lp += cutoff * (x - lp);
+            const float g = std::clamp (tilt * 0.5f, -0.5f, 0.5f); // tamed
+            lp += coeff * (x - lp);
             const float hp = x - lp;
-            return lp * (1.0f - tilt) + hp * (1.0f + tilt);
+            return lp * (1.0f - g) + hp * (1.0f + g);
         }
     private:
         double sr = 44100.0;
+        float  coeff = 0.1f;
         float  lp = 0.0f;
     };
 }

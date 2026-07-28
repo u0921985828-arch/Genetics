@@ -215,6 +215,33 @@ window.__JUCE__.backend.addEventListener("preset", (e) => {
     statusR.textContent = `CHRONA · ${e.index + 1}/${e.count}`;
 });
 
+// preset dropdown: click the name to browse the whole bank
+const presetBox = document.querySelector(".preset");
+const presetListNative = native("getPresetList"), presetLoadNative = native("presetLoad");
+const dropdown = document.createElement("div");
+dropdown.className = "preset-list";
+presetBox.appendChild(dropdown);
+let dropOpen = false;
+presetName.style.cursor = "pointer";
+presetName.onclick = async () => {
+  dropOpen = !dropOpen;
+  dropdown.classList.toggle("open", dropOpen);
+  if (!dropOpen) return;
+  let names = [];
+  try { names = (await presetListNative()) || []; } catch (_) { names = []; }
+  dropdown.innerHTML = "";
+  names.forEach((nm, i) => {
+    const it = document.createElement("div");
+    it.className = "pl-item" + (nm === presetName.textContent ? " on" : "");
+    it.textContent = nm;
+    it.onclick = () => { presetLoadNative(i); dropOpen = false; dropdown.classList.remove("open"); };
+    dropdown.appendChild(it);
+  });
+};
+document.addEventListener("click", (e) => {
+  if (!presetBox.contains(e.target)) { dropOpen = false; dropdown.classList.remove("open"); }
+});
+
 // ---- A/B compare ----------------------------------------------------------
 const abSelect = native("abSelect");
 const abSegs = document.querySelectorAll(".ab .seg");
@@ -235,9 +262,10 @@ const scopeWrap = document.querySelector(".scope-wrap");
 const curveEl = document.createElement("div");
 curveEl.className = "curve";
 curveEl.innerHTML =
-  `<div class="curve-head"><span class="ch-title">TIME CURVE</span>
+  `<div class="curve-head">
+     <span class="ch-lane"><span class="lane on" data-l="time">TIME</span><span class="lane" data-l="vol">VOL</span></span>
      <div class="ch-tools"><span class="ch-rate" id="warpRate"></span>
-       <span class="ch-hint">click add · drag move · bend handle · dbl-click delete</span></div>
+       <span class="ch-hint">click add · drag · bend handle · dbl-click delete</span></div>
    </div>
    <svg class="curve-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
      <defs><linearGradient id="cvGrad" x1="0" y1="0" x2="1" y2="0">
@@ -260,7 +288,13 @@ const cvGrid  = curveEl.querySelector(".cv-grid");
   cvGrid.innerHTML = g;
 }
 
-let curve = [{ x: 0, y: 0, c: 0 }, { x: 1, y: 0, c: 0 }];
+// two editable lanes: Time (delay) and Volume (gain)
+const curves = {
+  time: [{ x: 0, y: 0, c: 0 }, { x: 1, y: 0, c: 0 }],
+  vol:  [{ x: 0, y: 1, c: 0 }, { x: 1, y: 1, c: 0 }],
+};
+let lane = "time";
+let curve = curves[lane];
 const setCurveNative = native("setCurve");
 const NS = "http://www.w3.org/2000/svg";
 const SX = (x) => x * 1000, SY = (y) => (1 - y) * 1000;
@@ -271,7 +305,8 @@ const applyCurve = (t, c) => (Math.abs(c) < 1e-4) ? t
 let curvePushT = 0;
 function pushCurve() {
   clearTimeout(curvePushT);
-  curvePushT = setTimeout(() => setCurveNative("time", curve.map(p => ({ x: p.x, y: p.y, c: p.c || 0 }))), 20);
+  const which = lane;
+  curvePushT = setTimeout(() => setCurveNative(which, curve.map(p => ({ x: p.x, y: p.y, c: p.c || 0 }))), 20);
 }
 function redrawCurve() {
   curve.sort((a, b) => a.x - b.x);
@@ -367,15 +402,25 @@ warpState.valueChangedEvent.addListener(() =>
 warpState.propertiesChangedEvent.addListener(buildRate);
 buildRate();
 
+// lane switch (TIME / VOL)
+const laneEls = curveEl.querySelectorAll(".ch-lane .lane");
+laneEls.forEach((el) => { el.onclick = () => {
+  lane = el.dataset.l; curve = curves[lane];
+  laneEls.forEach(x => x.classList.toggle("on", x.dataset.l === lane));
+  curveEl.classList.toggle("vol", lane === "vol");
+  redrawCurve();
+}; });
+
 function showCurve(on) { curveEl.classList.toggle("show", on); scopeWrap.classList.toggle("editing", on); }
 function syncCurveVisibility() { showCurve(modeState.getChoiceIndex() === 8); }
 modeState.valueChangedEvent.addListener(syncCurveVisibility);
 
+const loadLane = (arr) => arr.map(p => ({ x: +p.x, y: +p.y, c: +p.c || 0 }));
 if (Juce.getNativeFunction) {
   native("getCurves")().then((c) => {
-    if (c && Array.isArray(c.time) && c.time.length >= 2)
-      curve = c.time.map(p => ({ x: +p.x, y: +p.y, c: +p.c || 0 }));
-    redrawCurve();
+    if (c && Array.isArray(c.time) && c.time.length >= 2) curves.time = loadLane(c.time);
+    if (c && Array.isArray(c.vol)  && c.vol.length  >= 2) curves.vol  = loadLane(c.vol);
+    curve = curves[lane]; redrawCurve();
   }).catch(() => redrawCurve());
 } else redrawCurve();
 syncCurveVisibility();

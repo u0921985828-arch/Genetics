@@ -40,6 +40,12 @@ namespace chrona
                 .withNativeFunction (juce::Identifier ("abSelect"),
                     [this] (const juce::Array<juce::var>& a, auto complete)
                     { abSelect (a.isEmpty() ? 0 : (int) a[0]); complete (juce::var()); })
+                .withNativeFunction (juce::Identifier ("getPresetList"),
+                    [this] (const juce::Array<juce::var>&, auto complete)
+                    { juce::Array<juce::var> arr; for (const auto& n : allPresetNames()) arr.add (n); complete (arr); })
+                .withNativeFunction (juce::Identifier ("presetLoad"),
+                    [this] (const juce::Array<juce::var>& a, auto complete)
+                    { if (! a.isEmpty()) loadPresetByIndex ((int) a[0]); complete (juce::var()); })
                 .withNativeFunction (juce::Identifier ("getCurves"),
                     [this] (const juce::Array<juce::var>&, auto complete) { complete (curvesVar()); })
                 .withNativeFunction (juce::Identifier ("setCurve"),

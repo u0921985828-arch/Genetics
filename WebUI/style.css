@@ -5,29 +5,30 @@
    ========================================================================== */
 
 :root{
-  /* surfaces (darkest → raised) */
-  --bg:      #0d0e11;
-  --panel:   #15171c;
-  --panel-2: #191c22;
-  --raise:   #21252c;
-  --line:    #2b2f37;
-  --line-2:  #363b44;
+  /* surfaces (darkest → raised) — deeper, cooler, more tonal separation */
+  --bg:      #0a0b0e;
+  --panel:   #14161b;
+  --panel-2: #181b21;
+  --raise:   #232830;
+  --line:    #2c313a;
+  --line-2:  #3a404a;
 
   /* ink */
-  --ink:     #eef1f6;
-  --ink-2:   #aeb4bf;
-  --ink-3:   #71767f;
-  --ink-4:   #4b5058;
+  --ink:     #f0f3f8;
+  --ink-2:   #b3b9c4;
+  --ink-3:   #757b85;
+  --ink-4:   #4d525b;
 
-  /* accent + signal */
-  --accent:  #3d7bff;
-  --accent-2:#5a92ff;
-  --led:     #62b0ff;
+  /* accent + signal — richer electric blue with a cyan lift */
+  --accent:  #3f7dff;
+  --accent-2:#5e95ff;
+  --led:     #6fb6ff;
+  --cyan:    #57d6ff;
   --good:    #46d39a;
   --hot:     #ff5a52;
 
-  --radius:  10px;
-  --radius-s: 7px;
+  --radius:  11px;
+  --radius-s: 8px;
   --font: "Inter", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
 }
@@ -51,10 +52,16 @@ html,body{
 /* ---- app shell ---------------------------------------------------------- */
 .app{
   display:flex; flex-direction:column; height:100%;
-  padding:14px; gap:12px;
+  padding:15px; gap:13px;
   background:
-    radial-gradient(120% 80% at 50% -10%, #16181e 0%, var(--bg) 60%),
+    radial-gradient(120% 75% at 50% -12%, #191c24 0%, var(--bg) 58%),
+    radial-gradient(140% 120% at 50% 120%, #0e1015 0%, transparent 55%),
     var(--bg);
+}
+/* soft inner vignette for depth */
+.app::after{
+  content:""; position:fixed; inset:0; z-index:8; pointer-events:none;
+  box-shadow:inset 0 0 160px 20px rgba(0,0,0,.55);
 }
 
 /* ---- title bar ---------------------------------------------------------- */
@@ -184,44 +191,47 @@ html,body{
 .panel{
   background:linear-gradient(180deg,var(--panel-2),var(--panel));
   border:1px solid var(--line); border-radius:var(--radius);
-  padding:12px 14px 14px;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.03), 0 2px 10px rgba(0,0,0,.3);
+  padding:14px 18px 18px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.035), 0 3px 14px rgba(0,0,0,.35);
 }
 .panel-head{
-  font-size:9px; letter-spacing:.28em; color:var(--ink-3);
-  margin-bottom:12px; display:flex; align-items:center; gap:10px;
+  font-size:9.5px; letter-spacing:.3em; color:var(--ink-3);
+  margin-bottom:14px; display:flex; align-items:center; gap:11px;
 }
 .panel-head::after{content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--line),transparent)}
 
 /* macro knobs */
-.knobs{display:grid; grid-template-columns:repeat(6,1fr); gap:6px}
+.knobs{display:grid; grid-template-columns:repeat(6,1fr); gap:10px}
 @media(max-width:640px){.knobs{grid-template-columns:repeat(3,1fr)}}
-.knob{display:flex; flex-direction:column; align-items:center; gap:9px; padding:4px 2px}
-.knob .cap{font-size:9px; letter-spacing:.16em; color:var(--ink-3); text-transform:uppercase}
+.knob{display:flex; flex-direction:column; align-items:center; gap:11px; padding:6px 2px}
+.knob .cap{font-size:9.5px; letter-spacing:.18em; color:var(--ink-3); text-transform:uppercase}
 .knob .val{
-  font-size:12px; font-weight:700; color:var(--ink);
+  font-size:13px; font-weight:700; color:var(--ink);
   font-variant-numeric:tabular-nums; letter-spacing:.02em;
 }
 .dial{
-  width:66px; height:66px; cursor:ns-resize; touch-action:none;
+  width:78px; height:78px; cursor:ns-resize; touch-action:none;
   position:relative; display:block;
+  filter:drop-shadow(0 4px 8px rgba(0,0,0,.45));
 }
 .dial svg{display:block; width:100%; height:100%}
 .dial .tick{stroke:var(--line-2); stroke-width:1.4}
 .dial .tick.lit{stroke:var(--led)}
-.dial .arc-bg{fill:none; stroke:var(--line); stroke-width:3.2; stroke-linecap:round}
-.dial .arc{fill:none; stroke:url(#arcGrad); stroke-width:3.2; stroke-linecap:round;
-  filter:drop-shadow(0 0 5px rgba(61,123,255,.55))}
-.dial .cap-face{fill:url(#capGrad); stroke:#0a0b0e; stroke-width:1}
+.dial .arc-bg{fill:none; stroke:var(--line); stroke-width:3.6; stroke-linecap:round}
+.dial .arc{fill:none; stroke:url(#arcGrad); stroke-width:3.6; stroke-linecap:round;
+  filter:drop-shadow(0 0 6px rgba(63,125,255,.6))}
+.dial .cap-face{fill:url(#capGrad); stroke:#090a0d; stroke-width:1}
+.dial .cap-ring{fill:none; stroke:rgba(255,255,255,.06); stroke-width:1}
 .dial .cap-hi{fill:url(#capHi)}
-.dial .ptr{stroke:#eef1f6; stroke-width:2.2; stroke-linecap:round}
+.dial .ptr{stroke:#f4f7fc; stroke-width:2.4; stroke-linecap:round;
+  filter:drop-shadow(0 0 3px rgba(111,182,255,.5))}
 
 /* mode grid */
-.modes{display:grid; grid-template-columns:repeat(4,1fr); gap:8px}
+.modes{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}
 @media(max-width:640px){.modes{grid-template-columns:repeat(3,1fr)}}
 .mode{
-  display:flex; flex-direction:column; align-items:center; gap:7px;
-  padding:11px 6px 10px; cursor:pointer;
+  display:flex; flex-direction:column; align-items:center; gap:8px;
+  padding:13px 6px 12px; cursor:pointer;
   background:linear-gradient(180deg,var(--raise),var(--panel));
   border:1px solid var(--line); border-radius:var(--radius-s);
   color:var(--ink-2); font-size:10.5px; letter-spacing:.05em; text-align:center;

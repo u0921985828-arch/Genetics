@@ -22,7 +22,8 @@ const arcPath = (cx, cy, r, a, b) => {
 const DEFS = `
   <defs>
     <linearGradient id="arcGrad" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0" stop-color="#2f5fd6"/><stop offset="1" stop-color="#62b0ff"/>
+      <stop offset="0" stop-color="#2f5fd6"/><stop offset="0.6" stop-color="#5e95ff"/>
+      <stop offset="1" stop-color="#57d6ff"/>
     </linearGradient>
     <radialGradient id="capGrad" cx="42%" cy="34%" r="72%">
       <stop offset="0" stop-color="#33383f"/><stop offset="62%" stop-color="#22262c"/>
@@ -48,6 +49,7 @@ function knobSVG() {
     <path class="arc-bg" d="${arcPath(50, 50, 33, A0, A1)}"/>
     <path class="arc" d="${arcPath(50, 50, 33, A0, A0)}"/>
     <circle class="cap-face" cx="50" cy="50" r="25"/>
+    <circle class="cap-ring" cx="50" cy="50" r="21"/>
     <circle class="cap-hi" cx="50" cy="50" r="25"/>
     <line class="ptr" x1="50" y1="50" x2="50" y2="30"/>
   </svg>`;

@@ -11,6 +11,19 @@ const MACROS = [
   ["time", "Time"], ["depth", "Depth"], ["mix", "Mix"],
   ["texture", "Texture"], ["space", "Space"], ["width", "Width"],
 ];
+const MACRO_TIPS = {
+  time: "Musical rate / warp amount (mode-dependent)",
+  depth: "Effect intensity", mix: "Dry / wet balance",
+  texture: "Saturation · vinyl grit · tone tilt",
+  space: "Ambience tail", width: "Stereo width",
+};
+const MODE_TIPS = {
+  half: "Half-time", double: "Double-time", reverse: "Reverse playback",
+  "tape stop": "Tape-style spin-down", stutter: "Sliced repeat",
+  "beat repeat": "Beat-locked repeat with variation", vinyl: "Wow/flutter + surface noise",
+  glitch: "Stochastic slice/pitch/reverse", "time warp": "Curve-driven time warp",
+  freeze: "Frozen spectral bloom", granular: "Grain cloud",
+};
 
 // Geometry of the knob (viewBox 0 0 100 100).
 const A0 = -135, A1 = 135;                 // sweep, degrees
@@ -54,11 +67,14 @@ function knobSVG() {
 
 // ---- macro knobs ----------------------------------------------------------
 const knobRoot = document.getElementById("knobs");
+const macroStates = {};
 for (const [id, label] of MACROS) {
   const state = Juce.getSliderState(id);
+  macroStates[id] = state;
 
   const el = document.createElement("div");
   el.className = "knob";
+  el.title = MACRO_TIPS[id] || label;
   el.innerHTML =
     `<div class="cap">${label}</div>` +
     `<div class="dial">${knobSVG()}</div>` +
@@ -143,6 +159,7 @@ function buildModes() {
   choices.forEach((name, i) => {
     const b = document.createElement("div");
     b.className = "mode" + (i === modeState.getChoiceIndex() ? " on" : "");
+    b.title = MODE_TIPS[name.toLowerCase()] || name;
     b.innerHTML = iconFor(name) + `<span>${name}</span>`;
     b.onclick = () => { modeState.setChoiceIndex(i); };
     modeRoot.appendChild(b);
@@ -156,6 +173,19 @@ modeState.valueChangedEvent.addListener(() => {
 });
 modeState.propertiesChangedEvent.addListener(buildModes);
 buildModes();
+
+// ---- randomize (dice) -----------------------------------------------------
+// A musical randomiser: spread the character macros widely but keep Mix
+// listenable, and pick a fresh mode. Frontend-only (drives the relays).
+const rndBtn = document.getElementById("rnd");
+if (rndBtn) rndBtn.onclick = () => {
+  const rand = (lo, hi) => lo + Math.random() * (hi - lo);
+  const set = (id, v) => macroStates[id] && macroStates[id].setNormalisedValue(Math.min(1, Math.max(0, v)));
+  set("time", rand(0, 1)); set("depth", rand(0.4, 1)); set("mix", rand(0.5, 1));
+  set("texture", rand(0, 0.7)); set("space", rand(0, 0.6)); set("width", rand(0.3, 1));
+  const n = (modeState.properties.choices || []).length || 1;
+  modeState.setChoiceIndex(Math.floor(Math.random() * n));
+};
 
 // ---- bypass ---------------------------------------------------------------
 const bypassState = Juce.getToggleState("bypass");

@@ -163,6 +163,86 @@ int main()
     editing.store (false);
     editor.join();
 
+    // ------------------------------------------------------------------
+    //  Targeted audio-quality checks (UA lens): dry-path transparency when
+    //  bypassed, full state round-trip, and silence-in → silence-out
+    //  stability (no self-oscillation / denormal latch).
+    // ------------------------------------------------------------------
+    auto setParam = [&] (const char* id, float v)
+    {
+        if (auto* p = proc.apvts.getParameter (id)) p->setValueNotifyingHost (v);
+    };
+
+    // 1) Bypass transparency: bypassed output must equal the dry input once the
+    //    engage crossfade has settled (the dry path is zero-latency).
+    {
+        proc.setRateAndBufferSizeDetails (48000.0, 512);
+        proc.prepareToPlay (48000.0, 512);
+        setParam (chrona::params::id::bypass, 1.0f);
+        setParam (chrona::params::id::mix, 1.0f);
+        setParam (chrona::params::id::space, 0.0f);
+        setParam (chrona::params::id::texture, 0.0f);
+
+        juce::MidiBuffer midi;
+        float maxDiff = 0.0f;
+        for (int blk = 0; blk < 24; ++blk)
+        {
+            juce::AudioBuffer<float> buf (2, 512), in (2, 512);
+            for (int c = 0; c < 2; ++c)
+                for (int n = 0; n < 512; ++n)
+                {
+                    const float s = 0.5f * std::sin (2.0f * 3.14159265f * 220.0f * (float) (blk * 512 + n) / 48000.0f);
+                    buf.setSample (c, n, s); in.setSample (c, n, s);
+                }
+            proc.processBlock (buf, midi);
+            if (blk >= 20) // after the ~6 ms engage smoother has settled
+                for (int c = 0; c < 2; ++c)
+                    for (int n = 0; n < 512; ++n)
+                        maxDiff = juce::jmax (maxDiff, std::abs (buf.getSample (c, n) - in.getSample (c, n)));
+        }
+        if (maxDiff > 1.0e-3f) { std::printf ("FAIL [bypass]: dry path not transparent, maxDiff=%g\n", (double) maxDiff); ++failures; }
+        setParam (chrona::params::id::bypass, 0.0f);
+    }
+
+    // 2) State round-trip: perturb → capture → zero → restore → re-capture must
+    //    be byte-identical (compares the serialised state, so bool/choice
+    //    quantisation is handled by the format itself).
+    {
+        Rng r2;
+        const auto& params = proc.getParameters();
+        for (int i = 0; i < params.size(); ++i) params[i]->setValueNotifyingHost (r2.uni());
+        juce::MemoryBlock mb1; proc.getStateInformation (mb1);
+        for (int i = 0; i < params.size(); ++i) params[i]->setValueNotifyingHost (0.0f);
+        proc.setStateInformation (mb1.getData(), (int) mb1.getSize());
+        juce::MemoryBlock mb2; proc.getStateInformation (mb2);
+        if (mb1 != mb2) { std::printf ("FAIL [state]: round-trip not byte-identical (%d vs %d bytes)\n",
+                                       (int) mb1.getSize(), (int) mb2.getSize()); ++failures; }
+    }
+
+    // 3) Silence in → silence out, with worst-case tail settings, across modes.
+    {
+        proc.prepareToPlay (48000.0, 256);
+        setParam (chrona::params::id::mix, 1.0f);
+        setParam (chrona::params::id::space, 1.0f);
+        setParam (chrona::params::id::texture, 0.0f);
+        juce::MidiBuffer midi;
+        for (int mode = 0; mode < (int) chrona::params::Mode::NumModes; ++mode)
+        {
+            if (auto* mp = proc.apvts.getParameter (chrona::params::id::mode))
+                mp->setValueNotifyingHost (mp->convertTo0to1 ((float) mode));
+            float tail = 0.0f;
+            for (int blk = 0; blk < 40; ++blk)
+            {
+                juce::AudioBuffer<float> buf (2, 256); buf.clear();
+                proc.processBlock (buf, midi);
+                if (blk >= 36)
+                    for (int c = 0; c < 2; ++c)
+                        for (int n = 0; n < 256; ++n) tail = juce::jmax (tail, std::abs (buf.getSample (c, n)));
+            }
+            if (tail > 1.0e-3f) { std::printf ("FAIL [silence]: mode %d rings on silence, tail=%g\n", mode, (double) tail); ++failures; }
+        }
+    }
+
     if (failures == 0) { std::printf ("ALL TESTS PASSED\n"); return 0; }
     std::printf ("%d FAILURES\n", failures);
     return 1;

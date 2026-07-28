@@ -201,6 +201,12 @@ html,body{
   margin-bottom:16px; display:flex; align-items:center; gap:12px;
 }
 .panel-head::after{content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--line),transparent)}
+.dice{
+  order:3; appearance:none; cursor:pointer; font-size:14px; line-height:1;
+  width:26px; height:22px; border-radius:6px; color:var(--ink-2);
+  background:var(--raise); border:1px solid var(--line); transition:color .12s, border-color .12s, background .15s;
+}
+.dice:hover{color:#fff; border-color:transparent; background:linear-gradient(180deg, rgba(91,140,255,.4), rgba(155,107,255,.28))}
 
 /* macro knobs — flat, minimal */
 .knobs{display:grid; grid-template-columns:repeat(6,1fr); gap:12px}

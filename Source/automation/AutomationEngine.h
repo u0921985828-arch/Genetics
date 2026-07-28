@@ -52,6 +52,9 @@ namespace chrona::automation
         }
 
         void setBufferBars (int bars) { bufferBars = juce::jlimit (1, 2, bars); }
+        // Length of one Time-Warp curve cycle in bars (decoupled from the buffer
+        // window) — this is what TimeShaper calls the envelope RATE.
+        void setWarpBars (double bars) { warpBars = juce::jlimit (0.125, 8.0, bars); }
 
         // --- phase clock -----------------------------------------------------
         void updateTransport (const TransportInfo& t)
@@ -61,21 +64,24 @@ namespace chrona::automation
 
             beatsPerBar   = (double) t.numerator * (4.0 / (double) t.denominator);
             patternBeats  = beatsPerBar * (double) bufferBars;
+            warpBeats     = beatsPerBar * warpBars;                 // Time-Warp cycle
             samplesPerBeat = (60.0 / juce::jmax (1.0, t.bpm)) * sampleRate;
         }
 
-        // Phase at the START of the current block. Per-sample advance uses
-        // advancePhase() so blocks stay sample-accurate.
+        // Phase at the START of the current block, over one WARP cycle. Per-sample
+        // advance uses phaseIncrementPerSample() so blocks stay sample-accurate.
         double blockStartPhase() const
         {
-            if (transport.isPlaying && patternBeats > 0.0)
-                return std::fmod (transport.ppqPosition / patternBeats, 1.0);
+            const double wb = warpBeats > 0.0 ? warpBeats : patternBeats;
+            if (transport.isPlaying && wb > 0.0)
+                return std::fmod (transport.ppqPosition / wb, 1.0);
             return freePhase;
         }
 
         double phaseIncrementPerSample() const
         {
-            const double samplesPerPattern = patternBeats * samplesPerBeat;
+            const double wb = warpBeats > 0.0 ? warpBeats : patternBeats;
+            const double samplesPerPattern = wb * samplesPerBeat;
             return samplesPerPattern > 0.0 ? 1.0 / samplesPerPattern : 0.0;
         }
 
@@ -136,6 +142,8 @@ namespace chrona::automation
         double beatsPerBar   = 4.0;
         double patternBeats  = 8.0;   // 2 bars in 4/4
         double freePhase     = 0.0;
+        double warpBars      = 2.0;
+        double warpBeats     = 8.0;   // 2 bars in 4/4
         int    bufferBars    = 2;
 
         TransportInfo transport;

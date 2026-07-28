@@ -31,6 +31,7 @@ namespace chrona::params
         // Level 2 — engine
         inline constexpr auto sync        = "sync";          // grid division (choice)
         inline constexpr auto bufferBars  = "bufferBars";    // 1 or 2 bars (choice)
+        inline constexpr auto warpRate    = "warpRate";      // Time-Warp curve rate (choice)
         inline constexpr auto snap        = "snap";          // curve snap on/off
         inline constexpr auto quality     = "quality";       // interpolation quality (choice)
         inline constexpr auto antiClick   = "antiClick";     // fade length ms
@@ -98,6 +99,17 @@ namespace chrona::params
 
     enum class TriggerMode { Hold = 0, Latch, Momentary };
     enum class Quality     { Linear = 0, Hermite, Sinc /* highest */ };
+
+    inline juce::StringArray warpRates()
+    {
+        return { "1/4", "1/2", "1 Bar", "2 Bars", "4 Bars" };
+    }
+    // Length of one Time-Warp curve cycle, in BARS (independent of the buffer).
+    inline double warpRateBars (int index)
+    {
+        switch (index) { case 0: return 0.25; case 1: return 0.5; case 2: return 1.0;
+                         case 4: return 4.0;  default: return 2.0; }
+    }
 
     // -- Layout --------------------------------------------------------------
     juce::AudioProcessorValueTreeState::ParameterLayout createLayout();

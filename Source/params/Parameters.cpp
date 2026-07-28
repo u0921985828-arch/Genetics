@@ -60,6 +60,8 @@ namespace chrona::params
                                              syncDivisions(), 2));
         layout.add (std::make_unique<APC>   (juce::ParameterID { id::bufferBars, 1 }, "Buffer",
                                              juce::StringArray { "1 Bar", "2 Bars" }, 1));
+        layout.add (std::make_unique<APC>   (juce::ParameterID { id::warpRate, 1 }, "Warp Rate",
+                                             warpRates(), 3));
         layout.add (std::make_unique<APB>   (juce::ParameterID { id::snap, 1 }, "Snap", true));
         layout.add (std::make_unique<APC>   (juce::ParameterID { id::quality, 1 }, "Quality",
                                              juce::StringArray { "Linear", "Hermite", "Sinc (HQ)" }, 1));

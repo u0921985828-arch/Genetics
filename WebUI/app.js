@@ -198,25 +198,30 @@ window.__JUCE__.backend.addEventListener("ab", (e) => {
 if (Juce.getNativeFunction) native("uiReady")();
 
 // ---- Time-curve editor (Time Warp mode) -----------------------------------
-// An editable breakpoint curve laid over the buffer: click to add, drag to
-// move, double-click to delete. Bound to the plug-in's Time automation curve.
+// An editable breakpoint curve laid over the buffer: click to add, drag a node
+// to move, drag a segment handle to bend it, double-click to delete. Bound to
+// the plug-in's Time automation curve; the RATE selector sets its cycle length.
 const scopeWrap = document.querySelector(".scope-wrap");
 const curveEl = document.createElement("div");
 curveEl.className = "curve";
 curveEl.innerHTML =
-  `<div class="curve-head">TIME CURVE<span>click add · drag move · dbl-click delete</span></div>
+  `<div class="curve-head"><span class="ch-title">TIME CURVE</span>
+     <div class="ch-tools"><span class="ch-rate" id="warpRate"></span>
+       <span class="ch-hint">click add · drag move · bend handle · dbl-click delete</span></div>
+   </div>
    <svg class="curve-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
      <defs><linearGradient id="cvGrad" x1="0" y1="0" x2="1" y2="0">
        <stop offset="0" stop-color="#4fd6ff"/><stop offset="0.5" stop-color="#5b8cff"/>
        <stop offset="1" stop-color="#9b6bff"/></linearGradient></defs>
      <g class="cv-grid"></g>
-     <path class="cv-fill"/><path class="cv-line"/><g class="cv-nodes"></g>
+     <path class="cv-fill"/><path class="cv-line"/><g class="cv-handles"></g><g class="cv-nodes"></g>
    </svg>`;
 scopeWrap.appendChild(curveEl);
 const cvSvg   = curveEl.querySelector(".curve-svg");
 const cvFill  = curveEl.querySelector(".cv-fill");
 const cvLine  = curveEl.querySelector(".cv-line");
 const cvNodes = curveEl.querySelector(".cv-nodes");
+const cvHandles = curveEl.querySelector(".cv-handles");
 const cvGrid  = curveEl.querySelector(".cv-grid");
 {
   let g = "";
@@ -229,6 +234,9 @@ let curve = [{ x: 0, y: 0, c: 0 }, { x: 1, y: 0, c: 0 }];
 const setCurveNative = native("setCurve");
 const NS = "http://www.w3.org/2000/svg";
 const SX = (x) => x * 1000, SY = (y) => (1 - y) * 1000;
+// mirror of Curve::applyCurve — exponential ease shaped by the segment's c.
+const applyCurve = (t, c) => (Math.abs(c) < 1e-4) ? t
+  : (Math.exp(c * 4 * t) - 1) / (Math.exp(c * 4) - 1);
 
 let curvePushT = 0;
 function pushCurve() {
@@ -237,10 +245,26 @@ function pushCurve() {
 }
 function redrawCurve() {
   curve.sort((a, b) => a.x - b.x);
-  let d = `M ${SX(curve[0].x)} ${SY(curve[0].y)}`;
-  for (let i = 1; i < curve.length; i++) d += ` L ${SX(curve[i].x)} ${SY(curve[i].y)}`;
+  // sampled path so segment curvature shows
+  let d = `M ${SX(curve[0].x).toFixed(1)} ${SY(curve[0].y).toFixed(1)}`;
+  for (let i = 0; i < curve.length - 1; i++) {
+    const a = curve[i], b = curve[i + 1];
+    for (let s = 1; s <= 12; s++) {
+      const u = s / 12, t = applyCurve(u, a.c || 0);
+      d += ` L ${SX(a.x + (b.x - a.x) * u).toFixed(1)} ${SY(a.y + (b.y - a.y) * t).toFixed(1)}`;
+    }
+  }
   cvLine.setAttribute("d", d);
   cvFill.setAttribute("d", d + ` L 1000 1000 L 0 1000 Z`);
+  // segment bend handles (midpoint of each segment)
+  cvHandles.innerHTML = "";
+  for (let i = 0; i < curve.length - 1; i++) {
+    const a = curve[i], b = curve[i + 1];
+    const hx = a.x + (b.x - a.x) * 0.5, hy = a.y + (b.y - a.y) * applyCurve(0.5, a.c || 0);
+    const h = document.createElementNS(NS, "circle");
+    h.setAttribute("cx", SX(hx)); h.setAttribute("cy", SY(hy)); h.setAttribute("r", 7);
+    h.dataset.seg = i; h.classList.add("cv-h"); cvHandles.appendChild(h);
+  }
   cvNodes.innerHTML = "";
   curve.forEach((p, i) => {
     const c = document.createElementNS(NS, "circle");
@@ -257,11 +281,12 @@ const toNorm = (e) => {
 };
 const snapX = (x, e) => e && e.altKey ? x : Math.round(x * 16) / 16;
 
-let dragIdx = -1;
+let dragIdx = -1, dragSeg = -1;
 cvSvg.addEventListener("pointerdown", (e) => {
   e.preventDefault();
   const t = e.target;
-  if (t.tagName === "circle") { dragIdx = +t.dataset.i; }
+  if (t.classList.contains("cv-h")) { dragSeg = +t.dataset.seg; }
+  else if (t.tagName === "circle") { dragIdx = +t.dataset.i; }
   else {
     const p = toNorm(e);
     curve.push({ x: snapX(p.x, e), y: p.y, c: 0 });
@@ -272,21 +297,45 @@ cvSvg.addEventListener("pointerdown", (e) => {
   cvSvg.setPointerCapture(e.pointerId);
 });
 cvSvg.addEventListener("pointermove", (e) => {
+  if (dragSeg >= 0) {                                   // bend a segment
+    const a = curve[dragSeg], b = curve[dragSeg + 1], p = toNorm(e);
+    const midY = (a.y + b.y) * 0.5, dir = (b.y >= a.y) ? 1 : -1;
+    a.c = Math.max(-1, Math.min(1, (p.y - midY) * 4 * dir));
+    redrawCurve(); pushCurve(); return;
+  }
   if (dragIdx < 0) return;
   const p = toNorm(e), endpoint = (dragIdx === 0 || dragIdx === curve.length - 1);
   curve[dragIdx].y = p.y;
   if (!endpoint) curve[dragIdx].x = snapX(p.x, e);
   redrawCurve(); pushCurve();
 });
-const endDrag = () => { dragIdx = -1; };
+const endDrag = () => { dragIdx = -1; dragSeg = -1; };
 cvSvg.addEventListener("pointerup", endDrag);
 cvSvg.addEventListener("pointercancel", endDrag);
 cvSvg.addEventListener("dblclick", (e) => {
-  if (e.target.tagName !== "circle") return;
+  if (e.target.tagName !== "circle" || e.target.classList.contains("cv-h")) return;
   const i = +e.target.dataset.i;
   if (i === 0 || i === curve.length - 1) return;   // keep endpoints
   curve.splice(i, 1); redrawCurve(); pushCurve();
 });
+
+// RATE selector (bound to the warpRate parameter)
+const warpState = Juce.getComboBoxState("warpRate");
+const rateRoot = document.getElementById("warpRate");
+function buildRate() {
+  rateRoot.innerHTML = "";
+  (warpState.properties.choices || []).forEach((name, i) => {
+    const b = document.createElement("span");
+    b.className = "rate" + (i === warpState.getChoiceIndex() ? " on" : "");
+    b.textContent = name;
+    b.onclick = () => warpState.setChoiceIndex(i);
+    rateRoot.appendChild(b);
+  });
+}
+warpState.valueChangedEvent.addListener(() =>
+  rateRoot.querySelectorAll(".rate").forEach((el, i) => el.classList.toggle("on", i === warpState.getChoiceIndex())));
+warpState.propertiesChangedEvent.addListener(buildRate);
+buildRate();
 
 function showCurve(on) { curveEl.classList.toggle("show", on); scopeWrap.classList.toggle("editing", on); }
 function syncCurveVisibility() { showCurve(modeState.getChoiceIndex() === 8); }

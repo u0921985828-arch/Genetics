@@ -25,7 +25,7 @@ namespace chrona
         pMix = get (params::id::mix);            pTexture = get (params::id::texture);
         pSpace = get (params::id::space);        pWidth = get (params::id::width);
         pMode = get (params::id::mode);          pSync = get (params::id::sync);
-        pBuffer = get (params::id::bufferBars);
+        pBuffer = get (params::id::bufferBars); pWarpRate = get (params::id::warpRate);
         pQuality = get (params::id::quality);    pAntiClick = get (params::id::antiClick);
         pSwing = get (params::id::swing);        pHumanize = get (params::id::humanize);
         pSmartFade = get (params::id::smartFade);pTrigMode = get (params::id::triggerMode);
@@ -87,6 +87,7 @@ namespace chrona
         engine.setMode ((params::Mode) (int) pMode->load());
 
         automation.setBufferBars (l.bufferBars);
+        automation.setWarpBars (params::warpRateBars ((int) pWarpRate->load()));
 
         trigger.setTriggerNote ((int) pTrigNote->load());
         trigger.setMode ((params::TriggerMode) (int) pTrigMode->load());

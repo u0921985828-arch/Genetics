@@ -30,7 +30,7 @@ namespace chrona
                 .withResourceProvider ([this] (const auto& url) { return provide (url); })
                 .withOptionsFrom (timeR).withOptionsFrom (depthR).withOptionsFrom (mixR)
                 .withOptionsFrom (textureR).withOptionsFrom (spaceR).withOptionsFrom (widthR)
-                .withOptionsFrom (modeR).withOptionsFrom (bypassR)
+                .withOptionsFrom (modeR).withOptionsFrom (bypassR).withOptionsFrom (warpRateR)
                 .withNativeFunction (juce::Identifier ("uiReady"),
                     [this] (const juce::Array<juce::var>&, auto complete) { pushPreset(); pushAB(); complete (juce::var()); })
                 .withNativeFunction (juce::Identifier ("presetNext"),
@@ -57,6 +57,7 @@ namespace chrona
             spaceA   = std::make_unique<juce::WebSliderParameterAttachment>     (*param (params::id::space),   spaceR);
             widthA   = std::make_unique<juce::WebSliderParameterAttachment>     (*param (params::id::width),   widthR);
             modeA    = std::make_unique<juce::WebComboBoxParameterAttachment>   (*param (params::id::mode),    modeR);
+            warpA    = std::make_unique<juce::WebComboBoxParameterAttachment>   (*param (params::id::warpRate),warpRateR);
             bypassA  = std::make_unique<juce::WebToggleButtonParameterAttachment>(*param (params::id::bypass), bypassR);
 
             // A/B slots start as two copies of the current state.
@@ -207,11 +208,11 @@ namespace chrona
         ChronaProcessor& proc;
         juce::WebSliderRelay      timeR { "time" }, depthR { "depth" }, mixR { "mix" },
                                   textureR { "texture" }, spaceR { "space" }, widthR { "width" };
-        juce::WebComboBoxRelay    modeR { "mode" };
+        juce::WebComboBoxRelay    modeR { "mode" }, warpRateR { "warpRate" };
         juce::WebToggleButtonRelay bypassR { "bypass" };
         std::unique_ptr<juce::WebBrowserComponent> web;
         std::unique_ptr<juce::WebSliderParameterAttachment>      timeA, depthA, mixA, textureA, spaceA, widthA;
-        std::unique_ptr<juce::WebComboBoxParameterAttachment>    modeA;
+        std::unique_ptr<juce::WebComboBoxParameterAttachment>    modeA, warpA;
         std::unique_ptr<juce::WebToggleButtonParameterAttachment> bypassA;
 
         int presetIndex = 0;

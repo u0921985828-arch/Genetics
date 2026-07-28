@@ -62,7 +62,10 @@ namespace chrona::params
                                              juce::StringArray { "1 Bar", "2 Bars" }, 1));
         layout.add (std::make_unique<APC>   (juce::ParameterID { id::warpRate, 1 }, "Warp Rate",
                                              warpRates(), 3));
-        layout.add (std::make_unique<APB>   (juce::ParameterID { id::snap, 1 }, "Snap", true));
+        // Snap is an editor-only preference (curve X snapping); it changes no
+        // audio, so keep it out of host automation lanes.
+        layout.add (std::make_unique<APB>   (juce::ParameterID { id::snap, 1 }, "Snap", true,
+                                             juce::AudioParameterBoolAttributes().withAutomatable (false)));
         layout.add (std::make_unique<APC>   (juce::ParameterID { id::quality, 1 }, "Quality",
                                              juce::StringArray { "Linear", "Hermite", "Sinc (HQ)" }, 1));
         layout.add (std::make_unique<APF>   (juce::ParameterID { id::antiClick, 1 }, "Anti-Click",

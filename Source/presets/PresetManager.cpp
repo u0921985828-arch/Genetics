@@ -137,5 +137,34 @@ namespace chrona::presets
                 setParam (p, pid::texture, 0.55f);
             }, tc, flatVol());
         }
+        {
+            // Half-speed glide over a whole bar (shows off the Warp RATE control).
+            Curve tc; tc.setPoints ({ { 0.0f, 0.0f, 0.4f }, { 1.0f, 0.7f, 0.0f } });
+            add ("Warp: Bar Glide", params::Mode::Custom, [] (juce::ValueTree& p)
+            {
+                setParam (p, pid::warpRate, 2.0f);  // 1 Bar cycle
+                setParam (p, pid::space, 0.25f);
+            }, tc, flatVol());
+        }
+
+        // --- new-engine showcases (Freeze / Granular) ----------------------
+        add ("Frozen Bloom", params::Mode::Freeze, [] (juce::ValueTree& p)
+        {
+            setParam (p, pid::depth, 0.85f); setParam (p, pid::space, 0.45f);
+            setParam (p, pid::width, 0.75f); setParam (p, pid::mix, 1.0f);
+        }, flatTime(), flatVol());
+
+        add ("Grain Cloud", params::Mode::Granular, [] (juce::ValueTree& p)
+        {
+            setParam (p, pid::time, 0.5f);  setParam (p, pid::depth, 0.85f);
+            setParam (p, pid::space, 0.35f); setParam (p, pid::width, 0.8f);
+        }, flatTime(), flatVol());
+
+        add ("Granular Freeze Pad", params::Mode::Granular, [] (juce::ValueTree& p)
+        {
+            setParam (p, pid::time, 0.75f); setParam (p, pid::depth, 0.6f);
+            setParam (p, pid::space, 0.6f);  setParam (p, pid::texture, 0.2f);
+            setParam (p, pid::width, 0.9f);
+        }, flatTime(), flatVol());
     }
 }

@@ -191,7 +191,8 @@ namespace chrona::dsp
         const bool repitchUp = (requestedMode == params::Mode::Double
                              || requestedMode == params::Mode::Glitch
                              || requestedMode == params::Mode::Granular
-                             || requestedMode == params::Mode::Custom);
+                             || requestedMode == params::Mode::Custom
+                             || requestedMode == params::Mode::BeatRepeat); // per-repeat 2× read
         const params::Quality effQuality = repitchUp
             ? (params::Quality) juce::jmax ((int) level2.quality, (int) params::Quality::Sinc)
             : level2.quality;
@@ -225,6 +226,13 @@ namespace chrona::dsp
         const double basePhase = automation->blockStartPhase();
         const double phaseInc  = automation->phaseIncrementPerSample();
         double lastCustomPhase = basePhase;
+
+        // Custom mode's read pointer is derived from `phase`; a host locate
+        // (forceResync) or a play/stop transition jumps `basePhase` and thus the
+        // read position — arm the declick at the block start so it doesn't click.
+        // (Non-custom modes are covered by the loop-anchor resync path.)
+        if (isCustom && (forceResync || (t.isPlaying != havePrevPpq)))
+            for (int c = 0; c < nch; ++c) declick[(size_t) c].arm (lastWet[(size_t) c]);
 
         float blkInPeak = 0.0f, blkOutPeak = 0.0f;   // I/O meters
 
@@ -404,15 +412,21 @@ namespace chrona::dsp
             if (isCustom && ! t.isPlaying) automation->advanceFreePhase();
         }
 
-        visPhase.store (isCustom ? automation->blockStartPhase()
+        // Report the block-END phase in both transport states so the playhead
+        // doesn't lag by a block while playing vs. free-running.
+        visPhase.store (isCustom ? std::fmod (basePhase + (double) numSamples * phaseInc, 1.0)
                                  : (loopPos / juce::jmax (1.0, currentLoopLen)),
                         std::memory_order_relaxed);
         visDelay.store (windowSamples > 0.0 ? (buffer.getTotalWritten() - 1 - anchorAbs) / windowSamples : 0.0,
                         std::memory_order_relaxed);
 
-        // I/O meter envelopes: instant attack, smooth release across segments/blocks
-        visIn.store  (juce::jmax (blkInPeak,  visIn.load  (std::memory_order_relaxed) * 0.82f), std::memory_order_relaxed);
-        visOut.store (juce::jmax (blkOutPeak, visOut.load (std::memory_order_relaxed) * 0.82f), std::memory_order_relaxed);
+        // I/O meter envelopes: instant attack, time-based release (~150 ms) that
+        // is independent of block size and MIDI-split count — the per-segment
+        // decays compose to exactly the per-block decay because segment lengths
+        // sum to the block.
+        const float meterRel = std::exp (-(float) numSamples / (0.15f * (float) juce::jmax (1.0, sampleRate)));
+        visIn.store  (juce::jmax (blkInPeak,  visIn.load  (std::memory_order_relaxed) * meterRel), std::memory_order_relaxed);
+        visOut.store (juce::jmax (blkOutPeak, visOut.load (std::memory_order_relaxed) * meterRel), std::memory_order_relaxed);
 
         // remember where the playhead was so we can spot a locate next block
         lastPpqSamples = ppqSamples;

@@ -305,8 +305,10 @@ const applyCurve = (t, c) => (Math.abs(c) < 1e-4) ? t
 let curvePushT = 0;
 function pushCurve() {
   clearTimeout(curvePushT);
-  const which = lane;
-  curvePushT = setTimeout(() => setCurveNative(which, curve.map(p => ({ x: p.x, y: p.y, c: p.c || 0 }))), 20);
+  // snapshot BOTH the lane and the points now — `curve` is reassigned on lane
+  // switch, so reading it lazily at timer-fire could publish the wrong lane.
+  const which = lane, pts = curve.map(p => ({ x: p.x, y: p.y, c: p.c || 0 }));
+  curvePushT = setTimeout(() => setCurveNative(which, pts), 20);
 }
 function redrawCurve() {
   curve.sort((a, b) => a.x - b.x);
@@ -354,9 +356,10 @@ cvSvg.addEventListener("pointerdown", (e) => {
   else if (t.tagName === "circle") { dragIdx = +t.dataset.i; }
   else {
     const p = toNorm(e);
-    curve.push({ x: snapX(p.x, e), y: p.y, c: 0 });
-    curve.sort((a, b) => a.x - b.x);
-    dragIdx = curve.findIndex(q => q.x === snapX(p.x, e) && q.y === p.y);
+    const node = { x: snapX(p.x, e), y: p.y, c: 0 };  // select by identity so a
+    curve.push(node);                                  // coord collision with an
+    curve.sort((a, b) => a.x - b.x);                   // endpoint can't grab it
+    dragIdx = curve.indexOf(node);
     redrawCurve(); pushCurve();
   }
   cvSvg.setPointerCapture(e.pointerId);
@@ -416,13 +419,19 @@ function syncCurveVisibility() { showCurve(modeState.getChoiceIndex() === 8); }
 modeState.valueChangedEvent.addListener(syncCurveVisibility);
 
 const loadLane = (arr) => arr.map(p => ({ x: +p.x, y: +p.y, c: +p.c || 0 }));
-if (Juce.getNativeFunction) {
+const reloadCurves = () => {
+  if (!Juce.getNativeFunction) { redrawCurve(); return; }
   native("getCurves")().then((c) => {
     if (c && Array.isArray(c.time) && c.time.length >= 2) curves.time = loadLane(c.time);
     if (c && Array.isArray(c.vol)  && c.vol.length  >= 2) curves.vol  = loadLane(c.vol);
     curve = curves[lane]; redrawCurve();
   }).catch(() => redrawCurve());
-} else redrawCurve();
+};
+// A preset load or A/B swap republishes the backend curves — pull them back in
+// so the editor never displays (and then re-publishes) stale geometry.
+window.__JUCE__.backend.addEventListener("preset", reloadCurves);
+window.__JUCE__.backend.addEventListener("ab", reloadCurves);
+reloadCurves();
 syncCurveVisibility();
 
 // ---- I/O meters -----------------------------------------------------------

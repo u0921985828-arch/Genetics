@@ -3,6 +3,8 @@
 /Builds/
 JuceLibraryCode/
 cmake-build-*/
+build.*.log
+/dist/
 *.o
 *.obj
 *.a

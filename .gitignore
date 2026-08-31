@@ -1,0 +1,27 @@
+# Build output
+/build*/
+/Builds/
+JuceLibraryCode/
+cmake-build-*/
+build.*.log
+/dist/
+*.o
+*.obj
+*.a
+*.lib
+
+# Fetched dependencies (JUCE is pulled by CMake FetchContent)
+/_deps/
+
+# Plugin artifacts
+*.vst3
+*.component
+*.app
+*.exe
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.user
+Thumbs.db

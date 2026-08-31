@@ -1,0 +1,37 @@
+END-USER LICENSE AGREEMENT (EULA) — TEMPLATE / PLACEHOLDER
+=========================================================
+
+⚠️  TEMPLATE ONLY. This is a starting point for a PROPRIETARY (closed-source)
+    distribution and is valid ONLY if you hold a paid JUCE commercial license.
+    Have it reviewed by a lawyer before you ship. If you distribute under GPLv3
+    instead, delete this file and ship the GPLv3 LICENSE.
+
+CHRONA — © 2026 ARTiFACTS. All rights reserved.
+
+1. LICENSE. Subject to this Agreement, ARTiFACTS grants you a non-exclusive,
+   non-transferable license to install and use CHRONA (the "Software") on
+   computers you own or control, for music production.
+
+2. RESTRICTIONS. You may not resell, redistribute, rent, sublicense, reverse
+   engineer, decompile, or disassemble the Software, or remove any proprietary
+   notices, except to the extent this restriction is prohibited by applicable
+   law.
+
+3. OWNERSHIP. The Software is licensed, not sold. ARTiFACTS retains all right,
+   title and interest in and to the Software.
+
+4. THIRD-PARTY SOFTWARE. The Software includes JUCE (© Raw Material Software /
+   see THIRDPARTY.md), used under a commercial JUCE license held by ARTiFACTS.
+
+5. NO WARRANTY. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+
+6. LIMITATION OF LIABILITY. IN NO EVENT SHALL ARTiFACTS BE LIABLE FOR ANY
+   INDIRECT, INCIDENTAL, SPECIAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE
+   USE OF OR INABILITY TO USE THE SOFTWARE.
+
+7. TERMINATION. This license terminates automatically if you breach it; upon
+   termination you must delete all copies of the Software.
+
+[ ] Fill in: governing law / jurisdiction, refund policy, activation terms.

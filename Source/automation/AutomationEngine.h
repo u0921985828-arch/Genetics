@@ -112,16 +112,30 @@ namespace chrona::automation
         // editor can never free/realloc a vector the audio thread is copying.
 
         // Audio thread: refresh `dest` from the master if the lock is free.
+        // `dest` is pre-reserved to >= kMaxPoints and the master is capped at
+        // kMaxPoints, so vector::assign (n <= capacity) is guaranteed by the
+        // standard never to reallocate — airtight RT-safety, not just typical
+        // operator= capacity reuse.
         bool tryCopyTimeCurve (Curve& dest) const
         {
             const juce::SpinLock::ScopedTryLockType l (timeLock);
-            if (l.isLocked()) { dest = timeMaster; return true; }
+            if (l.isLocked())
+            {
+                const auto& src = timeMaster.getPoints();
+                dest.getPointsMutable().assign (src.begin(), src.end());
+                return true;
+            }
             return false;
         }
         bool tryCopyVolumeCurve (Curve& dest) const
         {
             const juce::SpinLock::ScopedTryLockType l (volLock);
-            if (l.isLocked()) { dest = volMaster; return true; }
+            if (l.isLocked())
+            {
+                const auto& src = volMaster.getPoints();
+                dest.getPointsMutable().assign (src.begin(), src.end());
+                return true;
+            }
             return false;
         }
 

@@ -205,19 +205,35 @@ namespace chrona
 
     void ChronaProcessor::setStateInformation (const void* data, int size)
     {
-        if (auto xml = getXmlFromBinary (data, size))
-            presets.applyState (juce::ValueTree::fromXml (*xml));
+        // Parse off-thread (safe — no listeners); the ValueTree is a cheap
+        // ref-counted copy captured below.
+        auto xml = getXmlFromBinary (data, size);
+        if (xml == nullptr) return;
+        const juce::ValueTree tree = juce::ValueTree::fromXml (*xml);
+        if (! tree.isValid()) return;
 
-        // Reseed an open editor's curve view; without this it keeps drawing the
-        // pre-load curve and a subsequent edit silently overwrites the loaded one.
-        juce::MessageManager::callAsync ([this]
+        auto apply = [this, tree]
         {
+            presets.applyState (tree);
+
+            // Reseed an open editor's curve view; without this it keeps drawing
+            // the pre-load curve and a subsequent edit silently overwrites the
+            // loaded one.
            #if CHRONA_WEBVIEW
             if (auto* ed = dynamic_cast<WebEditor*> (getActiveEditor()))    ed->refreshAfterStateLoad();
            #else
             if (auto* ed = dynamic_cast<ChronaEditor*> (getActiveEditor())) ed->refreshAfterStateLoad();
            #endif
-        });
+        };
+
+        // applyState drives setValueNotifyingHost + APVTS replaceState + listener
+        // callbacks, which are only safe on the message thread. Several hosts call
+        // setStateInformation from a loader thread, so marshal when off it.
+        auto* mm = juce::MessageManager::getInstanceWithoutCreating();
+        if (mm != nullptr && mm->isThisTheMessageThread())
+            apply();
+        else
+            juce::MessageManager::callAsync (std::move (apply));
     }
 }
 

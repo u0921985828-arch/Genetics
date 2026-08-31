@@ -402,9 +402,14 @@ namespace chrona::dsp
             for (int c = 0; c < nch; ++c)
             {
                 const float dry = frameIn[c];
-                const float wet = frameWet[c] * duckGain;
+                // Tame only the processed (wet) signal so stacked stages (Granular
+                // + Space + Texture drive) never hit a hard 0 dBFS wall. The dry
+                // path stays bit-transparent, so Mix=0 / bypass null-tests pass and
+                // hot dry material isn't soft-clipped.
+                float wet = frameWet[c] * duckGain;
+                wet = std::isfinite (wet) ? safetyCeiling (wet) : 0.0f;
                 const float outv = dry * (1.0f - wetMix) + wet * wetMix;
-                const float safe = std::isfinite (outv) ? safetyCeiling (outv) : 0.0f; // ceiling + never emit NaN/Inf
+                const float safe = std::isfinite (outv) ? outv : 0.0f; // never emit NaN/Inf
                 ch[c][n] = safe;
                 blkOutPeak = juce::jmax (blkOutPeak, std::abs (safe));
             }

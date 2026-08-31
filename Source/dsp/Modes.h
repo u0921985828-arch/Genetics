@@ -138,6 +138,7 @@ namespace chrona::dsp
         enum Kind { Stutter, BeatRepeat };
         explicit SliceMode (Kind k) : kind (k) {}
         const char* name() const override { return kind == Stutter ? "Stutter" : "Beat Repeat"; }
+        void reset() override { lastRep = -1; repRate = 1.0; repRev = false; repRg = 1.0f; }
 
         void process (const ModeContext& ctx, float* out) override
         {
@@ -166,13 +167,20 @@ namespace chrona::dsp
             double rate = 1.0; bool rev = false; float rg = 1.0f;
             if (kind == BeatRepeat && ctx.depth > 0.0f)
             {
+                // Decide the per-repeat variation once per repeat (not once per
+                // sample) — same deterministic result, far less work. GlitchMode
+                // uses the same slice-index gate.
                 const int rep = (int) (ctx.localSamples / sliceLen);
-                rg = std::pow (1.0f - 0.18f * ctx.depth, (float) rep);
-                rng.seed ((uint32_t) (ctx.anchorAbs / 64 + rep * 2654435761u));
-                const float rr = rng.unipolar();
-                if      (rr < 0.15f * ctx.depth) rate = 2.0;
-                else if (rr < 0.28f * ctx.depth) rate = 0.5;
-                rev = rng.unipolar() < 0.20f * ctx.depth;
+                if (rep != lastRep)
+                {
+                    lastRep = rep;
+                    repRg = std::pow (1.0f - 0.18f * ctx.depth, (float) rep);
+                    rng.seed ((uint32_t) (ctx.anchorAbs / 64 + rep * 2654435761u));
+                    const float rr = rng.unipolar();
+                    repRate = (rr < 0.15f * ctx.depth) ? 2.0 : (rr < 0.28f * ctx.depth ? 0.5 : 1.0);
+                    repRev  = rng.unipolar() < 0.20f * ctx.depth;
+                }
+                rate = repRate; rev = repRev; rg = repRg;
             }
 
             // Origin sits far enough back that a pitched-up (rate>1) read stays
@@ -187,6 +195,10 @@ namespace chrona::dsp
     private:
         Kind kind;
         Lcg  rng;
+        int    lastRep = -1;                 // per-repeat cache (Beat Repeat)
+        double repRate = 1.0;
+        bool   repRev  = false;
+        float  repRg   = 1.0f;
     };
 
     // ===== Vinyl (wow/flutter + near-live playback) =========================
